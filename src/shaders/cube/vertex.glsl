@@ -7,13 +7,14 @@ uniform mat4 transform;
 uniform vec2 in_resolution;
 uniform float time;
 uniform float bright;
+uniform vec3 pos;
 
 out vec2 TexCoord;
 
 void main()
 {
-   vec3 pos = aPos-vec3(0.0, 0.0, 6.0);
-   vec4 vert = transform*vec4(pos, 1.0);
+   vec3 position = aPos+pos;
+   vec4 vert = transform*vec4(position, 1.0);
    gl_Position = vert;
 
 

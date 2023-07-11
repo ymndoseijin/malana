@@ -1,23 +1,23 @@
 const std = @import("std");
-
+const math = @import("math.zig");
+const gl = @import("gl.zig");
+const img = @import("img");
 const graphics = @import("graphics.zig");
+const common = @import("common.zig");
+
+const BdfParse = @import("bdf.zig").BdfParse;
 
 const Drawing = graphics.Drawing;
-
-const glfw = @import("graphics.zig").glfw;
-
-const math = @import("math.zig");
-
-const gl = @import("gl.zig");
+const glfw = graphics.glfw;
+const Mat4 = math.Mat4;
+const Vec3 = math.Vec3;
+const Vec3Utils = math.Vec3Utils;
 
 var current_keys: [glfw.GLFW_KEY_MENU + 1]bool = .{false} ** (glfw.GLFW_KEY_MENU + 1);
 var down_num: usize = 0;
 var last_mods: i32 = 0;
 
-const Mat4 = math.Mat4;
-const Vec3 = math.Vec3;
-const Vec3Utils = math.Vec3Utils;
-
+var main_win: *graphics.Window = undefined;
 var scene: graphics.Scene = undefined;
 
 const Camera = struct {
@@ -44,6 +44,11 @@ const Camera = struct {
         std.debug.print("cam: {d:.4} {d:.4}\n", .{ self.eye, self.move });
     }
 
+    pub fn setParameters(self: *Camera, fovy: f32, aspect: f32, nearZ: f32, farZ: f32) !void {
+        self.perspective_mat = math.perspectiveMatrix(fovy, aspect, nearZ, farZ);
+        try self.updateMat();
+    }
+
     pub fn init(fovy: f32, aspect: f32, nearZ: f32, farZ: f32) !Camera {
         var init_cam = Camera{
             .transform_mat = undefined,
@@ -57,6 +62,13 @@ const Camera = struct {
 };
 
 var cam: Camera = undefined;
+
+pub fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
+    _ = win;
+    const w: f32 = @floatFromInt(width);
+    const h: f32 = @floatFromInt(height);
+    try cam.setParameters(0.6, w / h, 0.1, 2048);
+}
 
 pub fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods: i32) !void {
     _ = win;
@@ -77,8 +89,8 @@ const TAU = 6.28318530718;
 pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
     _ = mods;
 
-    var look_speed: f32 = 0.01;
-    var speed: f32 = 0.01;
+    var look_speed: f32 = 1 * dt;
+    var speed: f32 = 2;
 
     const eye_x = cam.eye[0];
     const eye_y = cam.eye[1];
@@ -88,11 +100,17 @@ pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
         look_speed *= 2;
     }
 
+    std.debug.print("{d:.4} {d:.4}\n", .{ speed, look_speed });
+
     const eye = @splat(3, speed * dt) * Vec3{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) };
 
     const cross_eye = @splat(3, speed * dt) * -Vec3Utils.crossn(eye, cam.up);
 
     const up_eye = @splat(3, speed * dt) * Vec3Utils.crossn(eye, cross_eye);
+
+    if (keys[glfw.GLFW_KEY_Q]) {
+        main_win.alive = false;
+    }
 
     if (keys[glfw.GLFW_KEY_W]) {
         cam.move += eye;
@@ -136,6 +154,7 @@ pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
 
     try cam.updateMat();
 }
+
 const Line = struct {
     pub fn init(a: Vec3, b: Vec3, c: Vec3) !Line {
         var shader = try graphics.Shader.setupShader("shaders/line/vertex.glsl", "shaders/line/fragment.glsl");
@@ -214,14 +233,19 @@ const Cube = struct {
 
     drawing: Drawing(.spatial),
 
-    pub fn init() !Cube {
-        var shader = try graphics.Shader.setupShader("vertex.glsl", "fragment.glsl");
+    pub fn updatePos(self: *Cube, pos: Vec3) void {
+        self.drawing.uniform3f_array[0].value = pos;
+    }
+
+    pub fn init(pos: Vec3) !Cube {
+        var shader = try graphics.Shader.setupShader("shaders/cube/vertex.glsl", "shaders/cube/fragment.glsl");
         var drawing = graphics.Drawing(.spatial).init(shader);
 
         drawing.bindVertex(&vertices, &indices);
 
-        try drawing.textureFromPath("/home/saturnian/code/experiments/zig/ui-toolkit/comofas.png");
+        //try drawing.textureFromPath(texture);
         try drawing.uniform4fv_array.append(.{ .name = "transform", .value = &cam.transform_mat.rows[0][0] });
+        try drawing.uniform3f_array.append(.{ .name = "pos", .value = pos });
 
         return Cube{ .drawing = drawing };
     }
@@ -229,13 +253,13 @@ const Cube = struct {
 
 pub fn makeAxis() !void {
     var line = try Line.init(.{ 0, 0.01, 0 }, .{ 2, 0, 0 }, .{ 1, 0, 0 });
-    try scene.line_arr.append(line.drawing);
+    try scene.append(.line, line.drawing);
 
     line = try Line.init(.{ 0, 0.01, 0 }, .{ 0, 2, 0 }, .{ 0, 1, 0 });
-    try scene.line_arr.append(line.drawing);
+    try scene.append(.line, line.drawing);
 
     line = try Line.init(.{ 0, 0.01, 0 }, .{ 0, 0, 2 }, .{ 0, 0, 1 });
-    try scene.line_arr.append(line.drawing);
+    try scene.append(.line, line.drawing);
 }
 
 pub fn makeGrid() !void {
@@ -245,38 +269,63 @@ pub fn makeGrid() !void {
         x -= size / 2;
 
         var line = try Line.init(.{ x, 0, -size / 2 }, .{ x, 0, size / 2 }, .{ 0.5, 0.5, 0.5 });
-        try scene.line_arr.append(line.drawing);
+        try scene.append(.line, line.drawing);
         line = try Line.init(.{ -size / 2, 0, x }, .{ size / 2, 0, x }, .{ 0.5, 0.5, 0.5 });
-        try scene.line_arr.append(line.drawing);
+        try scene.append(.line, line.drawing);
     }
 }
 
+pub fn bdfToRgba(bdf: *BdfParse, c: u8) ![12 * 12]img.color.Rgba32 {
+    var buf: [12 * 12]img.color.Rgba32 = undefined;
+    var res = try bdf.getChar(c);
+    for (res, 0..) |val, i| {
+        if (val) {
+            buf[i] = .{ .r = 255, .g = 255, .b = 255, .a = 255 };
+        } else {
+            buf[i] = .{ .r = 30, .g = 100, .b = 100, .a = 255 };
+        }
+    }
+    return buf;
+}
+
 pub fn main() !void {
+    defer _ = common.gpa_instance.deinit();
+
+    var bdf = try BdfParse.init();
+    try bdf.parse("b12.bdf");
+
     try graphics.initGraphics();
-    var win = try graphics.Window.init(100, 100);
-    defer win.deinit();
+    defer graphics.deinitGraphics();
+    main_win = try graphics.Window.init(100, 100);
+    defer main_win.deinit();
 
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
     gl.cullFace(gl.FRONT);
 
-    win.setKeyCallback(keyFunc);
+    main_win.setKeyCallback(keyFunc);
+    main_win.setFrameCallback(frameFunc);
 
     cam = try Camera.init(0.6, 1, 0.1, 2048);
 
-    //var comofas_png = graphics.Texture.init("../comofas.png");
-
     scene = try graphics.Scene.init();
+    defer scene.deinit();
 
-    var cube = try Cube.init();
-    try scene.spatial_arr.append(cube.drawing);
+    for ("*hello!", 0..) |c, i| {
+        var cube = try Cube.init(.{ 10, 0, @as(f32, @floatFromInt(i)) });
+
+        var rgba = try bdfToRgba(&bdf, c);
+
+        try cube.drawing.textureFromRgba(&rgba, 12, 12);
+        try scene.append(.spatial, cube.drawing);
+    }
 
     try makeAxis();
     try makeGrid();
 
     var last_time: f32 = 0;
 
-    while (win.alive) {
+    while (main_win.alive) {
         graphics.waitGraphicsEvent();
 
         gl.clearColor(0.2, 0.2, 0.2, 1.0);
@@ -288,8 +337,10 @@ pub fn main() !void {
             try key_down(&current_keys, last_mods, time - last_time);
         }
 
-        try scene.draw(win.*);
+        try scene.draw(main_win.*);
 
-        graphics.glfw.glfwSwapBuffers(win.glfw_win);
+        last_time = time;
+
+        graphics.glfw.glfwSwapBuffers(main_win.glfw_win);
     }
 }

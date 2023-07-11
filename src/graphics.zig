@@ -15,7 +15,12 @@ const math = @import("math.zig");
 
 const Uniform1f = struct {
     name: [:0]const u8,
-    value: *f32,
+    value: f32,
+};
+
+const Uniform3f = struct {
+    name: [:0]const u8,
+    value: math.Vec3,
 };
 
 const Uniform4fv = struct {
@@ -91,25 +96,39 @@ const RenderType = enum {
     spatial,
 };
 
+const DrawingList = common.FieldArrayList(union(RenderType) {
+    line: Drawing(.line),
+    spatial: Drawing(.spatial),
+});
+
 pub const Scene = struct {
-    // eventually generate it using comptime
-    line_arr: std.ArrayList(Drawing(.line)),
-    spatial_arr: std.ArrayList(Drawing(.spatial)),
+    drawing_array: DrawingList,
 
     pub fn init() !Scene {
         return Scene{
-            .line_arr = std.ArrayList(Drawing(.line)).init(common.allocator),
-            .spatial_arr = std.ArrayList(Drawing(.spatial)).init(common.allocator),
+            .drawing_array = try DrawingList.init(common.allocator),
         };
     }
 
-    pub fn draw(self: *Scene, win: Window) !void {
-        for (self.line_arr.items) |*line| {
-            try line.draw(win);
+    pub fn deinit(self: *Scene) void {
+        inline for (DrawingList.Enums) |field| {
+            for (self.drawing_array.array(field).items) |*elem| {
+                elem.deinit();
+            }
         }
 
-        for (self.spatial_arr.items) |*spatial| {
-            try spatial.draw(win);
+        self.drawing_array.deinit(common.allocator);
+    }
+
+    pub fn append(self: *Scene, comptime render: RenderType, elem: anytype) !void {
+        try self.drawing_array.array(render).append(elem);
+    }
+
+    pub fn draw(self: *Scene, win: Window) !void {
+        inline for (DrawingList.Enums) |field| {
+            for (self.drawing_array.array(field).items) |*elem| {
+                try elem.draw(win);
+            }
         }
     }
 };
@@ -122,6 +141,7 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
         shader_program: u32,
 
         uniform1f_array: std.ArrayList(Uniform1f),
+        uniform3f_array: std.ArrayList(Uniform3f),
         uniform4fv_array: std.ArrayList(Uniform4fv),
 
         texture: u32,
@@ -145,6 +165,7 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
             gl.genBuffers(1, &drawing.ebo);
 
             drawing.uniform1f_array = std.ArrayList(Uniform1f).init(common.allocator);
+            drawing.uniform3f_array = std.ArrayList(Uniform3f).init(common.allocator);
             drawing.uniform4fv_array = std.ArrayList(Uniform4fv).init(common.allocator);
             drawing.has_texture = false;
             drawing.texture = 0;
@@ -152,33 +173,47 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
             return drawing;
         }
 
-        pub fn textureFromPath(self: *Self, path: [:0]const u8) !void {
-            var read_image = try img.Image.fromFilePath(common.allocator, path);
-            defer read_image.deinit();
+        pub fn deinit(self: *Self) void {
+            self.uniform1f_array.deinit();
+            self.uniform3f_array.deinit();
+            self.uniform4fv_array.deinit();
+        }
 
+        pub fn textureFromRgba(self: *Self, data: []img.color.Rgba32, width: usize, height: usize) !void {
             gl.genTextures(1, &self.texture);
             gl.bindTexture(gl.TEXTURE_2D, self.texture);
 
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+            var flipped: @TypeOf(data) = try common.allocator.dupe(@TypeOf(data[0]), data);
+            defer common.allocator.free(flipped);
+            for (0..height) |i| {
+                for (0..width) |j| {
+                    const pix = data[(height - i - 1) * width + j];
+                    flipped[i * width + j] = pix;
+                }
+            }
+
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, @intCast(width), @intCast(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, &flipped[0]);
+
+            //gl.generateMipmap(gl.TEXTURE_2D);
+
+            self.has_texture = true;
+        }
+
+        pub fn textureFromPath(self: *Self, path: [:0]const u8) !void {
+            var read_image = try img.Image.fromFilePath(common.allocator, path);
+            defer read_image.deinit();
 
             switch (read_image.pixels) {
                 .rgba32 => |data| {
-                    var flipped: @TypeOf(data) = try common.allocator.dupe(@TypeOf(data[0]), data);
-                    for (0..read_image.height) |i| {
-                        for (0..read_image.width) |j| {
-                            const pix = data[(read_image.height - i - 1) * read_image.width + j];
-                            flipped[i * read_image.width + j] = pix;
-                        }
-                    }
-                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, @intCast(read_image.width), @intCast(read_image.height), 0, gl.RGBA, gl.UNSIGNED_BYTE, &flipped[0]);
-                    common.allocator.free(flipped);
+                    try self.textureFromRgba(data, read_image.width, read_image.height);
                 },
                 else => return error.InvalidImage,
             }
-            gl.generateMipmap(gl.TEXTURE_2D);
-
-            self.has_texture = true;
         }
 
         pub fn bindVertex(self: *Self, vertices: []const f32, indices: []const u32) void {
@@ -242,7 +277,12 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
 
             for (self.uniform1f_array.items) |uni| {
                 const uniform_loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
-                gl.uniform1f(uniform_loc, uni.value.*);
+                gl.uniform1f(uniform_loc, uni.value);
+            }
+
+            for (self.uniform3f_array.items) |uni| {
+                const uniform_loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
+                gl.uniform3f(uniform_loc, uni.value[0], uni.value[1], uni.value[2]);
             }
 
             if (self.has_texture) {
@@ -300,6 +340,10 @@ pub fn initGraphics() !void {
     glfw.glfwWindowHint(glfw.GLFW_OPENGL_PROFILE, glfw.GLFW_OPENGL_CORE_PROFILE); // We don't want the old OpenGL
 }
 
+pub fn deinitGraphics() void {
+    windowMap.?.deinit();
+}
+
 const GlfwError = error{
     FailedGlfwInit,
     FailedGlfwWindow,
@@ -327,6 +371,12 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
         win.current_height = height;
 
         gl.viewport(0, 0, width, height);
+
+        if (win.frame_func) |fun| {
+            fun(win, width, height) catch {
+                @panic("error!");
+            };
+        }
     }
 }
 
@@ -341,9 +391,14 @@ pub const Window = struct {
     current_height: i32 = 100,
 
     key_func: ?*const fn (*Window, i32, i32, i32, i32) anyerror!void,
+    frame_func: ?*const fn (*Window, i32, i32) anyerror!void,
 
     pub fn setKeyCallback(self: *Window, fun: *const fn (*Window, i32, i32, i32, i32) anyerror!void) void {
         self.key_func = fun;
+    }
+
+    pub fn setFrameCallback(self: *Window, fun: *const fn (*Window, i32, i32) anyerror!void) void {
+        self.frame_func = fun;
     }
 
     pub fn init(width: i32, height: i32) !*Window {
@@ -370,6 +425,7 @@ pub const Window = struct {
         @memset(win, Window{
             .glfw_win = glfw_win,
             .key_func = null,
+            .frame_func = null,
             .alive = true,
         });
 
@@ -382,5 +438,6 @@ pub const Window = struct {
         glfw.glfwDestroyWindow(self.glfw_win);
         gl.makeDispatchTableCurrent(null);
         glfw.glfwTerminate();
+        common.allocator.destroy(self);
     }
 };
