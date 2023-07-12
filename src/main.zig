@@ -2,10 +2,15 @@ const std = @import("std");
 const math = @import("math.zig");
 const gl = @import("gl.zig");
 const img = @import("img");
+const geometry = @import("geometry.zig");
 const graphics = @import("graphics.zig");
 const common = @import("common.zig");
 
 const BdfParse = @import("bdf.zig").BdfParse;
+
+const Mesh = geometry.Mesh;
+const Vertex = geometry.Vertex;
+const HalfEdge = geometry.HalfEdge;
 
 const Drawing = graphics.Drawing;
 const glfw = graphics.glfw;
@@ -156,13 +161,13 @@ pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
 }
 
 const Line = struct {
-    pub fn init(a: Vec3, b: Vec3, c: Vec3) !Line {
+    pub fn init(a: Vec3, b: Vec3, c1: Vec3, c2: Vec3) !Line {
         var shader = try graphics.Shader.setupShader("shaders/line/vertex.glsl", "shaders/line/fragment.glsl");
         var drawing = graphics.Drawing(.line).init(shader);
 
         const vertices = [_]f32{
-            a[0], a[1], a[2], c[0], c[1], c[2],
-            b[0], b[1], b[2], c[0], c[1], c[2],
+            a[0], a[1], a[2], c1[0], c1[1], c1[2],
+            b[0], b[1], b[2], c2[0], c2[1], c2[2],
         };
         const indices = [_]u32{ 0, 1 };
 
@@ -186,14 +191,14 @@ const Cube = struct {
         1, 1, 0, 0, 1, 0, 0, -1,
         0, 0, 0, 1, 0, 0, 0, -1,
         1, 0, 0, 0, 0, 0, 0, -1,
-        0, 1, 0, 1, 1, 0, 0, -1,
+        0, 1, 0, 1, 1, 0, 0, -1, // this
 
         1, 1, 1, 0, 1, 1, 0, 0,
         1, 0, 0, 1, 0, 1, 0, 0,
         1, 0, 1, 0, 0, 1, 0, 0,
         1, 1, 0, 1, 1, 1, 0, 0,
 
-        0, 1, 1, 0, 1, 0, 0, 1,
+        0, 1, 1, 0, 1, 0, 0, 1, // this
         1, 0, 1, 1, 0, 0, 0, 1,
         0, 0, 1, 0, 0, 0, 0, 1,
         1, 1, 1, 1, 1, 0, 0, 1,
@@ -201,7 +206,7 @@ const Cube = struct {
         0, 1, 0, 0, 1, -1, 0, 0,
         0, 0, 1, 1, 0, -1, 0, 0,
         0, 0, 0, 0, 0, -1, 0, 0,
-        0, 1, 1, 1, 1, -1, 0, 0,
+        0, 1, 1, 1, 1, -1, 0, 0, // outsider
 
         0, 1, 0, 0, 1, 0, 1, 0,
         1, 1, 1, 1, 0, 0, 1, 0,
@@ -215,9 +220,9 @@ const Cube = struct {
     };
     // zig fmt: on
 
-    pub fn getIndices() [6 * vertices.len]u32 {
-        var temp_indices: [6 * vertices.len]u32 = undefined;
-        inline for (0..Cube.vertices.len) |i| {
+    pub fn getIndices() [6 * 24 / 4]u32 {
+        var temp_indices: [6 * 24 / 4]u32 = undefined;
+        inline for (0..24 / 4) |i| {
             temp_indices[6 * i] = 4 * i;
             temp_indices[6 * i + 1] = 4 * i + 1;
             temp_indices[6 * i + 2] = 4 * i + 2;
@@ -229,7 +234,7 @@ const Cube = struct {
         return temp_indices;
     }
 
-    pub var indices: [6 * vertices.len]u32 = getIndices();
+    pub var indices: [6 * 24 / 4]u32 = getIndices();
 
     drawing: Drawing(.spatial),
 
@@ -252,13 +257,13 @@ const Cube = struct {
 };
 
 pub fn makeAxis() !void {
-    var line = try Line.init(.{ 0, 0.01, 0 }, .{ 2, 0, 0 }, .{ 1, 0, 0 });
+    var line = try Line.init(.{ 0, 0.01, 0 }, .{ 2, 0, 0 }, .{ 1, 0, 0 }, .{ 1, 0, 0 });
     try scene.append(.line, line.drawing);
 
-    line = try Line.init(.{ 0, 0.01, 0 }, .{ 0, 2, 0 }, .{ 0, 1, 0 });
+    line = try Line.init(.{ 0, 0.01, 0 }, .{ 0, 2, 0 }, .{ 0, 1, 0 }, .{ 0, 1, 0 });
     try scene.append(.line, line.drawing);
 
-    line = try Line.init(.{ 0, 0.01, 0 }, .{ 0, 0, 2 }, .{ 0, 0, 1 });
+    line = try Line.init(.{ 0, 0.01, 0 }, .{ 0, 0, 2 }, .{ 0, 0, 1 }, .{ 0, 0, 1 });
     try scene.append(.line, line.drawing);
 }
 
@@ -268,9 +273,9 @@ pub fn makeGrid() !void {
         var x: f32 = @floatFromInt(i);
         x -= size / 2;
 
-        var line = try Line.init(.{ x, 0, -size / 2 }, .{ x, 0, size / 2 }, .{ 0.5, 0.5, 0.5 });
+        var line = try Line.init(.{ x, 0, -size / 2 }, .{ x, 0, size / 2 }, .{ 0.5, 0.5, 0.5 }, .{ 0.5, 0.5, 0.5 });
         try scene.append(.line, line.drawing);
-        line = try Line.init(.{ -size / 2, 0, x }, .{ size / 2, 0, x }, .{ 0.5, 0.5, 0.5 });
+        line = try Line.init(.{ -size / 2, 0, x }, .{ size / 2, 0, x }, .{ 0.5, 0.5, 0.5 }, .{ 0.5, 0.5, 0.5 });
         try scene.append(.line, line.drawing);
     }
 }
@@ -288,10 +293,42 @@ pub fn bdfToRgba(bdf: *BdfParse, c: u8) ![12 * 12]img.color.Rgba32 {
     return buf;
 }
 
+pub fn recurseHalf(set: *std.AutoHashMap(*HalfEdge, void), edge: ?*HalfEdge) !void {
+    if (edge) |actual| {
+        if (set.get(actual)) |_| {
+            return;
+        }
+        std.debug.print("half edge at {}: {any:.4} {any:.4}\n", .{ 666, actual.vertex.pos, actual.twin != null });
+        try set.put(actual, void{});
+
+        if (actual.next) |next| {
+            var line: Line = undefined;
+            var pos_a = actual.vertex.pos;
+            var pos_b = next.vertex.pos;
+            pos_a[0] += 1;
+            pos_a[1] += 1;
+            pos_a[2] += 1;
+            pos_b[0] += 1;
+            pos_b[1] += 1;
+            pos_b[2] += 1;
+
+            if (actual.twin) |twin| {
+                try recurseHalf(set, twin);
+                line = try Line.init(pos_a, pos_b, .{ 0.0, 0.0, 0.0 }, .{ 0.5, 0.0, 0.0 });
+            } else {
+                line = try Line.init(pos_a, pos_b, .{ 0.3, 0.3, 0.3 }, .{ 0.0, 0.0, 0.0 });
+            }
+            try scene.append(.line, line.drawing);
+        }
+        try recurseHalf(set, actual.next);
+    }
+}
+
 pub fn main() !void {
     defer _ = common.gpa_instance.deinit();
 
     var bdf = try BdfParse.init();
+    defer bdf.deinit();
     try bdf.parse("b12.bdf");
 
     try graphics.initGraphics();
@@ -320,10 +357,44 @@ pub fn main() !void {
         try scene.append(.spatial, cube.drawing);
     }
 
-    try makeAxis();
-    try makeGrid();
+    //try makeAxis();
+    //try makeGrid();
 
     var last_time: f32 = 0;
+
+    // mesh testing
+
+    var mesh = Mesh.init(common.allocator);
+    defer mesh.deinit();
+
+    const vertices = [_]f32{
+        0, 0, 0,
+        0, 1, 0,
+        1, 1, 0,
+        1, 0, 0,
+
+        0, 0, 1,
+        0, 1, 1,
+        1, 1, 1,
+        1, 0, 1,
+    };
+
+    const indices = [_]u32{
+        0, 1, 2, 3,
+        4, 5, 6, 7,
+        0, 3, 7, 4,
+        1, 2, 6, 5,
+        0, 1, 5, 4,
+        3, 2, 6, 7,
+    };
+
+    var set = std.AutoHashMap(*HalfEdge, void).init(common.allocator);
+    //var edge: ?*HalfEdge = try mesh.makeFrom(&Cube.vertices, &Cube.indices, 0, 8, 3);
+    var edge: ?*HalfEdge = try mesh.makeFrom(&vertices, &indices, 0, 3, 4);
+
+    try recurseHalf(&set, edge);
+
+    set.deinit();
 
     while (main_win.alive) {
         graphics.waitGraphicsEvent();

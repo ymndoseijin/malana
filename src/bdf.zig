@@ -22,6 +22,13 @@ pub const BdfParse = struct {
         return BdfParse{ .map = std.ArrayList(Search).init(allocator) };
     }
 
+    pub fn deinit(self: *BdfParse) void {
+        for (self.map.items) |item| {
+            allocator.free(item[1]);
+        }
+        self.map.deinit();
+    }
+
     pub fn parse(self: *BdfParse, path: [:0]const u8) !void {
         var file = try std.fs.cwd().openFile(path, .{});
         defer file.close();
@@ -37,12 +44,10 @@ pub const BdfParse = struct {
         var width: u32 = 0;
 
         var file_arr = std.ArrayList(u8).init(allocator);
+        defer file_arr.deinit();
         try in_stream.readAllArrayList(&file_arr, std.math.maxInt(usize));
 
         var file_it = std.mem.split(u8, file_arr.items, "\n");
-
-        var oweda = [_]bool{false};
-        try self.map.append(.{ 69, &oweda });
 
         while (file_it.next()) |line| {
             switch (self.state) {

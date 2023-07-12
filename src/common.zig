@@ -28,10 +28,10 @@ pub fn FieldArrayList(comptime T: type) type {
             pub fn init(gpa: Allocator) !List {
                 var ptrs: [fields.len][*]u8 = undefined;
                 inline for (fields, 0..) |field, i| {
-                    ptrs[i] = @ptrCast(@alignCast(try gpa.create(std.ArrayList(field.type))));
-                    const pointer: [*]std.ArrayList(field.type) = @ptrCast(@alignCast(ptrs[i]));
+                    var val = try gpa.alloc(std.ArrayList(field.type), 1);
                     var arr = std.ArrayList(field.type).init(gpa);
-                    @memset(pointer, arr);
+                    @memset(val, arr);
+                    ptrs[i] = @ptrCast(@alignCast(val));
                 }
                 return List{ .ptrs = ptrs };
             }
