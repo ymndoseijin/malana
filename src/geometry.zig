@@ -3,13 +3,24 @@ const std = @import("std");
 const testing = std.testing;
 
 const Vec3 = math.Vec3;
+const Vec2 = math.Vec2;
 
 pub const Vertex = struct {
     pos: Vec3,
+    uv: Vec2,
+    pub const Zero = Vertex{ .pos = .{ 0, 0, 0 }, .uv = .{ 0, 0 } };
 };
 
+// potential footgun, face holds a pointer to vertices, so if you change it you might change it to other faces as well
 pub const Face = struct {
     vertices: []*Vertex,
+
+    pub fn init(alloc: std.mem.Allocator, vertices: []const *Vertex) !*Face {
+        var face = try alloc.create(Face);
+        face.vertices = try alloc.dupe(*Vertex, vertices);
+
+        return face;
+    }
 };
 
 pub const HalfEdge = struct {
@@ -18,6 +29,42 @@ pub const HalfEdge = struct {
 
     vertex: *Vertex,
     face: *Face,
+
+    pub fn makeTri(mut: *HalfEdge, allocator: std.mem.Allocator, tri: []const *Vertex) !void {
+        var b = try allocator.create(HalfEdge);
+        var c = try allocator.create(HalfEdge);
+
+        mut.* = HalfEdge{
+            .vertex = tri[0],
+            .next = b,
+            .twin = mut.twin, // temp
+            .face = try Face.init(allocator, tri),
+        };
+
+        b.* = HalfEdge{
+            .vertex = tri[1],
+            .next = c,
+            .twin = null,
+            .face = try Face.init(allocator, tri),
+        };
+        c.* = HalfEdge{
+            .vertex = tri[2],
+            .next = mut,
+            .twin = null,
+            .face = try Face.init(allocator, tri),
+        };
+    }
+
+    pub fn halfVert(self: HalfEdge) Vertex {
+        if (self.next) |next_edge| {
+            var a = self.vertex;
+            var b = next_edge.vertex;
+            const pos = (b.pos - a.pos) / @splat(3, @as(f32, 2)) + a.pos;
+            const uv = (b.uv - a.uv) / @splat(2, @as(f32, 2)) + a.uv;
+            return Vertex{ .pos = pos, .uv = uv };
+        }
+        return Vertex.Zero;
+    }
 };
 
 pub const Mesh = struct {
@@ -34,13 +81,103 @@ pub const Mesh = struct {
         self.arena.deinit();
     }
 
+    pub fn syncEdges(a: *HalfEdge, b: *HalfEdge, twins: [2]*HalfEdge) void {
+        if (twins[0].vertex == a.vertex) {
+            std.debug.print("Setting as equal\n", .{});
+            twins[0].twin = a;
+            a.twin = twins[0];
+
+            twins[1].twin = b;
+            b.twin = twins[1];
+        } else {
+            std.debug.print("Setting as different\n", .{});
+            twins[1].twin = a;
+            a.twin = twins[1];
+
+            twins[0].twin = b;
+            b.twin = twins[0];
+        }
+    }
+
+    pub const SubdivideEdge = enum {
+        fucked,
+        ok,
+    };
+
+    pub const SubdivideValue = struct { SubdivideEdge, [2]*HalfEdge };
+
     // only for triangles rn
-    //pub fn subdivide(self: *Mesh, half_edge: *HalfEdge) void {
-    //}
+    pub fn subdivide(self: *Mesh, half_edge: *HalfEdge, map: *std.AutoHashMap(?*HalfEdge, [2]*HalfEdge)) !void {
+        const allocator = self.arena.allocator();
+        var face: [3]*HalfEdge = .{ half_edge, half_edge.next.?, half_edge.next.?.next.? };
+
+        inline for (face) |elem| {
+            if (map.get(elem)) |_| {
+                return;
+            }
+        }
+
+        var a_vert: *Vertex = undefined;
+        var b_vert: *Vertex = undefined;
+        var c_vert: *Vertex = undefined;
+
+        var new_verts = .{ &a_vert, &b_vert, &c_vert };
+
+        inline for (new_verts, 0..) |vert, i| {
+            if (map.get(face[i].twin)) |twins| {
+                vert.* = twins[1].vertex;
+            } else {
+                vert.* = try allocator.create(Vertex);
+                vert.*.* = face[i].halfVert();
+            }
+        }
+
+        var inner_triangle = try allocator.create(HalfEdge);
+        try inner_triangle.makeTri(allocator, &[_]*Vertex{ a_vert, b_vert, c_vert });
+
+        try face[0].makeTri(allocator, &[_]*Vertex{ face[0].vertex, a_vert, c_vert });
+        try face[1].makeTri(allocator, &[_]*Vertex{ face[1].vertex, b_vert, a_vert });
+        try face[2].makeTri(allocator, &[_]*Vertex{ face[2].vertex, c_vert, b_vert });
+
+        try map.put(face[0], .{ face[0], face[1].next.?.next.? });
+        try map.put(face[1], .{ face[1], face[2].next.?.next.? });
+        try map.put(face[2], .{ face[2], face[0].next.?.next.? });
+
+        try map.put(face[0].next.?.next.?, .{ face[2], face[0].next.?.next.? });
+        try map.put(face[1].next.?.next.?, .{ face[0], face[1].next.?.next.? });
+        try map.put(face[2].next.?.next.?, .{ face[1], face[2].next.?.next.? });
+
+        const faces_left = .{ face[0], face[1], face[2] };
+        const faces_right = .{ face[1], face[2], face[0] };
+
+        inline for (faces_left, faces_right) |left, right| {
+            if (map.get(left.twin)) |twins| {
+                Mesh.syncEdges(left, right.next.?.next.?, .{ twins[0], twins[1] });
+            } else {
+                if (left.twin) |twin| {
+                    try self.subdivide(twin, map);
+                }
+            }
+        }
+
+        inner_triangle.next.?.next.?.twin = face[0].next;
+        face[0].next.?.twin = inner_triangle.next.?.next;
+
+        inner_triangle.next.?.twin = face[2].next;
+        face[2].next.?.twin = inner_triangle.next;
+
+        inner_triangle.twin = face[1].next;
+        face[1].next.?.twin = inner_triangle;
+    }
 
     const Pair = struct { usize, usize };
+    const Format = struct {
+        uv_offset: usize,
+        pos_offset: usize,
+        length: usize,
+    };
 
-    pub fn makeFrom(self: *Mesh, vertices: []const f32, in_indices: []const u32, comptime offset: usize, comptime length: usize, comptime n: comptime_int) !*HalfEdge {
+    pub fn makeFrom(self: *Mesh, vertices: []const f32, in_indices: []const u32, comptime format: Format, comptime n: comptime_int) !*HalfEdge {
         const allocator = self.arena.allocator();
 
         var indices = try allocator.dupe(u32, in_indices);
@@ -51,18 +188,25 @@ pub const Mesh = struct {
         var converted = std.ArrayList(Vertex).init(self.arena.allocator());
         defer converted.deinit();
 
-        for (0..@divExact(vertices.len, length)) |i| {
-            var pos: Vec3 = .{ vertices[i * length + offset], vertices[i * length + offset + 1], vertices[i * length + offset + 2] };
+        for (0..@divExact(vertices.len, format.length)) |i| {
+            var pos: Vec3 = .{
+                vertices[i * format.length + format.pos_offset],
+                vertices[i * format.length + format.pos_offset + 1],
+                vertices[i * format.length + format.pos_offset + 2],
+            };
+
+            var uv: Vec2 = .{
+                vertices[i * format.length + format.uv_offset],
+                vertices[i * format.length + format.uv_offset + 1],
+            };
 
             var copy = false;
             for (seen.items) |candidate| {
                 if (@reduce(.And, candidate[0] == pos)) {
-                    std.debug.print("found!!!!!!!!!!!!!!!!!!!\n\n\n\n", .{});
                     copy = true;
                     for (indices) |*mut| {
                         if (mut.* == i) {
                             mut.* = @intCast(candidate[1]);
-                            std.debug.print("changed {} and {d:.4} == {d:.4} to {}\n", .{ i, pos, candidate[0], candidate[1] });
                         }
                     }
                     break;
@@ -72,13 +216,17 @@ pub const Mesh = struct {
                 try seen.append(.{ pos, i });
             }
 
-            try converted.append(.{ .pos = pos });
+            try converted.append(.{
+                .pos = pos,
+                .uv = uv,
+            });
         }
 
         var res = self.makeNgon(converted.items, indices, n);
         return res;
     }
 
+    // this merges the vertices with the same pos rather than doing it properly
     pub fn makeNgon(self: *Mesh, in_vert: []const Vertex, indices: []const u32, comptime n: comptime_int) !*HalfEdge {
         const allocator = self.arena.allocator();
 
@@ -148,7 +296,7 @@ pub const Mesh = struct {
                     }
                     half_twin.twin = half_edge;
                     half_edge.twin = half_twin;
-                    std.debug.print("\nFound twin at {d:.4} {any:.4}\n", .{ half_twin.vertex.pos, half_twin.twin });
+                    //std.debug.print("\nFound twin at {d:.4} {any:.4}\n", .{ half_twin.vertex.pos, half_twin.twin });
                 } else {
                     //std.debug.print("adding twin candidate at {any} {any}\n", .{ key, half_edge });
                     try map.put(key, half_edge);

@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 pub const Mat4 = Mat(f32, 4, 4);
 pub const Mat3 = Mat(f32, 3, 3);
 
+pub const Vec2 = @Vector(2, f32);
 pub const Vec3 = @Vector(3, f32);
 
 pub fn Vec(comptime T: type, comptime size: usize) type {
@@ -30,7 +31,7 @@ pub fn Vec(comptime T: type, comptime size: usize) type {
 }
 
 pub const Vec3Utils = struct {
-    usingnamespace Vec(f32, 3);
+    pub usingnamespace Vec(f32, 3);
 
     // eventually generalize to other dimensions
     pub fn cross(a: Vec3, b: Vec3) Vec3 {
@@ -124,8 +125,8 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
 pub fn perspectiveMatrix(fovy: f32, aspect: f32, nearZ: f32, farZ: f32) Mat4 {
     var res = Mat4.zero();
 
-    var f: f32 = 1.0 / std.math.tan(fovy * 0.5);
-    var f_n: f32 = 1.0 / (nearZ - farZ);
+    var f = 1.0 / std.math.tan(fovy * 0.5);
+    var f_n = 1.0 / (nearZ - farZ);
 
     res.rows[0][0] = f / aspect;
     res.rows[1][1] = f;
@@ -184,6 +185,7 @@ pub fn main() !void {
     std.debug.print("{d:.1}\n", .{Vec(f32, 2).proj(.{ 3, 1 }, .{ 2, 2 })});
 
     std.debug.print("{d:.1}\n", .{Vec3Utils.cross(.{ 2, -3, 1 }, .{ -2, 1, 1 })});
+    std.debug.print("{d:.1}\n", .{Vec3Utils.norm(Vec3{ 2, -3, 1 })});
 
     const center = Vec3{ 0.54030, 0.00000, -0.84147 };
     const up = Vec3{ 0.00000, 1.00000, 0.00000 };

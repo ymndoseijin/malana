@@ -293,34 +293,100 @@ pub fn bdfToRgba(bdf: *BdfParse, c: u8) ![12 * 12]img.color.Rgba32 {
     return buf;
 }
 
-pub fn recurseHalf(set: *std.AutoHashMap(*HalfEdge, void), edge: ?*HalfEdge) !void {
+const SpatialMesh = struct {
+    drawing: Drawing(.spatial),
+
+    pub fn updatePos(self: *SpatialMesh, pos: Vec3) void {
+        self.drawing.uniform3f_array[0].value = pos;
+    }
+
+    pub fn init(pos: Vec3, shader: u32) !SpatialMesh {
+        var drawing = graphics.Drawing(.spatial).init(shader);
+
+        try drawing.uniform4fv_array.append(.{ .name = "transform", .value = &cam.transform_mat.rows[0][0] });
+        try drawing.uniform3f_array.append(.{ .name = "pos", .value = pos });
+
+        return SpatialMesh{
+            .drawing = drawing,
+        };
+    }
+};
+
+const MeshBuilder = struct {
+    vertices: std.ArrayList(f32),
+    indices: std.ArrayList(u32),
+    count: u32,
+
+    pub fn deinit(self: *MeshBuilder) void {
+        self.vertices.deinit();
+        self.indices.deinit();
+    }
+
+    pub fn addTri(self: *MeshBuilder, v: [3]Vertex) !void {
+        const vertices = [_]f32{
+            v[0].pos[0], v[0].pos[1], v[0].pos[2], v[0].uv[0], v[0].uv[1], 0, 0, 0,
+            v[1].pos[0], v[1].pos[1], v[1].pos[2], v[1].uv[0], v[1].uv[1], 0, 0, 0,
+            v[2].pos[0], v[2].pos[1], v[2].pos[2], v[2].uv[0], v[2].uv[1], 0, 0, 0,
+        };
+
+        const indices = [_]u32{
+            self.count, self.count + 1, self.count + 2,
+        };
+
+        inline for (vertices) |vert| {
+            try self.vertices.append(vert);
+        }
+
+        inline for (indices) |i| {
+            try self.indices.append(i);
+        }
+
+        self.count += 3;
+    }
+
+    pub fn toSpatial(self: *MeshBuilder) !SpatialMesh {
+        _ = self;
+        return try SpatialMesh.init(
+            .{ 0, 0, 0 },
+            try graphics.Shader.setupShader("shaders/triangle/vertex.glsl", "shaders/triangle/fragment.glsl"),
+        );
+    }
+
+    pub fn init() !MeshBuilder {
+        return MeshBuilder{
+            .count = 0,
+            .vertices = std.ArrayList(f32).init(common.allocator),
+            .indices = std.ArrayList(u32).init(common.allocator),
+        };
+    }
+};
+
+pub fn recurseHalf(mesh: *MeshBuilder, set: *std.AutoHashMap(*HalfEdge, void), edge: ?*HalfEdge, comptime will_render: bool) !void {
     if (edge) |actual| {
         if (set.get(actual)) |_| {
             return;
         }
-        std.debug.print("half edge at {}: {any:.4} {any:.4}\n", .{ 666, actual.vertex.pos, actual.twin != null });
         try set.put(actual, void{});
+
+        if (will_render) {
+            var v = actual.face.vertices;
+            try mesh.addTri(.{ v[0].*, v[1].*, v[2].* });
+        }
 
         if (actual.next) |next| {
             var line: Line = undefined;
             var pos_a = actual.vertex.pos;
             var pos_b = next.vertex.pos;
-            pos_a[0] += 1;
-            pos_a[1] += 1;
-            pos_a[2] += 1;
-            pos_b[0] += 1;
-            pos_b[1] += 1;
-            pos_b[2] += 1;
 
             if (actual.twin) |twin| {
-                try recurseHalf(set, twin);
+                try recurseHalf(mesh, set, twin, will_render);
                 line = try Line.init(pos_a, pos_b, .{ 0.0, 0.0, 0.0 }, .{ 0.5, 0.0, 0.0 });
             } else {
                 line = try Line.init(pos_a, pos_b, .{ 0.3, 0.3, 0.3 }, .{ 0.0, 0.0, 0.0 });
             }
             try scene.append(.line, line.drawing);
         }
-        try recurseHalf(set, actual.next);
+        try recurseHalf(mesh, set, actual.next, will_render);
     }
 }
 
@@ -337,8 +403,11 @@ pub fn main() !void {
     defer main_win.deinit();
 
     gl.enable(gl.DEPTH_TEST);
-    gl.enable(gl.CULL_FACE);
-    gl.cullFace(gl.FRONT);
+    //gl.enable(gl.CULL_FACE);
+    //gl.cullFace(gl.FRONT);
+    gl.enable(gl.BLEND);
+    gl.lineWidth(3);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     main_win.setKeyCallback(keyFunc);
     main_win.setFrameCallback(frameFunc);
@@ -357,8 +426,8 @@ pub fn main() !void {
         try scene.append(.spatial, cube.drawing);
     }
 
-    //try makeAxis();
-    //try makeGrid();
+    try makeAxis();
+    try makeGrid();
 
     var last_time: f32 = 0;
 
@@ -371,28 +440,80 @@ pub fn main() !void {
         0, 0, 0,
         0, 1, 0,
         1, 1, 0,
-        1, 0, 0,
-
-        0, 0, 1,
-        0, 1, 1,
-        1, 1, 1,
-        1, 0, 1,
     };
+    _ = vertices;
 
     const indices = [_]u32{
-        0, 1, 2, 3,
-        4, 5, 6, 7,
-        0, 3, 7, 4,
-        1, 2, 6, 5,
-        0, 1, 5, 4,
-        3, 2, 6, 7,
+        0, 1, 2,
     };
+    _ = indices;
+
+    var cube: ?*HalfEdge = try mesh.makeFrom(&Cube.vertices, &Cube.indices, .{
+        .pos_offset = 0,
+        .uv_offset = 3,
+        .length = 8,
+    }, 3);
+    //var edge: ?*HalfEdge = try mesh.makeFrom(&vertices, &indices, 0, 3, 3);
+    //try recurseHalf(&set, edge, false);
+    //set.clearRetainingCapacity();
+
+    var subdivide_set = std.AutoHashMap(?*HalfEdge, [2]*HalfEdge).init(common.allocator);
+    try mesh.subdivide(cube.?, &subdivide_set);
+    subdivide_set.clearRetainingCapacity();
+    //try mesh.subdivide(cube.?, &subdivide_set);
+    //subdivide_set.clearRetainingCapacity();
+    //try mesh.subdivide(cube.?, &subdivide_set);
+    //subdivide_set.clearRetainingCapacity();
+    //try mesh.subdivide(cube.?, &subdivide_set);
+    subdivide_set.deinit();
+
+    var builder = try MeshBuilder.init();
 
     var set = std.AutoHashMap(*HalfEdge, void).init(common.allocator);
-    //var edge: ?*HalfEdge = try mesh.makeFrom(&Cube.vertices, &Cube.indices, 0, 8, 3);
-    var edge: ?*HalfEdge = try mesh.makeFrom(&vertices, &indices, 0, 3, 4);
 
-    try recurseHalf(&set, edge);
+    var stack = std.ArrayList(?*HalfEdge).init(common.allocator);
+    defer stack.deinit();
+    try stack.append(cube);
+
+    while (stack.items.len > 0) {
+        var edge_or = stack.pop();
+        if (edge_or) |edge| {
+            if (set.get(edge)) |_| continue;
+            try set.put(edge, void{});
+
+            var v = edge.face.vertices;
+
+            const offset = Vec3{ -0.5, -0.5, -0.5 };
+
+            var a = v[0].*;
+            var b = v[1].*;
+            var c = v[2].*;
+            a.pos += offset;
+            b.pos += offset;
+            c.pos += offset;
+
+            try builder.addTri(.{ a, b, c });
+
+            if (edge.next) |_| {
+                //var pos_a = edge.vertex.pos;
+                //var pos_b = next.vertex.pos;
+
+                if (edge.twin) |twin| {
+                    try stack.append(twin);
+                    //try scene.append(.line, try Line.init(pos_a, pos_b, .{ 0.0, 0.0, 0.0 }, .{ 0.5, 0.0, 0.0 }));
+                    //} else {
+                    //try scene.append(.line try Line.init(pos_a, pos_b, .{ 0.3, 0.3, 0.3 }, .{ 0.0, 0.0, 0.0 }));
+                }
+            }
+            try stack.append(edge.next);
+        }
+    }
+
+    var subdivided = try builder.toSpatial();
+    subdivided.drawing.bindVertex(builder.vertices.items, builder.indices.items);
+    try subdivided.drawing.textureFromPath("comofas.png");
+    try scene.append(.spatial, subdivided.drawing);
+    builder.deinit();
 
     set.deinit();
 

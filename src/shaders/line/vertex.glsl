@@ -12,6 +12,8 @@ out vec3 Color;
 
 void main()
 {
-   gl_Position = transform*vec4(aPos, 1.0);
+   vec3 position = aPos;
+   //position /= sqrt(position.x*position.x+position.y*position.y+position.z*position.z);
+   gl_Position = transform*vec4(position, 1.0);
    Color = aColor;
 }
