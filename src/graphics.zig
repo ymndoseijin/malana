@@ -97,8 +97,8 @@ const RenderType = enum {
 };
 
 const DrawingList = common.FieldArrayList(union(RenderType) {
-    line: Drawing(.line),
-    spatial: Drawing(.spatial),
+    line: *Drawing(.line),
+    spatial: *Drawing(.spatial),
 });
 
 pub const Scene = struct {
@@ -112,22 +112,25 @@ pub const Scene = struct {
 
     pub fn deinit(self: *Scene) void {
         inline for (DrawingList.Enums) |field| {
-            for (self.drawing_array.array(field).items) |*elem| {
+            for (self.drawing_array.array(field).items) |elem| {
                 elem.deinit();
+                common.allocator.destroy(elem);
             }
         }
 
         self.drawing_array.deinit(common.allocator);
     }
 
-    pub fn append(self: *Scene, comptime render: RenderType, elem: anytype) !void {
-        try self.drawing_array.array(render).append(elem);
+    pub fn new(self: *Scene, comptime render: RenderType) !*Drawing(render) {
+        var val = try common.allocator.create(Drawing(render));
+        try self.drawing_array.array(render).append(val);
+        return val;
     }
 
     pub fn draw(self: *Scene, win: Window) !void {
         inline for (DrawingList.Enums) |field| {
             for (self.drawing_array.array(field).items) |*elem| {
-                try elem.draw(win);
+                try elem.*.draw(win);
             }
         }
     }
@@ -169,6 +172,9 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
             drawing.uniform4fv_array = std.ArrayList(Uniform4fv).init(common.allocator);
             drawing.has_texture = false;
             drawing.texture = 0;
+            drawing.vert_count = 0;
+            drawing.transform = math.Mat3.identity();
+            drawing.transform3d = math.Mat3.identity();
 
             return drawing;
         }

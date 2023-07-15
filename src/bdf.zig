@@ -11,7 +11,7 @@ const ParseState = enum {
     bitmap,
 };
 
-const Search = struct { u32, []bool };
+const Search = struct { u32, []bool, u32 };
 
 pub const BdfParse = struct {
     state: ParseState = .normal,
@@ -49,6 +49,8 @@ pub const BdfParse = struct {
 
         var file_it = std.mem.split(u8, file_arr.items, "\n");
 
+        var bbx_width: u32 = 0;
+
         while (file_it.next()) |line| {
             switch (self.state) {
                 .normal => {
@@ -59,6 +61,10 @@ pub const BdfParse = struct {
                         _ = it.next();
                         id = try std.fmt.parseInt(u32, it.next().?, 16);
                         //std.debug.print("id: {}\n", .{id});
+                    } else if (std.mem.startsWith(u8, line, "BBX")) {
+                        var it = std.mem.split(u8, line, " ");
+                        _ = it.next();
+                        bbx_width = try std.fmt.parseInt(u32, it.next().?, 10);
                     } else if (std.mem.startsWith(u8, line, "FONTBOUNDINGBOX")) {
                         var it = std.mem.split(u8, line, " ");
                         _ = it.next();
@@ -73,9 +79,10 @@ pub const BdfParse = struct {
                         glyph_i = 0;
                         //std.debug.print("glifo {any}\n", .{res});
                         //std.debug.print("wtf {}\n", .{id});
-                        var por_que = Search{ id, try allocator.dupe(bool, glyph) };
+                        var por_que = Search{ id, try allocator.dupe(bool, glyph), bbx_width };
                         try self.map.append(por_que);
                         //std.debug.print("{any}\n", .{self.map.items[self.map.items.len - 1]});
+                        //
                     } else {
                         const val = try std.fmt.parseInt(u32, line, 16);
                         for (0..width) |x| {
