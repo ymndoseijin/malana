@@ -269,8 +269,7 @@ pub const Text = struct {
     pub fn printFmt(self: *Text, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
         var str = try std.fmt.bufPrint(&buf, fmt, fmt_args);
-        std.debug.print("\"{s}\"\n", .{str});
-        try self.print(try std.fmt.bufPrint(&buf, fmt, fmt_args));
+        try self.print(str);
     }
 
     pub fn print(self: *Text, text: []const u8) !void {

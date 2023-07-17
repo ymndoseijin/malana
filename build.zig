@@ -30,7 +30,12 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.addModule("img", zigimg_dep.module("zigimg"));
-    exe.linkSystemLibraryName("glfw");
+
+    exe.linkLibrary(b.dependency("glfw", .{
+        .target = exe.target,
+        .optimize = exe.optimize,
+    }).artifact("glfw"));
+
     exe.linkLibC();
 
     // This declares intent for the executable to be installed into the

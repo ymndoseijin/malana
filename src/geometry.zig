@@ -124,12 +124,8 @@ pub const Mesh = struct {
         var new_verts = .{ &a_vert, &b_vert, &c_vert };
 
         inline for (new_verts, 0..) |vert, i| {
-            if (map.get(face[i].twin)) |twins| {
-                vert.* = twins[1].vertex;
-            } else {
-                vert.* = try allocator.create(Vertex);
-                vert.*.* = face[i].halfVert();
-            }
+            vert.* = try allocator.create(Vertex);
+            vert.*.* = face[i].halfVert();
         }
 
         var inner_triangle = try allocator.create(HalfEdge);
@@ -177,13 +173,11 @@ pub const Mesh = struct {
         length: usize,
     };
 
+    // this merges the vertices with the same pos rather than doing it properly
     pub fn makeFrom(self: *Mesh, vertices: []const f32, in_indices: []const u32, comptime format: Format, comptime n: comptime_int) !*HalfEdge {
         const allocator = self.arena.allocator();
 
         var indices = try allocator.dupe(u32, in_indices);
-
-        var seen = std.ArrayList(struct { Vec3, usize }).init(self.arena.allocator());
-        defer seen.deinit();
 
         var converted = std.ArrayList(Vertex).init(self.arena.allocator());
         defer converted.deinit();
@@ -200,22 +194,6 @@ pub const Mesh = struct {
                 vertices[i * format.length + format.uv_offset + 1],
             };
 
-            var copy = false;
-            for (seen.items) |candidate| {
-                if (@reduce(.And, candidate[0] == pos)) {
-                    copy = true;
-                    for (indices) |*mut| {
-                        if (mut.* == i) {
-                            mut.* = @intCast(candidate[1]);
-                        }
-                    }
-                    break;
-                }
-            }
-            if (!copy) {
-                try seen.append(.{ pos, i });
-            }
-
             try converted.append(.{
                 .pos = pos,
                 .uv = uv,
@@ -226,7 +204,6 @@ pub const Mesh = struct {
         return res;
     }
 
-    // this merges the vertices with the same pos rather than doing it properly
     pub fn makeNgon(self: *Mesh, in_vert: []const Vertex, indices: []const u32, comptime n: comptime_int) !*HalfEdge {
         const allocator = self.arena.allocator();
 
@@ -244,12 +221,14 @@ pub const Mesh = struct {
 
         var begin = true;
 
-        var map = std.AutoHashMap(Pair, *HalfEdge).init(allocator);
-        defer map.deinit();
+        var seen = std.ArrayList(struct { [2]Vec3, *HalfEdge }).init(allocator);
+        defer seen.deinit();
 
         for (indices, 0..) |index, i| {
             var current_vertex = &vertices[index];
-            var next_or: ?usize = if (i < indices.len - 1) indices[i + 1] else null;
+
+            var next_index: ?usize = if (i < indices.len - 1) indices[i + 1] else null;
+            var next_or: ?*Vertex = if (next_index) |id| &vertices[id] else null;
 
             var previous_edge = half_edge;
             half_edge = try allocator.create(HalfEdge);
@@ -271,7 +250,7 @@ pub const Mesh = struct {
 
             if (face_i == n - 1) {
                 half_edge.next = first_face;
-                next_or = first_index;
+                next_or = &vertices[first_index];
 
                 previous_edge.next = half_edge;
 
@@ -289,17 +268,29 @@ pub const Mesh = struct {
             }
 
             if (next_or) |next_vertex| {
-                var key: Pair = if (index > next_vertex) .{ index, next_vertex } else .{ next_vertex, index };
-                if (map.get(key)) |half_twin| {
-                    if (half_twin.twin != null) {
-                        return error.TooManyTwins;
+                var a = [2]Vec3{ current_vertex.pos, next_vertex.pos };
+
+                var not_found = true;
+                for (seen.items) |candidate| {
+                    var b = candidate[0];
+                    if (@reduce(.And, a[0] == b[1]) and @reduce(.And, a[1] == b[0])) {
+                        var half_twin = candidate[1];
+
+                        if (half_twin.twin != null) {
+                            return error.TooManyTwins;
+                        }
+
+                        half_twin.twin = half_edge;
+                        half_edge.twin = half_twin;
+
+                        not_found = false;
+
+                        break;
                     }
-                    half_twin.twin = half_edge;
-                    half_edge.twin = half_twin;
-                    //std.debug.print("\nFound twin at {d:.4} {any:.4}\n", .{ half_twin.vertex.pos, half_twin.twin });
-                } else {
-                    //std.debug.print("adding twin candidate at {any} {any}\n", .{ key, half_edge });
-                    try map.put(key, half_edge);
+                }
+
+                if (not_found) {
+                    try seen.append(.{ a, half_edge });
                 }
             }
         }

@@ -41,11 +41,23 @@ pub fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
     try cam.setParameters(0.6, w / h, 0.1, 2048);
 }
 
+var is_wireframe = false;
+
 pub fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods: i32) !void {
     _ = win;
     _ = scancode;
 
     if (action == glfw.GLFW_PRESS) {
+        if (key == glfw.GLFW_KEY_C) {
+            std.debug.print("abc\n", .{});
+            if (is_wireframe) {
+                gl.polygonMode(gl.FRONT_AND_BACK, gl.FILL);
+                is_wireframe = false;
+            } else {
+                gl.polygonMode(gl.FRONT_AND_BACK, gl.LINE);
+                is_wireframe = true;
+            }
+        }
         current_keys[@intCast(key)] = true;
         last_mods = mods;
         down_num += 1;
@@ -264,7 +276,6 @@ pub fn main() !void {
     //set.clearRetainingCapacity();
 
     var subdivide_set = std.AutoHashMap(?*HalfEdge, [2]*HalfEdge).init(common.allocator);
-    try mesh.subdivide(cube.?, &subdivide_set);
     subdivide_set.clearRetainingCapacity();
     try mesh.subdivide(cube.?, &subdivide_set);
     subdivide_set.clearRetainingCapacity();
@@ -300,15 +311,15 @@ pub fn main() !void {
 
             try builder.addTri(.{ a, b, c });
 
-            if (edge.next) |_| {
-                //var pos_a = edge.vertex.pos;
-                //var pos_b = next.vertex.pos;
+            if (edge.next) |next| {
+                var pos_a = edge.vertex.pos + offset;
+                var pos_b = next.vertex.pos + offset;
 
                 if (edge.twin) |twin| {
                     try stack.append(twin);
-                    //try scene.append(.line, try Line.init(pos_a, pos_b, .{ 0.0, 0.0, 0.0 }, .{ 0.5, 0.0, 0.0 }));
-                    //} else {
-                    //try scene.append(.line try Line.init(pos_a, pos_b, .{ 0.3, 0.3, 0.3 }, .{ 0.0, 0.0, 0.0 }));
+                    _ = try Line.init(try scene.new(.line), &cam.transform_mat, pos_a, pos_b, .{ 0.0, 0.0, 0.0 }, .{ 0.5, 0.0, 0.0 });
+                } else {
+                    _ = try Line.init(try scene.new(.line), &cam.transform_mat, pos_a, pos_b, .{ 0.3, 0.3, 0.3 }, .{ 0.0, 0.0, 0.0 });
                 }
             }
             try stack.append(edge.next);
@@ -320,6 +331,8 @@ pub fn main() !void {
     try subdivided.drawing.textureFromPath("comofas.png");
     builder.deinit();
     set.deinit();
+
+    try (try graphics_set.makeCube(try scene.new(.spatial), .{ 0, 2, 0 }, &cam.transform_mat)).drawing.textureFromPath("comofas.png");
 
     while (main_win.alive) {
         graphics.waitGraphicsEvent();
