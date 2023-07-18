@@ -8,6 +8,7 @@ uniform mat4 transform;
 uniform vec2 in_resolution;
 uniform float time;
 uniform float bright;
+uniform vec3 pos;
 
 out vec2 TexCoord;
 out vec3 Normal;
@@ -16,6 +17,8 @@ out float Time;
 void main()
 {
    vec3 position = aPos;
+   position /= mix(sqrt(position.x*position.x+position.y*position.y+position.z*position.z), 1, cos(time*0.5)+1);
+   position += pos;
    vec4 vert = transform*vec4(position, 1.0);
    gl_Position = vert;
    TexCoord = aTexCoord;

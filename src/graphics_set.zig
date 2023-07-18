@@ -171,9 +171,9 @@ pub const MeshBuilder = struct {
 
     pub fn addTri(self: *MeshBuilder, v: [3]Vertex) !void {
         const vertices = [_]f32{
-            v[0].pos[0], v[0].pos[1], v[0].pos[2], v[0].uv[0], v[0].uv[1], 0, 0, 0,
-            v[1].pos[0], v[1].pos[1], v[1].pos[2], v[1].uv[0], v[1].uv[1], 0, 0, 0,
-            v[2].pos[0], v[2].pos[1], v[2].pos[2], v[2].uv[0], v[2].uv[1], 0, 0, 0,
+            v[0].pos[0], v[0].pos[1], v[0].pos[2], v[0].uv[0], v[0].uv[1], v[0].norm[0], v[0].norm[1], v[0].norm[2],
+            v[1].pos[0], v[1].pos[1], v[1].pos[2], v[1].uv[0], v[1].uv[1], v[1].norm[0], v[1].norm[1], v[1].norm[2],
+            v[2].pos[0], v[2].pos[1], v[2].pos[2], v[2].uv[0], v[2].uv[1], v[2].norm[0], v[2].norm[1], v[2].norm[2],
         };
 
         const indices = [_]u32{
@@ -191,13 +191,20 @@ pub const MeshBuilder = struct {
         self.count += 3;
     }
 
-    pub fn toSpatial(self: *MeshBuilder, drawing: *Drawing(.spatial), transform: *Mat4) !SpatialMesh {
+    const SpatialFormat = struct {
+        vert: [:0]const u8,
+        frag: [:0]const u8,
+        transform: *Mat4,
+        pos: Vec3 = .{ 0, 0, 0 },
+    };
+
+    pub fn toSpatial(self: *MeshBuilder, drawing: *Drawing(.spatial), comptime format: SpatialFormat) !SpatialMesh {
         _ = self;
         return try SpatialMesh.init(
             drawing,
-            .{ 0, 0, 0 },
-            transform,
-            try graphics.Shader.setupShader("shaders/triangle/vertex.glsl", "shaders/triangle/fragment.glsl"),
+            format.pos,
+            format.transform,
+            try graphics.Shader.setupShader(format.vert, format.frag),
         );
     }
 

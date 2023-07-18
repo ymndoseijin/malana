@@ -12,6 +12,12 @@ pub fn Vec(comptime T: type, comptime size: usize) type {
     return struct {
         const Self = @Vector(size, T);
 
+        pub fn interpolate(a: Self, b: Self, x: T) Self {
+            const left: Self = @splat(1 - x);
+            const right: Self = @splat(x);
+            return left * a + b * right;
+        }
+
         pub fn dot(a: Self, b: Self) T {
             return @reduce(.Add, a * b);
         }
@@ -21,14 +27,20 @@ pub fn Vec(comptime T: type, comptime size: usize) type {
         }
 
         pub fn norm(a: Self) Self {
-            return a / @splat(size, length(a));
+            const len: Self = @splat(length(a));
+            return a / len;
         }
 
         pub fn proj(a: Self, b: Self) Self {
-            return @splat(size, dot(b, a) / dot(a, a)) * a;
+            const factor: Self = @splat(dot(b, a) / dot(a, a));
+            return factor * a;
         }
     };
 }
+
+pub const Vec2Utils = struct {
+    pub usingnamespace Vec(f32, 2);
+};
 
 pub const Vec3Utils = struct {
     pub usingnamespace Vec(f32, 3);

@@ -60,7 +60,6 @@ pub const BdfParse = struct {
                         var it = std.mem.split(u8, line, "+");
                         _ = it.next();
                         id = try std.fmt.parseInt(u32, it.next().?, 16);
-                        //std.debug.print("id: {}\n", .{id});
                     } else if (std.mem.startsWith(u8, line, "BBX")) {
                         var it = std.mem.split(u8, line, " ");
                         _ = it.next();
@@ -70,19 +69,14 @@ pub const BdfParse = struct {
                         _ = it.next();
                         width = try std.fmt.parseInt(u32, it.next().?, 10);
                         glyph = try allocator.alloc(bool, width * width);
-                        //std.debug.print("width: {}\n", .{width});
                     }
                 },
                 .bitmap => {
                     if (std.mem.startsWith(u8, line, "ENDCHAR")) {
                         self.state = .normal;
                         glyph_i = 0;
-                        //std.debug.print("glifo {any}\n", .{res});
-                        //std.debug.print("wtf {}\n", .{id});
                         var por_que = Search{ id, try allocator.dupe(bool, glyph), bbx_width };
                         try self.map.append(por_que);
-                        //std.debug.print("{any}\n", .{self.map.items[self.map.items.len - 1]});
-                        //
                     } else {
                         const val = try std.fmt.parseInt(u32, line, 16);
                         for (0..width) |x| {

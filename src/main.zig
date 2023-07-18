@@ -8,6 +8,7 @@ const graphics_set = @import("graphics_set.zig");
 const common = @import("common.zig");
 
 const BdfParse = @import("bdf.zig").BdfParse;
+const ObjParse = @import("obj.zig").ObjParse;
 
 const Mesh = geometry.Mesh;
 const Vertex = geometry.Vertex;
@@ -85,11 +86,12 @@ pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
 
     std.debug.print("{d:.4} {d:.4}\n", .{ speed, look_speed });
 
-    const eye = @splat(3, speed * dt) * Vec3{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) };
+    const speed_vec: Vec3 = @splat(speed * dt);
+    const eye = speed_vec * Vec3{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) };
 
-    const cross_eye = @splat(3, speed * dt) * -Vec3Utils.crossn(eye, cam.up);
+    const cross_eye = speed_vec * -Vec3Utils.crossn(eye, cam.up);
 
-    const up_eye = @splat(3, speed * dt) * Vec3Utils.crossn(eye, cross_eye);
+    const up_eye = speed_vec * Vec3Utils.crossn(eye, cross_eye);
 
     if (keys[glfw.GLFW_KEY_Q]) {
         main_win.alive = false;
@@ -267,6 +269,7 @@ pub fn main() !void {
 
     var cube: ?*HalfEdge = try mesh.makeFrom(&Cube.vertices, &Cube.indices, .{
         .pos_offset = 0,
+        .norm_offset = 5,
         .uv_offset = 3,
         .length = 8,
     }, 3);
@@ -326,13 +329,36 @@ pub fn main() !void {
         }
     }
 
-    var subdivided = try builder.toSpatial(try scene.new(.spatial), &cam.transform_mat);
+    var subdivided = try builder.toSpatial(
+        try scene.new(.spatial),
+        .{
+            .vert = "shaders/ball/vertex.glsl",
+            .frag = "shaders/ball/fragment.glsl",
+            .transform = &cam.transform_mat,
+            .pos = .{ 0, 2, 0 },
+        },
+    );
     subdivided.drawing.bindVertex(builder.vertices.items, builder.indices.items);
     try subdivided.drawing.textureFromPath("comofas.png");
     builder.deinit();
     set.deinit();
 
-    try (try graphics_set.makeCube(try scene.new(.spatial), .{ 0, 2, 0 }, &cam.transform_mat)).drawing.textureFromPath("comofas.png");
+    var obj_parser = try ObjParse.init(common.allocator);
+    var obj_builder = try obj_parser.parse("resources/icosphere.obj");
+
+    var camera_obj = try obj_builder.toSpatial(
+        try scene.new(.spatial),
+        .{
+            .vert = "shaders/triangle/vertex.glsl",
+            .frag = "shaders/triangle/fragment.glsl",
+            .transform = &cam.transform_mat,
+        },
+    );
+    camera_obj.drawing.bindVertex(obj_builder.vertices.items, obj_builder.indices.items);
+    try camera_obj.drawing.textureFromPath("resources/gray.png");
+    obj_builder.deinit();
+
+    //try (try graphics_set.makeCube(try scene.new(.spatial), .{ 0, 2, 0 }, &cam.transform_mat)).drawing.textureFromPath("comofas.png");
 
     while (main_win.alive) {
         graphics.waitGraphicsEvent();

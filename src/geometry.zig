@@ -5,10 +5,14 @@ const testing = std.testing;
 const Vec3 = math.Vec3;
 const Vec2 = math.Vec2;
 
+const Vec3Utils = math.Vec3Utils;
+const Vec2Utils = math.Vec2Utils;
+
 pub const Vertex = struct {
     pos: Vec3,
+    norm: Vec3,
     uv: Vec2,
-    pub const Zero = Vertex{ .pos = .{ 0, 0, 0 }, .uv = .{ 0, 0 } };
+    pub const Zero = Vertex{ .pos = .{ 0, 0, 0 }, .norm = .{ 0, 0, 0 }, .uv = .{ 0, 0 } };
 };
 
 // potential footgun, face holds a pointer to vertices, so if you change it you might change it to other faces as well
@@ -59,9 +63,10 @@ pub const HalfEdge = struct {
         if (self.next) |next_edge| {
             var a = self.vertex;
             var b = next_edge.vertex;
-            const pos = (b.pos - a.pos) / @splat(3, @as(f32, 2)) + a.pos;
-            const uv = (b.uv - a.uv) / @splat(2, @as(f32, 2)) + a.uv;
-            return Vertex{ .pos = pos, .uv = uv };
+            const pos = Vec3Utils.interpolate(a.pos, b.pos, 0.5);
+            const norm = Vec3Utils.interpolate(a.norm, b.norm, 0.5);
+            const uv = Vec2Utils.interpolate(a.uv, b.uv, 0.5);
+            return Vertex{ .pos = pos, .uv = uv, .norm = norm };
         }
         return Vertex.Zero;
     }
@@ -168,8 +173,9 @@ pub const Mesh = struct {
 
     const Pair = struct { usize, usize };
     const Format = struct {
-        uv_offset: usize,
         pos_offset: usize,
+        norm_offset: usize,
+        uv_offset: usize,
         length: usize,
     };
 
@@ -189,6 +195,12 @@ pub const Mesh = struct {
                 vertices[i * format.length + format.pos_offset + 2],
             };
 
+            var norm: Vec3 = .{
+                vertices[i * format.length + format.norm_offset],
+                vertices[i * format.length + format.norm_offset + 1],
+                vertices[i * format.length + format.norm_offset + 2],
+            };
+
             var uv: Vec2 = .{
                 vertices[i * format.length + format.uv_offset],
                 vertices[i * format.length + format.uv_offset + 1],
@@ -196,6 +208,7 @@ pub const Mesh = struct {
 
             try converted.append(.{
                 .pos = pos,
+                .norm = norm,
                 .uv = uv,
             });
         }
