@@ -2,6 +2,9 @@ const std = @import("std");
 
 const assert = std.debug.assert;
 
+const sin = std.math.sin;
+const cos = std.math.cos;
+
 pub const Mat4 = Mat(f32, 4, 4);
 pub const Mat3 = Mat(f32, 3, 3);
 
@@ -59,10 +62,10 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
         pub const WIDTH: usize = width;
         pub const HEIGHT: usize = height;
 
-        rows: [width]@Vector(height, T),
+        columns: [width]@Vector(height, T),
 
-        pub fn init(rows: [width]@Vector(height, T)) @This() {
-            return @This(){ .rows = rows };
+        pub fn init(columns: [width]@Vector(height, T)) @This() {
+            return @This(){ .columns = columns };
         }
 
         pub fn identity() @This() {
@@ -71,7 +74,7 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
             var id = @This().zero();
 
             inline for (0..width) |i| {
-                id.rows[i][i] = 1;
+                id.columns[i][i] = 1;
             }
 
             return id;
@@ -80,10 +83,10 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
         pub fn translation(vec: @Vector(height - 1, T)) @This() {
             var res = identity();
             const arr: [height - 1]T = vec;
-            inline for (arr, 0..) |vrow, i| {
-                res.rows[width - 1][i] = vrow;
+            inline for (arr, 0..) |vcolumn, i| {
+                res.columns[width - 1][i] = vcolumn;
             }
-            res.rows[width - 1][height - 1] = 1;
+            res.columns[width - 1][height - 1] = 1;
             return res;
         }
 
@@ -92,12 +95,17 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
         }
 
         pub fn singleValue(default: T) @This() {
-            return @This(){ .rows = .{.{default} ** height} ** width };
+            return @This(){ .columns = .{.{default} ** height} ** width };
         }
 
-        pub fn dot(self: @This(), vec: @Vector(width, T)) @Vector(width, T) {
-            var res: @Vector(width, T) = undefined;
-            inline for (self.rows, 0..) |row, i| {
+        pub fn dot(self: @This(), vec: @Vector(width, T)) @Vector(height, T) {
+            var res: @Vector(height, T) = undefined;
+            inline for (0..width) |i| {
+                var row: @Vector(width, T) = undefined;
+                inline for (self.columns, 0..) |col, j| {
+                    row[j] = col[i];
+                }
+
                 res[i] = @reduce(.Add, row * vec);
             }
             return res;
@@ -105,10 +113,10 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
 
         pub fn gramschmidt(self: @This()) @This() {
             var res: @This() = undefined;
-            for (res.rows, self.rows, 0..) |res_row, vn, i| {
-                res_row = vn;
+            for (res.columns, self.columns, 0..) |res_column, vn, i| {
+                res_column = vn;
                 for (0..i) |j| {
-                    res_row -= Vec(T, height).proj(res_row[j], vn);
+                    res_column -= Vec(T, height).proj(res_column[j], vn);
                 }
             }
             return res;
@@ -116,22 +124,52 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
 
         pub fn mul(self: @This(), comptime R: type, other: anytype) R {
             var res: R = undefined;
-            inline for (self.rows, 0..) |row, i| {
+            inline for (self.columns, 0..) |prev_column, i| {
                 var column: @Vector(R.HEIGHT, T) = .{0} ** R.HEIGHT;
 
                 inline for (0..width) |j| {
                     const mask = ([1]i32{@intCast(j)}) ** R.HEIGHT;
-                    var vi = @shuffle(T, row, undefined, mask);
+                    var vi = @shuffle(T, prev_column, undefined, mask);
 
-                    vi = vi * other.rows[j];
+                    vi = vi * other.columns[j];
                     column += vi;
                 }
 
-                res.rows[i] = column;
+                res.columns[i] = column;
             }
             return res;
         }
     };
+}
+
+pub fn rotationX(t: f32) Mat3 {
+    return Mat3.init(.{
+        .{ 1, 0, 0 },
+        .{ 0, cos(t), sin(t) },
+        .{ 0, -sin(t), cos(t) },
+    });
+}
+
+pub fn rotationY(t: f32) Mat3 {
+    return Mat3.init(.{
+        .{ cos(t), 0, -sin(t) },
+        .{ 0, 1, 0 },
+        .{ -sin(t), 0, cos(t) },
+    });
+}
+
+pub fn rotationZ(t: f32) Mat3 {
+    return Mat3.init(.{
+        .{ cos(t), sin(t), 0 },
+        .{ -sin(t), cos(t), 0 },
+        .{ 0, 0, 1 },
+    });
+}
+
+test "rot" {
+    const mat = rotationZ(1.570796);
+    std.debug.print("\n{d:.4}\n", .{mat.columns});
+    std.debug.print("{d:.4}\n", .{mat.dot(.{ 1, 0, 0 })});
 }
 
 pub fn perspectiveMatrix(fovy: f32, aspect: f32, nearZ: f32, farZ: f32) Mat4 {
@@ -140,11 +178,11 @@ pub fn perspectiveMatrix(fovy: f32, aspect: f32, nearZ: f32, farZ: f32) Mat4 {
     var f = 1.0 / std.math.tan(fovy * 0.5);
     var f_n = 1.0 / (nearZ - farZ);
 
-    res.rows[0][0] = f / aspect;
-    res.rows[1][1] = f;
-    res.rows[2][2] = (nearZ + farZ) * f_n;
-    res.rows[2][3] = -1.0;
-    res.rows[3][2] = 2.0 * nearZ * farZ * f_n;
+    res.columns[0][0] = f / aspect;
+    res.columns[1][1] = f;
+    res.columns[2][2] = (nearZ + farZ) * f_n;
+    res.columns[2][3] = -1.0;
+    res.columns[3][2] = 2.0 * nearZ * farZ * f_n;
 
     return res;
 }
@@ -157,22 +195,22 @@ pub fn lookAtMatrix(eye: Vec3, center: Vec3, up: Vec3) Mat4 {
     const s = Vec3Utils.norm(Vec3Utils.cross(f, up));
     const u = Vec3Utils.cross(s, f);
 
-    res.rows[0][0] = s[0];
-    res.rows[0][1] = u[0];
-    res.rows[0][2] = -f[0];
-    res.rows[1][0] = s[1];
-    res.rows[1][1] = u[1];
-    res.rows[1][2] = -f[1];
-    res.rows[2][0] = s[2];
-    res.rows[2][1] = u[2];
-    res.rows[2][2] = -f[2];
-    res.rows[3][0] = -Vec3Utils.dot(s, eye);
-    res.rows[3][1] = -Vec3Utils.dot(u, eye);
-    res.rows[3][2] = Vec3Utils.dot(f, eye);
-    res.rows[0][3] = 0.0;
-    res.rows[1][3] = 0.0;
-    res.rows[2][3] = 0.0;
-    res.rows[3][3] = 1.0;
+    res.columns[0][0] = s[0];
+    res.columns[0][1] = u[0];
+    res.columns[0][2] = -f[0];
+    res.columns[1][0] = s[1];
+    res.columns[1][1] = u[1];
+    res.columns[1][2] = -f[1];
+    res.columns[2][0] = s[2];
+    res.columns[2][1] = u[2];
+    res.columns[2][2] = -f[2];
+    res.columns[3][0] = -Vec3Utils.dot(s, eye);
+    res.columns[3][1] = -Vec3Utils.dot(u, eye);
+    res.columns[3][2] = Vec3Utils.dot(f, eye);
+    res.columns[0][3] = 0.0;
+    res.columns[1][3] = 0.0;
+    res.columns[2][3] = 0.0;
+    res.columns[3][3] = 1.0;
 
     return res;
 }
@@ -203,5 +241,5 @@ pub fn main() !void {
     const up = Vec3{ 0.00000, 1.00000, 0.00000 };
 
     std.debug.print("{d:.4}\n", .{Vec(f32, 2).norm(.{ 1, 1 })});
-    std.debug.print("{d:.4}\n", .{lookAtMatrix(.{ 0, 0, 0 }, center, up).rows});
+    std.debug.print("{d:.4}\n", .{lookAtMatrix(.{ 0, 0, 0 }, center, up).columns});
 }

@@ -1,6 +1,7 @@
 const std = @import("std");
 const math = @import("math.zig");
 const gl = @import("gl.zig");
+const numericals = @import("numericals.zig");
 const img = @import("img");
 const geometry = @import("geometry.zig");
 const graphics = @import("graphics.zig");
@@ -25,6 +26,10 @@ const MeshBuilder = graphics_set.MeshBuilder;
 const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
+
+const atan2 = std.math.atan2;
+const sin = std.math.sin;
+const cos = std.math.cos;
 
 var current_keys: [glfw.GLFW_KEY_MENU + 1]bool = .{false} ** (glfw.GLFW_KEY_MENU + 1);
 var down_num: usize = 0;
@@ -212,8 +217,8 @@ pub fn main() !void {
     defer main_win.deinit();
 
     gl.enable(gl.DEPTH_TEST);
-    //gl.enable(gl.CULL_FACE);
-    //gl.cullFace(gl.FRONT);
+    gl.enable(gl.CULL_FACE);
+    gl.cullFace(gl.BACK);
     gl.enable(gl.BLEND);
     gl.lineWidth(3);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -344,7 +349,7 @@ pub fn main() !void {
     set.deinit();
 
     var obj_parser = try ObjParse.init(common.allocator);
-    var obj_builder = try obj_parser.parse("resources/icosphere.obj");
+    var obj_builder = try obj_parser.parse("resources/table.obj");
 
     var camera_obj = try obj_builder.toSpatial(
         try scene.new(.spatial),
@@ -360,6 +365,10 @@ pub fn main() !void {
 
     //try (try graphics_set.makeCube(try scene.new(.spatial), .{ 0, 2, 0 }, &cam.transform_mat)).drawing.textureFromPath("comofas.png");
 
+    var timer: f32 = 0;
+
+    //glfw.glfwSwapInterval(0);
+
     while (main_win.alive) {
         graphics.waitGraphicsEvent();
 
@@ -368,11 +377,34 @@ pub fn main() !void {
 
         const time = @as(f32, @floatCast(glfw.glfwGetTime()));
 
+        const dt = time - last_time;
+
         if (down_num > 0) {
-            try key_down(&current_keys, last_mods, time - last_time);
+            try key_down(&current_keys, last_mods, dt);
         }
 
-        try text.printFmt("cam: {d:.4} {d:.4}\n", .{ cam.eye, cam.move });
+        var elems: numericals.KeplerElements = .{
+            .a = 2.7,
+            .e = 0.6,
+            .i = 0,
+            .arg = TAU / 4.0,
+            .long = 0,
+            .m0 = 0,
+        };
+
+        const v = 0.0;
+        elems.m0 = atan2(f32, -@sqrt(1 - elems.e * elems.e) * sin(v), -elems.e - cos(v)) + TAU / 2.0 - elems.e * (@sqrt(1 - elems.e * elems.e) * sin(v)) / (1 + elems.e * cos(v));
+
+        const pos = numericals.keplerToCart(elems, time * 0.00004, 2);
+
+        subdivided.updatePos(pos[0]);
+
+        timer += dt;
+
+        if (timer > 0.025) {
+            try text.printFmt("撮影機: あああ {d:.4} {d:.4} {d:.4} {d:.4}\n", .{ @reduce(.Add, pos[0] * pos[0]), cam.eye, cam.move, 1 / dt });
+            timer = 0;
+        }
 
         try scene.draw(main_win.*);
 

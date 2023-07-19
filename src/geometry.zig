@@ -88,14 +88,12 @@ pub const Mesh = struct {
 
     pub fn syncEdges(a: *HalfEdge, b: *HalfEdge, twins: [2]*HalfEdge) void {
         if (twins[0].vertex == a.vertex) {
-            std.debug.print("Setting as equal\n", .{});
             twins[0].twin = a;
             a.twin = twins[0];
 
             twins[1].twin = b;
             b.twin = twins[1];
         } else {
-            std.debug.print("Setting as different\n", .{});
             twins[1].twin = a;
             a.twin = twins[1];
 

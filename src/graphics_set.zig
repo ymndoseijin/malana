@@ -69,7 +69,7 @@ pub const Line = struct {
         const indices = [_]u32{ 0, 1 };
 
         drawing.bindVertex(&vertices, &indices);
-        try drawing.uniform4fv_array.append(.{ .name = "transform", .value = &transform.rows[0][0] });
+        try drawing.uniform4fv_array.append(.{ .name = "transform", .value = &transform.columns[0][0] });
 
         return Line{
             .vertices = vertices,
@@ -122,8 +122,8 @@ pub const Cube = struct {
         inline for (0..24 / 4) |i| {
             temp_indices[6 * i] = 4 * i;
             temp_indices[6 * i + 1] = 4 * i + 1;
-            temp_indices[6 * i + 2] = 4 * i + 2;
-            temp_indices[6 * i + 3] = 4 * i + 3;
+            temp_indices[6 * i + 2] = 4 * i + 3;
+            temp_indices[6 * i + 3] = 4 * i + 2;
             temp_indices[6 * i + 4] = 4 * i + 1;
             temp_indices[6 * i + 5] = 4 * i;
         }
@@ -144,13 +144,13 @@ pub const SpatialMesh = struct {
     drawing: *Drawing(.spatial),
 
     pub fn updatePos(self: *SpatialMesh, pos: Vec3) void {
-        self.drawing.uniform3f_array[0].value = pos;
+        self.drawing.uniform3f_array.items[0].value = pos;
     }
 
     pub fn init(drawing: *Drawing(.spatial), pos: Vec3, transform: *Mat4, shader: u32) !SpatialMesh {
         drawing.* = graphics.Drawing(.spatial).init(shader);
 
-        try drawing.uniform4fv_array.append(.{ .name = "transform", .value = &transform.rows[0][0] });
+        try drawing.uniform4fv_array.append(.{ .name = "transform", .value = &transform.columns[0][0] });
         try drawing.uniform3f_array.append(.{ .name = "pos", .value = pos });
 
         return SpatialMesh{
@@ -286,12 +286,15 @@ pub const Text = struct {
         defer indices.deinit();
 
         var x: f32 = 0;
-        for (text, 0..) |c, x_int| {
+        var x_int: u32 = 0;
+
+        var utf8 = (try std.unicode.Utf8View.init(text)).iterator();
+        while (utf8.nextCodepoint()) |c| : (x_int += 1) {
             const count_float: f32 = @floatFromInt(self.bdf.map.items.len);
             const size: u32 = @intFromFloat(@ceil(@sqrt(count_float)));
             const size_f: f32 = @ceil(@sqrt(count_float));
 
-            //std.debug.print("{d:.4} {d:.4}\n", .{ c, x });
+            std.debug.print("{d:.4} {d:.4}\n", .{ c, x });
 
             for (self.bdf.map.items, 0..) |search, i| {
                 if (search[0] == c) {
@@ -305,7 +308,7 @@ pub const Text = struct {
                         x,     1, 0, atlas_x,     size_f - atlas_y,     0, 0, 0,
                     };
 
-                    const start: u32 = @intCast(x_int * 4);
+                    const start: u32 = x_int * 4;
 
                     try indices.append(start);
                     try indices.append(start + 1);

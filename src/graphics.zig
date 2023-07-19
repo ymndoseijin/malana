@@ -268,7 +268,7 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
             const time = @as(f32, @floatCast(glfw.glfwGetTime()));
             const now: f32 = 2 * time;
             const arrayUniformLoc: i32 = gl.getUniformLocation(self.shader_program, "transform");
-            gl.uniformMatrix3fv(arrayUniformLoc, 1, gl.FALSE, &self.transform.rows[0][0]);
+            gl.uniformMatrix3fv(arrayUniformLoc, 1, gl.FALSE, &self.transform.columns[0][0]);
 
             for (self.uniform4fv_array.items) |uni4fv| {
                 const uniform4fv_loc: i32 = gl.getUniformLocation(self.shader_program, uni4fv.name);
