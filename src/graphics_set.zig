@@ -69,7 +69,7 @@ pub const Line = struct {
         const indices = [_]u32{ 0, 1 };
 
         drawing.bindVertex(&vertices, &indices);
-        try drawing.uniform4fv_array.append(.{ .name = "transform", .value = &transform.columns[0][0] });
+        try drawing.addUniformMat4("transform", transform);
 
         return Line{
             .vertices = vertices,
@@ -142,19 +142,20 @@ pub fn makeCube(drawing: *Drawing(.spatial), pos: Vec3, transform: *Mat4) !Spati
 
 pub const SpatialMesh = struct {
     drawing: *Drawing(.spatial),
+    pos: Vec3,
 
-    pub fn updatePos(self: *SpatialMesh, pos: Vec3) void {
-        self.drawing.uniform3f_array.items[0].value = pos;
+    pub fn initUniform(self: *SpatialMesh) !void {
+        try self.drawing.addUniformVec3("pos", &self.pos);
     }
 
     pub fn init(drawing: *Drawing(.spatial), pos: Vec3, transform: *Mat4, shader: u32) !SpatialMesh {
         drawing.* = graphics.Drawing(.spatial).init(shader);
 
-        try drawing.uniform4fv_array.append(.{ .name = "transform", .value = &transform.columns[0][0] });
-        try drawing.uniform3f_array.append(.{ .name = "pos", .value = pos });
+        try drawing.addUniformMat4("transform", transform);
 
         return SpatialMesh{
             .drawing = drawing,
+            .pos = pos,
         };
     }
 };
@@ -198,7 +199,7 @@ pub const MeshBuilder = struct {
         pos: Vec3 = .{ 0, 0, 0 },
     };
 
-    pub fn toSpatial(self: *MeshBuilder, drawing: *Drawing(.spatial), comptime format: SpatialFormat) !SpatialMesh {
+    pub fn toSpatial(self: MeshBuilder, drawing: *Drawing(.spatial), comptime format: SpatialFormat) !SpatialMesh {
         _ = self;
         return try SpatialMesh.init(
             drawing,
@@ -239,6 +240,7 @@ pub const Text = struct {
     drawing: *Drawing(.spatial),
     bdf: BdfParse,
     atlas: Image,
+    pos: Vec3,
 
     pub fn updatePos(self: *Text, pos: Vec3) void {
         self.drawing.uniform3f_array[0].value = pos;
@@ -337,16 +339,20 @@ pub const Text = struct {
         common.allocator.free(self.atlas.data);
     }
 
+    pub fn initUniform(self: *Text) !void {
+        try self.drawing.addUniformVec3("pos", &self.pos);
+    }
+
     pub fn init(drawing: *Drawing(.spatial), bdf: BdfParse, pos: Vec3, text: []const u8) !Text {
         drawing.* = graphics.Drawing(.spatial).init(try graphics.Shader.setupShader("shaders/text/vertex.glsl", "shaders/text/fragment.glsl"));
 
         var atlas = try makeAtlas(bdf);
 
         try drawing.textureFromRgba(atlas.data, atlas.width, atlas.height);
-        try drawing.uniform3f_array.append(.{ .name = "pos", .value = pos });
 
         var res = Text{
             .bdf = bdf,
+            .pos = pos,
             .drawing = drawing,
             .atlas = atlas,
         };

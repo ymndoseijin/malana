@@ -10,6 +10,7 @@ const common = @import("common.zig");
 
 const BdfParse = @import("bdf.zig").BdfParse;
 const ObjParse = @import("obj.zig").ObjParse;
+const VsopParse = @import("vsop.zig").VsopParse;
 
 const Mesh = geometry.Mesh;
 const Vertex = geometry.Vertex;
@@ -39,6 +40,7 @@ var main_win: *graphics.Window = undefined;
 var scene: graphics.Scene = undefined;
 
 var cam: Camera = undefined;
+var fog: f32 = 2;
 
 pub fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
     _ = win;
@@ -146,10 +148,13 @@ pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
 }
 pub fn makeAxis() !void {
     var line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ 0, 0.01, 0 }, .{ 2, 0, 0 }, .{ 1, 0, 0 }, .{ 1, 0, 0 });
+    try line.drawing.addUniformFloat("fog", &fog);
 
     line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ 0, 0.01, 0 }, .{ 0, 2, 0 }, .{ 0, 1, 0 }, .{ 0, 1, 0 });
+    try line.drawing.addUniformFloat("fog", &fog);
 
     line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ 0, 0.01, 0 }, .{ 0, 0, 2 }, .{ 0, 0, 1 }, .{ 0, 0, 1 });
+    try line.drawing.addUniformFloat("fog", &fog);
 }
 
 pub fn makeGrid() !void {
@@ -159,7 +164,9 @@ pub fn makeGrid() !void {
         x -= size / 2;
 
         var line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ x, 0, -size / 2 }, .{ x, 0, size / 2 }, .{ 0.5, 0.5, 0.5 }, .{ 0.5, 0.5, 0.5 });
+        try line.drawing.addUniformFloat("fog", &fog);
         line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ -size / 2, 0, x }, .{ size / 2, 0, x }, .{ 0.5, 0.5, 0.5 }, .{ 0.5, 0.5, 0.5 });
+        try line.drawing.addUniformFloat("fog", &fog);
     }
 }
 
@@ -204,6 +211,52 @@ pub fn recurseHalf(mesh: *MeshBuilder, set: *std.AutoHashMap(*HalfEdge, void), e
     }
 }
 
+const Planet = struct {
+    vsop: VsopParse(3),
+    subdivided: graphics_set.SpatialMesh,
+
+    pub fn deinit(self: *Planet) void {
+        self.vsop.deinit();
+    }
+
+    pub fn update(self: *Planet, time: f32) void {
+        _ = time;
+        const now: f64 = @floatFromInt(std.time.timestamp());
+        const real_time = now / 86400.0 + 2440587.5;
+        const venus_pos = self.vsop.at((real_time - 2451545.0) / 365250.0);
+
+        var pos = Vec3{ @floatCast(venus_pos[0]), @floatCast(venus_pos[2]), @floatCast(venus_pos[1]) };
+        pos *= @splat(10.0);
+
+        self.subdivided.pos = pos;
+    }
+
+    pub fn initUniform(self: *Planet) !void {
+        try self.subdivided.initUniform();
+    }
+
+    pub fn init(comptime name: []const u8, mesh: MeshBuilder) !Planet {
+        var subdivided = try mesh.toSpatial(
+            try scene.new(.spatial),
+            .{
+                .vert = "shaders/ball/vertex.glsl",
+                .frag = "shaders/ball/fragment.glsl",
+                .transform = &cam.transform_mat,
+                .pos = .{ 0, 2, 0 },
+            },
+        );
+        try subdivided.drawing.addUniformFloat("fog", &fog);
+
+        subdivided.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
+
+        try subdivided.drawing.textureFromPath("comofas.png");
+        return .{
+            .vsop = try VsopParse(3).init("vsop87/VSOP87C." ++ name),
+            .subdivided = subdivided,
+        };
+    }
+};
+
 pub fn main() !void {
     defer _ = common.gpa_instance.deinit();
 
@@ -232,9 +285,12 @@ pub fn main() !void {
     defer scene.deinit();
 
     var text = try graphics_set.Text.init(try scene.new(.spatial), bdf, .{ 0, 0, 0 }, "cam: { 4.3200, -0.2300 } { 4.6568, 3.9898, 15.5473 }");
+    try text.initUniform();
+    try text.drawing.addUniformFloat("fog", &fog);
     defer text.deinit();
 
     var atlas_cube = try graphics_set.makeCube(try scene.new(.spatial), .{ 10, 1, 0 }, &cam.transform_mat);
+    try atlas_cube.initUniform();
     var rgba_image = try graphics_set.Text.makeAtlas(bdf);
     defer common.allocator.free(rgba_image.data);
 
@@ -244,6 +300,7 @@ pub fn main() !void {
 
     for ("*hello!", 0..) |c, i| {
         var cube = try graphics_set.makeCube(try scene.new(.spatial), .{ 10, 0, @as(f32, @floatFromInt(i)) }, &cam.transform_mat);
+        try cube.initUniform();
 
         var rgba = try bdfToRgba(&bdf, c);
 
@@ -325,28 +382,16 @@ pub fn main() !void {
 
                 if (edge.twin) |twin| {
                     try stack.append(twin);
-                    _ = try Line.init(try scene.new(.line), &cam.transform_mat, pos_a, pos_b, .{ 0.0, 0.0, 0.0 }, .{ 0.5, 0.0, 0.0 });
+                    var line = try Line.init(try scene.new(.line), &cam.transform_mat, pos_a, pos_b, .{ 0.0, 0.0, 0.0 }, .{ 0.5, 0.0, 0.0 });
+                    try line.drawing.addUniformFloat("fog", &fog);
                 } else {
-                    _ = try Line.init(try scene.new(.line), &cam.transform_mat, pos_a, pos_b, .{ 0.3, 0.3, 0.3 }, .{ 0.0, 0.0, 0.0 });
+                    var line = try Line.init(try scene.new(.line), &cam.transform_mat, pos_a, pos_b, .{ 0.3, 0.3, 0.3 }, .{ 0.0, 0.0, 0.0 });
+                    try line.drawing.addUniformFloat("fog", &fog);
                 }
             }
             try stack.append(edge.next);
         }
     }
-
-    var subdivided = try builder.toSpatial(
-        try scene.new(.spatial),
-        .{
-            .vert = "shaders/ball/vertex.glsl",
-            .frag = "shaders/ball/fragment.glsl",
-            .transform = &cam.transform_mat,
-            .pos = .{ 0, 2, 0 },
-        },
-    );
-    subdivided.drawing.bindVertex(builder.vertices.items, builder.indices.items);
-    try subdivided.drawing.textureFromPath("comofas.png");
-    builder.deinit();
-    set.deinit();
 
     var obj_parser = try ObjParse.init(common.allocator);
     var obj_builder = try obj_parser.parse("resources/table.obj");
@@ -359,6 +404,10 @@ pub fn main() !void {
             .transform = &cam.transform_mat,
         },
     );
+
+    try camera_obj.initUniform();
+    try camera_obj.drawing.addUniformFloat("fog", &fog);
+
     camera_obj.drawing.bindVertex(obj_builder.vertices.items, obj_builder.indices.items);
     try camera_obj.drawing.textureFromPath("resources/gray.png");
     obj_builder.deinit();
@@ -368,6 +417,20 @@ pub fn main() !void {
     var timer: f32 = 0;
 
     //glfw.glfwSwapInterval(0);
+
+    const planets_suffix = .{ "mer", "ven", "ear", "mar", "jup", "sat", "ura", "nep" };
+    var planets: [planets_suffix.len]Planet = undefined;
+    inline for (planets_suffix, 0..) |name, i| {
+        planets[i] = try Planet.init(name, builder);
+        try planets[i].initUniform();
+    }
+
+    defer inline for (&planets) |*planet| {
+        planet.deinit();
+    };
+
+    builder.deinit();
+    set.deinit();
 
     while (main_win.alive) {
         graphics.waitGraphicsEvent();
@@ -383,26 +446,25 @@ pub fn main() !void {
             try key_down(&current_keys, last_mods, dt);
         }
 
-        var elems: numericals.KeplerElements = .{
-            .a = 2.7,
-            .e = 0.6,
-            .i = 0,
-            .arg = TAU / 4.0,
-            .long = 0,
-            .m0 = 0,
-        };
+        //var elems: numericals.KeplerElements = .{
+        //    .a = 2.7,
+        //    .e = 0.6,
+        //    .i = 0,
+        //    .arg = TAU / 4.0,
+        //    .long = 0,
+        //    .m0 = 0,
+        //};
 
-        const v = 0.0;
-        elems.m0 = atan2(f32, -@sqrt(1 - elems.e * elems.e) * sin(v), -elems.e - cos(v)) + TAU / 2.0 - elems.e * (@sqrt(1 - elems.e * elems.e) * sin(v)) / (1 + elems.e * cos(v));
+        //const v = 0.0;
+        //elems.m0 = atan2(f32, -@sqrt(1 - elems.e * elems.e) * sin(v), -elems.e - cos(v)) + TAU / 2.0 - elems.e * (@sqrt(1 - elems.e * elems.e) * sin(v)) / (1 + elems.e * cos(v));
 
-        const pos = numericals.keplerToCart(elems, time * 0.00004, 2);
-
-        subdivided.updatePos(pos[0]);
-
+        inline for (&planets) |*planet| {
+            planet.update(time);
+        }
         timer += dt;
 
         if (timer > 0.025) {
-            try text.printFmt("撮影機: あああ {d:.4} {d:.4} {d:.4} {d:.4}\n", .{ @reduce(.Add, pos[0] * pos[0]), cam.eye, cam.move, 1 / dt });
+            try text.printFmt("撮影機: あああ {d:.4} {d:.4} {d:.4}\n", .{ cam.eye, cam.move, 1 / dt });
             timer = 0;
         }
 

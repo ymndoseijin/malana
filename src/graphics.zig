@@ -15,12 +15,12 @@ const math = @import("math.zig");
 
 const Uniform1f = struct {
     name: [:0]const u8,
-    value: f32,
+    value: *f32,
 };
 
 const Uniform3f = struct {
     name: [:0]const u8,
-    value: math.Vec3,
+    value: *math.Vec3,
 };
 
 const Uniform4fv = struct {
@@ -158,6 +158,18 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
         const Self = @This();
         pub const render_type = drawing_type;
 
+        pub fn addUniformFloat(self: *Self, name: [:0]const u8, f: *f32) !void {
+            try self.uniform1f_array.append(.{ .name = name, .value = f });
+        }
+
+        pub fn addUniformVec3(self: *Self, name: [:0]const u8, v: *math.Vec3) !void {
+            try self.uniform3f_array.append(.{ .name = name, .value = v });
+        }
+
+        pub fn addUniformMat4(self: *Self, name: [:0]const u8, m: *math.Mat4) !void {
+            try self.uniform4fv_array.append(.{ .name = name, .value = &m.columns[0][0] });
+        }
+
         pub fn init(shader: u32) Self {
             var drawing: Self = undefined;
 
@@ -283,12 +295,13 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
 
             for (self.uniform1f_array.items) |uni| {
                 const uniform_loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
-                gl.uniform1f(uniform_loc, uni.value);
+                gl.uniform1f(uniform_loc, uni.value.*);
             }
 
             for (self.uniform3f_array.items) |uni| {
                 const uniform_loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
-                gl.uniform3f(uniform_loc, uni.value[0], uni.value[1], uni.value[2]);
+                std.debug.print("v {d:.4}\n", .{uni.value.*});
+                gl.uniform3f(uniform_loc, uni.value.*[0], uni.value.*[1], uni.value.*[2]);
             }
 
             if (self.has_texture) {

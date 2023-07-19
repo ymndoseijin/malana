@@ -4,6 +4,8 @@ out vec4 FragColor;
 in vec3 Color;
 float near = 0.1; 
 float far  = 2048.0; 
+
+uniform float fog;
   
 float LinearizeDepth(float depth) 
 {
@@ -13,6 +15,6 @@ float LinearizeDepth(float depth)
 
 void main()
 {
-    float depth = LinearizeDepth(gl_FragCoord.z) / far * 60; // divide by far for demonstration
+    float depth = LinearizeDepth(gl_FragCoord.z) / far / fog; // divide by far for demonstration
     FragColor = mix(vec4(0.2, 0.2, 0.2, 1.0), vec4(Color, 1.0), smoothstep(1.0, 0.0, depth));;
 }
