@@ -25,7 +25,7 @@ const Uniform3f = struct {
 
 const Uniform4fv = struct {
     name: [:0]const u8,
-    value: *f32,
+    value: *math.Mat4,
 };
 
 pub const Shader = struct {
@@ -167,7 +167,25 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
         }
 
         pub fn addUniformMat4(self: *Self, name: [:0]const u8, m: *math.Mat4) !void {
-            try self.uniform4fv_array.append(.{ .name = name, .value = &m.columns[0][0] });
+            try self.uniform4fv_array.append(.{ .name = name, .value = m });
+        }
+
+        pub fn setUniformFloat(self: *Self, name: [:0]const u8, value: *f32) void {
+            gl.useProgram(self.shader_program);
+            const loc: i32 = gl.getUniformLocation(self.shader_program, name);
+            gl.uniform1f(loc, value.*);
+        }
+
+        pub fn setUniformVec3(self: *Self, name: [:0]const u8, value: *math.Vec3) void {
+            gl.useProgram(self.shader_program);
+            const loc: i32 = gl.getUniformLocation(self.shader_program, name);
+            gl.uniform3f(loc, value[0], value[1], value[2]);
+        }
+
+        pub fn setUniformMat4(self: *Self, name: [:0]const u8, value: *math.Mat4) void {
+            gl.useProgram(self.shader_program);
+            const loc: i32 = gl.getUniformLocation(self.shader_program, name);
+            gl.uniformMatrix4fv(loc, 1, gl.FALSE, &value.columns[0][0]);
         }
 
         pub fn init(shader: u32) Self {
@@ -282,11 +300,6 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
             const arrayUniformLoc: i32 = gl.getUniformLocation(self.shader_program, "transform");
             gl.uniformMatrix3fv(arrayUniformLoc, 1, gl.FALSE, &self.transform.columns[0][0]);
 
-            for (self.uniform4fv_array.items) |uni4fv| {
-                const uniform4fv_loc: i32 = gl.getUniformLocation(self.shader_program, uni4fv.name);
-                gl.uniformMatrix4fv(uniform4fv_loc, 1, gl.FALSE, uni4fv.value);
-            }
-
             const resolutionLoc: i32 = gl.getUniformLocation(self.shader_program, "in_resolution");
             gl.uniform2f(resolutionLoc, @floatFromInt(window.current_width), @floatFromInt(window.current_height));
 
@@ -294,14 +307,18 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
             gl.uniform1f(timeUniformLoc, now);
 
             for (self.uniform1f_array.items) |uni| {
-                const uniform_loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
-                gl.uniform1f(uniform_loc, uni.value.*);
+                const loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
+                gl.uniform1f(loc, uni.value.*);
             }
 
             for (self.uniform3f_array.items) |uni| {
-                const uniform_loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
-                std.debug.print("v {d:.4}\n", .{uni.value.*});
-                gl.uniform3f(uniform_loc, uni.value.*[0], uni.value.*[1], uni.value.*[2]);
+                const loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
+                gl.uniform3f(loc, uni.value[0], uni.value[1], uni.value[2]);
+            }
+
+            for (self.uniform4fv_array.items) |uni| {
+                const loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
+                gl.uniformMatrix4fv(loc, 1, gl.FALSE, &uni.value.columns[0][0]);
             }
 
             if (self.has_texture) {

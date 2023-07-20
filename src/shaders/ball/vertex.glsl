@@ -4,6 +4,7 @@ layout (location = 1) in vec2 aTexCoord;
 layout (location = 2) in vec3 aNormal;
 
 uniform mat4 transform;
+uniform mat4 model;
 
 uniform vec2 in_resolution;
 uniform float time;
@@ -19,8 +20,7 @@ void main()
    vec3 position = aPos;
    //position /= mix(sqrt(position.x*position.x+position.y*position.y+position.z*position.z), 1, cos(time*0.5)+1);
    position /= sqrt(position.x*position.x+position.y*position.y+position.z*position.z);
-   position += pos;
-   vec4 vert = transform*vec4(position, 1.0);
+   vec4 vert = transform*model*vec4(position, 1.0);
    gl_Position = vert;
    TexCoord = aTexCoord;
    Time = time;

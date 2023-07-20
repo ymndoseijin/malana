@@ -37,7 +37,7 @@ pub const Camera = struct {
         const view_mat = math.lookAtMatrix(.{ 0, 0, 0 }, eye, self.up);
         const translation_mat = Mat4.translation(-self.move);
 
-        self.transform_mat = translation_mat.mul(Mat4, view_mat.mul(Mat4, self.perspective_mat));
+        self.transform_mat = self.perspective_mat.mul(Mat4, view_mat.mul(Mat4, translation_mat));
     }
 
     pub fn setParameters(self: *Camera, fovy: f32, aspect: f32, nearZ: f32, farZ: f32) !void {
@@ -83,55 +83,59 @@ pub const Line = struct {
 };
 
 pub const Cube = struct {
-    // zig fmt: off
     pub const vertices = [_]f32{
-        1, 1, 0, 0, 1, 0, 0, -1,
-        0, 0, 0, 1, 0, 0, 0, -1,
-        1, 0, 0, 0, 0, 0, 0, -1,
-        0, 1, 0, 1, 1, 0, 0, -1, // this
-
-        1, 1, 1, 0, 1, 1, 0, 0,
-        1, 0, 0, 1, 0, 1, 0, 0,
-        1, 0, 1, 0, 0, 1, 0, 0,
-        1, 1, 0, 1, 1, 1, 0, 0,
-
-        0, 1, 1, 0, 1, 0, 0, 1, // this
-        1, 0, 1, 1, 0, 0, 0, 1,
-        0, 0, 1, 0, 0, 0, 0, 1,
-        1, 1, 1, 1, 1, 0, 0, 1,
-
-        0, 1, 0, 0, 1, -1, 0, 0,
-        0, 0, 1, 1, 0, -1, 0, 0,
-        0, 0, 0, 0, 0, -1, 0, 0,
-        0, 1, 1, 1, 1, -1, 0, 0, // outsider
-
-        0, 1, 0, 0, 1, 0, 1, 0,
-        1, 1, 1, 1, 0, 0, 1, 0,
-        0, 1, 1, 0, 0, 0, 1, 0,
-        1, 1, 0, 1, 1, 0, 1, 0,
-
-        0, 0, 1, 0, 1, 0, -1, 0,
-        1, 0, 0, 1, 0, 0, -1, 0,
-        0, 0, 0, 0, 0, 0, -1, 0,
-        1, 0, 1, 1, 1, 0, -1, 0,
+        0.0, 1.0, 0.0, 1.0,    0.5,  -0.0, 1.0,  -0.0,
+        1.0, 1.0, 1.0, 0.6667, 0.75, -0.0, 1.0,  -0.0,
+        1.0, 1.0, 0.0, 0.6667, 0.5,  -0.0, 1.0,  -0.0,
+        1.0, 1.0, 1.0, 0.6667, 0.75, -0.0, -0.0, 1.0,
+        0.0, 0.0, 1.0, 0.3333, 1.0,  -0.0, -0.0, 1.0,
+        1.0, 0.0, 1.0, 0.3333, 0.75, -0.0, -0.0, 1.0,
+        0.0, 1.0, 1.0, 0.6667, 0.0,  -1.0, -0.0, -0.0,
+        0.0, 0.0, 0.0, 0.3333, 0.25, -1.0, -0.0, -0.0,
+        0.0, 0.0, 1.0, 0.3333, 0.0,  -1.0, -0.0, -0.0,
+        1.0, 0.0, 0.0, 0.3333, 0.5,  -0.0, -1.0, -0.0,
+        0.0, 0.0, 1.0, -0.0,   0.75, -0.0, -1.0, -0.0,
+        0.0, 0.0, 0.0, -0.0,   0.5,  -0.0, -1.0, -0.0,
+        1.0, 1.0, 0.0, 0.6667, 0.5,  1.0,  -0.0, -0.0,
+        1.0, 0.0, 1.0, 0.3333, 0.75, 1.0,  -0.0, -0.0,
+        1.0, 0.0, 0.0, 0.3333, 0.5,  1.0,  -0.0, -0.0,
+        0.0, 1.0, 0.0, 0.6667, 0.25, -0.0, -0.0, -1.0,
+        1.0, 0.0, 0.0, 0.3333, 0.5,  -0.0, -0.0, -1.0,
+        0.0, 0.0, 0.0, 0.3333, 0.25, -0.0, -0.0, -1.0,
+        0.0, 1.0, 0.0, 1.0,    0.5,  -0.0, 1.0,  -0.0,
+        0.0, 1.0, 1.0, 1.0,    0.75, -0.0, 1.0,  -0.0,
+        1.0, 1.0, 1.0, 0.6667, 0.75, -0.0, 1.0,  -0.0,
+        1.0, 1.0, 1.0, 0.6667, 0.75, -0.0, -0.0, 1.0,
+        0.0, 1.0, 1.0, 0.6667, 1.0,  -0.0, -0.0, 1.0,
+        0.0, 0.0, 1.0, 0.3333, 1.0,  -0.0, -0.0, 1.0,
+        0.0, 1.0, 1.0, 0.6667, 0.0,  -1.0, -0.0, -0.0,
+        0.0, 1.0, 0.0, 0.6667, 0.25, -1.0, -0.0, -0.0,
+        0.0, 0.0, 0.0, 0.3333, 0.25, -1.0, -0.0, -0.0,
+        1.0, 0.0, 0.0, 0.3333, 0.5,  -0.0, -1.0, -0.0,
+        1.0, 0.0, 1.0, 0.3333, 0.75, -0.0, -1.0, -0.0,
+        0.0, 0.0, 1.0, -0.0,   0.75, -0.0, -1.0, -0.0,
+        1.0, 1.0, 0.0, 0.6667, 0.5,  1.0,  -0.0, -0.0,
+        1.0, 1.0, 1.0, 0.6667, 0.75, 1.0,  -0.0, -0.0,
+        1.0, 0.0, 1.0, 0.3333, 0.75, 1.0,  -0.0, -0.0,
+        0.0, 1.0, 0.0, 0.6667, 0.25, -0.0, -0.0, -1.0,
+        1.0, 1.0, 0.0, 0.6667, 0.5,  -0.0, -0.0, -1.0,
+        1.0, 0.0, 0.0, 0.3333, 0.5,  -0.0, -0.0, -1.0,
     };
-    // zig fmt: on
 
-    pub fn getIndices() [6 * 24 / 4]u32 {
-        var temp_indices: [6 * 24 / 4]u32 = undefined;
-        inline for (0..24 / 4) |i| {
-            temp_indices[6 * i] = 4 * i;
-            temp_indices[6 * i + 1] = 4 * i + 1;
-            temp_indices[6 * i + 2] = 4 * i + 3;
-            temp_indices[6 * i + 3] = 4 * i + 2;
-            temp_indices[6 * i + 4] = 4 * i + 1;
-            temp_indices[6 * i + 5] = 4 * i;
-        }
-
-        return temp_indices;
-    }
-
-    pub var indices: [6 * 24 / 4]u32 = getIndices();
+    pub var indices = [_]u32{
+        0,  1,  2,
+        3,  4,  5,
+        6,  7,  8,
+        9,  10, 11,
+        12, 13, 14,
+        15, 16, 17,
+        18, 19, 20,
+        21, 22, 23,
+        24, 25, 26,
+        27, 28, 29,
+        30, 31, 32,
+        33, 34, 35,
+    };
 };
 
 pub fn makeCube(drawing: *Drawing(.spatial), pos: Vec3, transform: *Mat4) !SpatialMesh {
@@ -143,9 +147,14 @@ pub fn makeCube(drawing: *Drawing(.spatial), pos: Vec3, transform: *Mat4) !Spati
 pub const SpatialMesh = struct {
     drawing: *Drawing(.spatial),
     pos: Vec3,
+    transform: *Mat4,
 
     pub fn initUniform(self: *SpatialMesh) !void {
         try self.drawing.addUniformVec3("pos", &self.pos);
+    }
+
+    pub fn update(self: *SpatialMesh) void {
+        try self.drawing.addUniformMat4("transform", self.transform);
     }
 
     pub fn init(drawing: *Drawing(.spatial), pos: Vec3, transform: *Mat4, shader: u32) !SpatialMesh {
@@ -156,6 +165,7 @@ pub const SpatialMesh = struct {
         return SpatialMesh{
             .drawing = drawing,
             .pos = pos,
+            .transform = transform,
         };
     }
 };

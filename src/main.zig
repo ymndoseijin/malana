@@ -26,6 +26,7 @@ const MeshBuilder = graphics_set.MeshBuilder;
 
 const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
+const Vec4 = math.Vec4;
 const Vec3Utils = math.Vec3Utils;
 
 const atan2 = std.math.atan2;
@@ -148,13 +149,13 @@ pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
 }
 pub fn makeAxis() !void {
     var line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ 0, 0.01, 0 }, .{ 2, 0, 0 }, .{ 1, 0, 0 }, .{ 1, 0, 0 });
-    try line.drawing.addUniformFloat("fog", &fog);
+    line.drawing.setUniformFloat("fog", &fog);
 
     line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ 0, 0.01, 0 }, .{ 0, 2, 0 }, .{ 0, 1, 0 }, .{ 0, 1, 0 });
-    try line.drawing.addUniformFloat("fog", &fog);
+    line.drawing.setUniformFloat("fog", &fog);
 
     line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ 0, 0.01, 0 }, .{ 0, 0, 2 }, .{ 0, 0, 1 }, .{ 0, 0, 1 });
-    try line.drawing.addUniformFloat("fog", &fog);
+    line.drawing.setUniformFloat("fog", &fog);
 }
 
 pub fn makeGrid() !void {
@@ -164,9 +165,9 @@ pub fn makeGrid() !void {
         x -= size / 2;
 
         var line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ x, 0, -size / 2 }, .{ x, 0, size / 2 }, .{ 0.5, 0.5, 0.5 }, .{ 0.5, 0.5, 0.5 });
-        try line.drawing.addUniformFloat("fog", &fog);
+        line.drawing.setUniformFloat("fog", &fog);
         line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ -size / 2, 0, x }, .{ size / 2, 0, x }, .{ 0.5, 0.5, 0.5 }, .{ 0.5, 0.5, 0.5 });
-        try line.drawing.addUniformFloat("fog", &fog);
+        line.drawing.setUniformFloat("fog", &fog);
     }
 }
 
@@ -228,6 +229,11 @@ const Planet = struct {
         var pos = Vec3{ @floatCast(venus_pos[0]), @floatCast(venus_pos[2]), @floatCast(venus_pos[1]) };
         pos *= @splat(10.0);
 
+        const rot_m = math.rotationZ(0.78).cast(4, 4);
+        const pos_m = Mat4.translation(pos);
+        var model = pos_m.mul(Mat4, rot_m);
+        self.subdivided.drawing.setUniformMat4("model", &model);
+
         self.subdivided.pos = pos;
     }
 
@@ -245,7 +251,7 @@ const Planet = struct {
                 .pos = .{ 0, 2, 0 },
             },
         );
-        try subdivided.drawing.addUniformFloat("fog", &fog);
+        subdivided.drawing.setUniformFloat("fog", &fog);
 
         subdivided.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
 
@@ -260,6 +266,8 @@ const Planet = struct {
 pub fn main() !void {
     defer _ = common.gpa_instance.deinit();
 
+    try cam.updateMat();
+
     var bdf = try BdfParse.init();
     defer bdf.deinit();
     try bdf.parse("b12.bdf");
@@ -273,7 +281,7 @@ pub fn main() !void {
     gl.enable(gl.CULL_FACE);
     gl.cullFace(gl.BACK);
     gl.enable(gl.BLEND);
-    gl.lineWidth(3);
+    gl.lineWidth(2);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     main_win.setKeyCallback(keyFunc);
@@ -286,7 +294,6 @@ pub fn main() !void {
 
     var text = try graphics_set.Text.init(try scene.new(.spatial), bdf, .{ 0, 0, 0 }, "cam: { 4.3200, -0.2300 } { 4.6568, 3.9898, 15.5473 }");
     try text.initUniform();
-    try text.drawing.addUniformFloat("fog", &fog);
     defer text.deinit();
 
     var atlas_cube = try graphics_set.makeCube(try scene.new(.spatial), .{ 10, 1, 0 }, &cam.transform_mat);
@@ -383,10 +390,10 @@ pub fn main() !void {
                 if (edge.twin) |twin| {
                     try stack.append(twin);
                     var line = try Line.init(try scene.new(.line), &cam.transform_mat, pos_a, pos_b, .{ 0.0, 0.0, 0.0 }, .{ 0.5, 0.0, 0.0 });
-                    try line.drawing.addUniformFloat("fog", &fog);
+                    line.drawing.setUniformFloat("fog", &fog);
                 } else {
                     var line = try Line.init(try scene.new(.line), &cam.transform_mat, pos_a, pos_b, .{ 0.3, 0.3, 0.3 }, .{ 0.0, 0.0, 0.0 });
-                    try line.drawing.addUniformFloat("fog", &fog);
+                    line.drawing.setUniformFloat("fog", &fog);
                 }
             }
             try stack.append(edge.next);
@@ -394,7 +401,7 @@ pub fn main() !void {
     }
 
     var obj_parser = try ObjParse.init(common.allocator);
-    var obj_builder = try obj_parser.parse("resources/table.obj");
+    var obj_builder = try obj_parser.parse("resources/cube.obj");
 
     var camera_obj = try obj_builder.toSpatial(
         try scene.new(.spatial),
@@ -406,7 +413,7 @@ pub fn main() !void {
     );
 
     try camera_obj.initUniform();
-    try camera_obj.drawing.addUniformFloat("fog", &fog);
+    camera_obj.drawing.setUniformFloat("fog", &fog);
 
     camera_obj.drawing.bindVertex(obj_builder.vertices.items, obj_builder.indices.items);
     try camera_obj.drawing.textureFromPath("resources/gray.png");

@@ -68,7 +68,6 @@ pub fn VsopParse(comptime coord_num: usize) type {
             while (try in_stream.readUntilDelimiterOrEof(&buf, '\n')) |line| {
                 if (std.mem.startsWith(u8, line, " VSOP87")) {
                     if (not_start) {
-                        std.debug.print("{} {}\n", .{ coord_id, t_num });
                         factors[coord_id][t_num] = try sums.toOwnedSlice();
                     } else {
                         not_start = true;
@@ -102,9 +101,8 @@ pub fn VsopParse(comptime coord_num: usize) type {
 
         pub fn deinit(self: *Self) void {
             // [][][3]f64;
-            inline for (self.table, 0..) |factors, coord_id| {
-                for (factors, 0..) |sums, t_num| {
-                    std.debug.print("{} {}\n", .{ coord_id, t_num });
+            inline for (self.table) |factors| {
+                for (factors) |sums| {
                     common.allocator.free(sums);
                 }
                 common.allocator.free(factors);

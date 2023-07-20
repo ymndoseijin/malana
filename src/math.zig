@@ -10,6 +10,7 @@ pub const Mat3 = Mat(f32, 3, 3);
 
 pub const Vec2 = @Vector(2, f32);
 pub const Vec3 = @Vector(3, f32);
+pub const Vec4 = @Vector(4, f32);
 
 pub fn Vec(comptime T: type, comptime size: usize) type {
     return struct {
@@ -80,6 +81,25 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
             return id;
         }
 
+        pub fn cast(from: @This(), comptime cw: usize, comptime ch: usize) Mat(T, cw, ch) {
+            var res: [cw]@Vector(ch, T) = undefined;
+            inline for (0..cw) |i| {
+                inline for (0..ch) |j| {
+                    if (i < width and j < height) {
+                        res[i][j] = from.columns[i][j];
+                    } else {
+                        if (i != j) {
+                            res[i][j] = 0;
+                        } else {
+                            res[i][j] = 1;
+                        }
+                    }
+                }
+            }
+
+            return Mat(T, cw, ch).init(res);
+        }
+
         pub fn translation(vec: @Vector(height - 1, T)) @This() {
             var res = identity();
             const arr: [height - 1]T = vec;
@@ -124,14 +144,14 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
 
         pub fn mul(self: @This(), comptime R: type, other: anytype) R {
             var res: R = undefined;
-            inline for (self.columns, 0..) |prev_column, i| {
+            inline for (other.columns, 0..) |prev_column, i| {
                 var column: @Vector(R.HEIGHT, T) = .{0} ** R.HEIGHT;
 
                 inline for (0..width) |j| {
                     const mask = ([1]i32{@intCast(j)}) ** R.HEIGHT;
                     var vi = @shuffle(T, prev_column, undefined, mask);
 
-                    vi = vi * other.columns[j];
+                    vi = vi * self.columns[j];
                     column += vi;
                 }
 
