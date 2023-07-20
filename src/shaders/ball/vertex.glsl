@@ -20,6 +20,9 @@ void main()
    vec3 position = aPos;
    //position /= mix(sqrt(position.x*position.x+position.y*position.y+position.z*position.z), 1, cos(time*0.5)+1);
    position /= sqrt(position.x*position.x+position.y*position.y+position.z*position.z);
+
+   //float t = (cos(time*0.5)+1)/2;
+   //mat4 actual = (1-t)*mat4(1.0)+model*t;
    vec4 vert = transform*model*vec4(position, 1.0);
    gl_Position = vert;
    TexCoord = aTexCoord;

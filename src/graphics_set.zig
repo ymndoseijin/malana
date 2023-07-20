@@ -37,7 +37,7 @@ pub const Camera = struct {
         const view_mat = math.lookAtMatrix(.{ 0, 0, 0 }, eye, self.up);
         const translation_mat = Mat4.translation(-self.move);
 
-        self.transform_mat = self.perspective_mat.mul(Mat4, view_mat.mul(Mat4, translation_mat));
+        self.transform_mat = self.perspective_mat.mul(view_mat.mul(translation_mat));
     }
 
     pub fn setParameters(self: *Camera, fovy: f32, aspect: f32, nearZ: f32, farZ: f32) !void {
@@ -58,27 +58,35 @@ pub const Camera = struct {
 };
 
 pub const Line = struct {
-    pub fn init(drawing: *Drawing(.line), transform: *Mat4, a: Vec3, b: Vec3, c1: Vec3, c2: Vec3) !Line {
+    pub fn init(drawing: *Drawing(.line), transform: *Mat4, vert: []const Vec3, color: []const Vec3) !Line {
         var shader = try graphics.Shader.setupShader("shaders/line/vertex.glsl", "shaders/line/fragment.glsl");
         drawing.* = graphics.Drawing(.line).init(shader);
 
-        const vertices = [_]f32{
-            a[0], a[1], a[2], c1[0], c1[1], c1[2],
-            b[0], b[1], b[2], c2[0], c2[1], c2[2],
-        };
-        const indices = [_]u32{ 0, 1 };
+        var vertices = std.ArrayList(f32).init(common.allocator);
+        var indices = std.ArrayList(u32).init(common.allocator);
 
-        drawing.bindVertex(&vertices, &indices);
+        defer vertices.deinit();
+        defer indices.deinit();
+
+        for (vert, color, 0..) |v, c, i| {
+            const arr = .{ v[0], v[1], v[2], c[0], c[1], c[2] };
+            inline for (arr) |f| {
+                try vertices.append(f);
+            }
+            try indices.append(@intCast(i));
+        }
+
+        drawing.bindVertex(vertices.items, indices.items);
         try drawing.addUniformMat4("transform", transform);
 
         return Line{
-            .vertices = vertices,
-            .indices = indices,
+            .vertices = vertices.items,
+            .indices = indices.items,
             .drawing = drawing,
         };
     }
-    vertices: [12]f32,
-    indices: [2]u32,
+    vertices: []f32,
+    indices: []u32,
     drawing: *Drawing(.line),
 };
 

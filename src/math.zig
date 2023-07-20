@@ -100,6 +100,20 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
             return Mat(T, cw, ch).init(res);
         }
 
+        pub fn scaling(vec: @Vector(width, T)) @This() {
+            var res: [width]@Vector(height, T) = undefined;
+            inline for (0..width) |i| {
+                inline for (0..height) |j| {
+                    if (i != j) {
+                        res[i][j] = 0;
+                    } else {
+                        res[i][j] = vec[i];
+                    }
+                }
+            }
+            return @This().init(res);
+        }
+
         pub fn translation(vec: @Vector(height - 1, T)) @This() {
             var res = identity();
             const arr: [height - 1]T = vec;
@@ -142,13 +156,14 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
             return res;
         }
 
-        pub fn mul(self: @This(), comptime R: type, other: anytype) R {
-            var res: R = undefined;
+        pub fn mul(self: @This(), other: anytype) Mat(T, @TypeOf(other).WIDTH, HEIGHT) {
+            const R = @TypeOf(other);
+            var res: Mat(T, R.WIDTH, HEIGHT) = undefined;
             inline for (other.columns, 0..) |prev_column, i| {
-                var column: @Vector(R.HEIGHT, T) = .{0} ** R.HEIGHT;
+                var column: @Vector(HEIGHT, T) = .{0} ** HEIGHT;
 
                 inline for (0..width) |j| {
-                    const mask = ([1]i32{@intCast(j)}) ** R.HEIGHT;
+                    const mask = ([1]i32{@intCast(j)}) ** HEIGHT;
                     var vi = @shuffle(T, prev_column, undefined, mask);
 
                     vi = vi * self.columns[j];
@@ -174,7 +189,7 @@ pub fn rotationY(t: f32) Mat3 {
     return Mat3.init(.{
         .{ cos(t), 0, -sin(t) },
         .{ 0, 1, 0 },
-        .{ -sin(t), 0, cos(t) },
+        .{ sin(t), 0, cos(t) },
     });
 }
 
@@ -187,9 +202,12 @@ pub fn rotationZ(t: f32) Mat3 {
 }
 
 test "rot" {
-    const mat = rotationZ(1.570796);
-    std.debug.print("\n{d:.4}\n", .{mat.columns});
-    std.debug.print("{d:.4}\n", .{mat.dot(.{ 1, 0, 0 })});
+    const mat = rotationY(3.14159).mul(rotationX(1.570796).mul(rotationZ(1.570796)));
+    const res = mat.dot(.{ 1, 0, 0 });
+    std.debug.print("\n{d:.4}\n", .{res});
+    inline for (@as([3]f32, res), .{ 0, 0, -1 }) |i, j| {
+        try std.testing.expectApproxEqAbs(i, j, 1e-1);
+    }
 }
 
 pub fn perspectiveMatrix(fovy: f32, aspect: f32, nearZ: f32, farZ: f32) Mat4 {

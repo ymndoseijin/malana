@@ -148,13 +148,13 @@ pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
     try cam.updateMat();
 }
 pub fn makeAxis() !void {
-    var line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ 0, 0.01, 0 }, .{ 2, 0, 0 }, .{ 1, 0, 0 }, .{ 1, 0, 0 });
+    var line = try Line.init(try scene.new(.line), &cam.transform_mat, &[_]Vec3{ .{ 0, 0.01, 0 }, .{ 2, 0, 0 } }, &[_]Vec3{ .{ 1, 0, 0 }, .{ 1, 0, 0 } });
     line.drawing.setUniformFloat("fog", &fog);
 
-    line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ 0, 0.01, 0 }, .{ 0, 2, 0 }, .{ 0, 1, 0 }, .{ 0, 1, 0 });
+    line = try Line.init(try scene.new(.line), &cam.transform_mat, &[_]Vec3{ .{ 0, 0.01, 0 }, .{ 0, 2, 0 } }, &[_]Vec3{ .{ 0, 1, 0 }, .{ 0, 1, 0 } });
     line.drawing.setUniformFloat("fog", &fog);
 
-    line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ 0, 0.01, 0 }, .{ 0, 0, 2 }, .{ 0, 0, 1 }, .{ 0, 0, 1 });
+    line = try Line.init(try scene.new(.line), &cam.transform_mat, &[_]Vec3{ .{ 0, 0.01, 0 }, .{ 0, 0, 2 } }, &[_]Vec3{ .{ 0, 0, 1 }, .{ 0, 0, 1 } });
     line.drawing.setUniformFloat("fog", &fog);
 }
 
@@ -164,9 +164,9 @@ pub fn makeGrid() !void {
         var x: f32 = @floatFromInt(i);
         x -= size / 2;
 
-        var line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ x, 0, -size / 2 }, .{ x, 0, size / 2 }, .{ 0.5, 0.5, 0.5 }, .{ 0.5, 0.5, 0.5 });
+        var line = try Line.init(try scene.new(.line), &cam.transform_mat, &[_]Vec3{ .{ x, 0, -size / 2 }, .{ x, 0, size / 2 } }, &[_]Vec3{ .{ 0.5, 0.5, 0.5 }, .{ 0.5, 0.5, 0.5 } });
         line.drawing.setUniformFloat("fog", &fog);
-        line = try Line.init(try scene.new(.line), &cam.transform_mat, .{ -size / 2, 0, x }, .{ size / 2, 0, x }, .{ 0.5, 0.5, 0.5 }, .{ 0.5, 0.5, 0.5 });
+        line = try Line.init(try scene.new(.line), &cam.transform_mat, &[_]Vec3{ .{ -size / 2, 0, x }, .{ size / 2, 0, x } }, &[_]Vec3{ .{ 0.5, 0.5, 0.5 }, .{ 0.5, 0.5, 0.5 } });
         line.drawing.setUniformFloat("fog", &fog);
     }
 }
@@ -203,9 +203,9 @@ pub fn recurseHalf(mesh: *MeshBuilder, set: *std.AutoHashMap(*HalfEdge, void), e
 
             if (actual.twin) |twin| {
                 try recurseHalf(mesh, set, twin, will_render);
-                line = try Line.init(try scene.new(.line), pos_a, pos_b, .{ 0.0, 0.0, 0.0 }, .{ 0.5, 0.0, 0.0 });
+                line = try Line.init(try scene.new(.line), &[_]Vec3{ pos_a, pos_b }, &[_]Vec3{ .{ 0.0, 0.0, 0.0 }, .{ 0.5, 0.0, 0.0 } });
             } else {
-                line = try Line.init(try scene.new(.line), pos_a, pos_b, .{ 0.3, 0.3, 0.3 }, .{ 0.0, 0.0, 0.0 });
+                line = try Line.init(try scene.new(.line), &[_]Vec3{ pos_a, pos_b }, &[_]Vec3{ .{ 0.3, 0.3, 0.3 }, .{ 0.0, 0.0, 0.0 } });
             }
         }
         try recurseHalf(mesh, set, actual.next, will_render);
@@ -214,24 +214,27 @@ pub fn recurseHalf(mesh: *MeshBuilder, set: *std.AutoHashMap(*HalfEdge, void), e
 
 const Planet = struct {
     vsop: VsopParse(3),
+    orb_vsop: VsopParse(6),
     subdivided: graphics_set.SpatialMesh,
 
     pub fn deinit(self: *Planet) void {
         self.vsop.deinit();
+        self.orb_vsop.deinit();
     }
 
     pub fn update(self: *Planet, time: f32) void {
-        _ = time;
         const now: f64 = @floatFromInt(std.time.timestamp());
-        const real_time = now / 86400.0 + 2440587.5;
+        const real_time = now / 86400.0 + 2440587.5 + time * 20;
         const venus_pos = self.vsop.at((real_time - 2451545.0) / 365250.0);
 
-        var pos = Vec3{ @floatCast(venus_pos[0]), @floatCast(venus_pos[2]), @floatCast(venus_pos[1]) };
+        var pos = Vec3{ @floatCast(venus_pos[1]), @floatCast(venus_pos[2]), @floatCast(venus_pos[0]) };
         pos *= @splat(10.0);
 
-        const rot_m = math.rotationZ(0.78).cast(4, 4);
+        const rot_m = math.rotationY(TAU / 4.0).cast(4, 4);
+
+        //std.debug.print("shit {d:.4}\n", .{rot_m.columns});
         const pos_m = Mat4.translation(pos);
-        var model = pos_m.mul(Mat4, rot_m);
+        var model = rot_m.mul(pos_m.mul(Mat4.scaling(Vec4{ 0.2, 0.2, 0.2, 1.0 })));
         self.subdivided.drawing.setUniformMat4("model", &model);
 
         self.subdivided.pos = pos;
@@ -256,12 +259,73 @@ const Planet = struct {
         subdivided.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
 
         try subdivided.drawing.textureFromPath("comofas.png");
+
+        const actual = if (comptime std.mem.eql(u8, "ear", name)) "emb" else name;
+
         return .{
             .vsop = try VsopParse(3).init("vsop87/VSOP87C." ++ name),
+            .orb_vsop = try VsopParse(6).init("vsop87/VSOP87." ++ actual),
             .subdivided = subdivided,
         };
     }
 };
+
+pub fn orbit(a: f32, e: f32, inc: f32, long: f32, arg: f32) !void {
+    const amount = 60;
+    var verts = std.ArrayList(Vec3).init(common.allocator);
+    var colors = std.ArrayList(Vec3).init(common.allocator);
+
+    defer verts.deinit();
+    defer colors.deinit();
+
+    var first_v: Vec3 = undefined;
+    var first_c: Vec3 = undefined;
+
+    var first = true;
+
+    for (0..amount) |i| {
+        var elems: numericals.KeplerElements = .{
+            .a = a,
+            .e = e,
+            .i = inc,
+            .arg = arg,
+            .long = long,
+            .m0 = 0,
+        };
+
+        const f: f32 = @floatFromInt(i);
+
+        var v = f / amount * TAU;
+        elems.m0 = atan2(f32, -@sqrt(1 - elems.e * elems.e) * sin(v), -elems.e - cos(v)) + TAU / 2.0 - elems.e * (@sqrt(1 - elems.e * elems.e) * sin(v)) / (1 + elems.e * cos(v));
+
+        var res = numericals.keplerToCart(elems, 0, elems.m0);
+        res[0] *= @splat(10.0);
+
+        try verts.append(.{ res[0][0], res[0][2], res[0][1] });
+        try colors.append(res[1]);
+
+        if (first) {
+            first_v = .{ res[0][0], res[0][2], res[0][1] };
+            first_c = res[1];
+            first = false;
+        }
+
+        v = (f + 1) / amount * TAU;
+        elems.m0 = atan2(f32, -@sqrt(1 - elems.e * elems.e) * sin(v), -elems.e - cos(v)) + TAU / 2.0 - elems.e * (@sqrt(1 - elems.e * elems.e) * sin(v)) / (1 + elems.e * cos(v));
+
+        res = numericals.keplerToCart(elems, 0, elems.m0);
+        res[0] *= @splat(10.0);
+
+        try verts.append(.{ res[0][0], res[0][2], res[0][1] });
+        try colors.append(res[1]);
+    }
+
+    try verts.append(first_v);
+    try colors.append(first_c);
+
+    var line = try Line.init(try scene.new(.line), &cam.transform_mat, verts.items, colors.items);
+    line.drawing.setUniformFloat("fog", &fog);
+}
 
 pub fn main() !void {
     defer _ = common.gpa_instance.deinit();
@@ -315,7 +379,7 @@ pub fn main() !void {
     }
 
     try makeAxis();
-    try makeGrid();
+    //try makeGrid();
 
     var last_time: f32 = 0;
 
@@ -389,35 +453,16 @@ pub fn main() !void {
 
                 if (edge.twin) |twin| {
                     try stack.append(twin);
-                    var line = try Line.init(try scene.new(.line), &cam.transform_mat, pos_a, pos_b, .{ 0.0, 0.0, 0.0 }, .{ 0.5, 0.0, 0.0 });
+                    var line = try Line.init(try scene.new(.line), &cam.transform_mat, &[_]Vec3{ pos_a, pos_b }, &[_]Vec3{ .{ 0.0, 0.0, 0.0 }, .{ 0.5, 0.0, 0.0 } });
                     line.drawing.setUniformFloat("fog", &fog);
                 } else {
-                    var line = try Line.init(try scene.new(.line), &cam.transform_mat, pos_a, pos_b, .{ 0.3, 0.3, 0.3 }, .{ 0.0, 0.0, 0.0 });
+                    var line = try Line.init(try scene.new(.line), &cam.transform_mat, &[_]Vec3{ pos_a, pos_b }, &[_]Vec3{ .{ 0.3, 0.3, 0.3 }, .{ 0.0, 0.0, 0.0 } });
                     line.drawing.setUniformFloat("fog", &fog);
                 }
             }
             try stack.append(edge.next);
         }
     }
-
-    var obj_parser = try ObjParse.init(common.allocator);
-    var obj_builder = try obj_parser.parse("resources/cube.obj");
-
-    var camera_obj = try obj_builder.toSpatial(
-        try scene.new(.spatial),
-        .{
-            .vert = "shaders/triangle/vertex.glsl",
-            .frag = "shaders/triangle/fragment.glsl",
-            .transform = &cam.transform_mat,
-        },
-    );
-
-    try camera_obj.initUniform();
-    camera_obj.drawing.setUniformFloat("fog", &fog);
-
-    camera_obj.drawing.bindVertex(obj_builder.vertices.items, obj_builder.indices.items);
-    try camera_obj.drawing.textureFromPath("resources/gray.png");
-    obj_builder.deinit();
 
     //try (try graphics_set.makeCube(try scene.new(.spatial), .{ 0, 2, 0 }, &cam.transform_mat)).drawing.textureFromPath("comofas.png");
 
@@ -430,6 +475,34 @@ pub fn main() !void {
     inline for (planets_suffix, 0..) |name, i| {
         planets[i] = try Planet.init(name, builder);
         try planets[i].initUniform();
+
+        const now: f64 = @floatFromInt(std.time.timestamp());
+        const real_time = now / 86400.0 + 2440587.5;
+        const elems = planets[i].orb_vsop.at((real_time - 2451545.0) / 365250.0);
+        std.debug.print("{d:.4}\n", .{elems});
+
+        const k = elems[2];
+        const h = elems[3];
+        const q = elems[4];
+        const p = elems[5];
+
+        const atan = std.math.atan;
+        const asin = std.math.asin;
+
+        const pq_r = p * p + q * q;
+        const hk_r = h * h + k * k;
+
+        const o = -2 * atan((q - @sqrt(pq_r)) / p);
+        const inc = -2 * asin((pq_r - q * @sqrt(pq_r)) / (q - @sqrt(pq_r)));
+
+        const e = (-hk_r + k * @sqrt(hk_r)) / (k - @sqrt(hk_r));
+        const w = -2 * atan((k - @sqrt(hk_r)) / h);
+
+        std.debug.print("{d} {d} {d} {d} {d}\n", .{ elems[0], e, inc, o, w - o });
+
+        // pub fn orbit(a: f32, e: f32, inc: f32, long: f32, arg: f32) !void {
+
+        try orbit(@floatCast(elems[0]), @floatCast(e), @floatCast(inc), @floatCast(o), @floatCast(w - o));
     }
 
     defer inline for (&planets) |*planet| {
@@ -438,6 +511,25 @@ pub fn main() !void {
 
     builder.deinit();
     set.deinit();
+
+    var obj_parser = try ObjParse.init(common.allocator);
+    var obj_builder = try obj_parser.parse("resources/table.obj");
+
+    var camera_obj = try obj_builder.toSpatial(
+        try scene.new(.spatial),
+        .{
+            .vert = "shaders/triangle/vertex.glsl",
+            .frag = "shaders/triangle/fragment.glsl",
+            .transform = &cam.transform_mat,
+        },
+    );
+
+    try camera_obj.initUniform();
+    try camera_obj.drawing.addUniformFloat("fog", &fog);
+
+    camera_obj.drawing.bindVertex(obj_builder.vertices.items, obj_builder.indices.items);
+    try camera_obj.drawing.textureFromPath("resources/gray.png");
+    obj_builder.deinit();
 
     while (main_win.alive) {
         graphics.waitGraphicsEvent();
@@ -452,18 +544,6 @@ pub fn main() !void {
         if (down_num > 0) {
             try key_down(&current_keys, last_mods, dt);
         }
-
-        //var elems: numericals.KeplerElements = .{
-        //    .a = 2.7,
-        //    .e = 0.6,
-        //    .i = 0,
-        //    .arg = TAU / 4.0,
-        //    .long = 0,
-        //    .m0 = 0,
-        //};
-
-        //const v = 0.0;
-        //elems.m0 = atan2(f32, -@sqrt(1 - elems.e * elems.e) * sin(v), -elems.e - cos(v)) + TAU / 2.0 - elems.e * (@sqrt(1 - elems.e * elems.e) * sin(v)) / (1 + elems.e * cos(v));
 
         inline for (&planets) |*planet| {
             planet.update(time);
