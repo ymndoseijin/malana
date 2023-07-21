@@ -1,4 +1,4 @@
-const math = @import("math.zig");
+const math = @import("math");
 const std = @import("std");
 const testing = std.testing;
 
@@ -311,7 +311,7 @@ pub const Mesh = struct {
 };
 
 pub fn main() !void {
-    var mesh = Mesh.init(@import("common.zig").allocator);
+    var mesh = Mesh.init(@import("common").allocator);
     defer mesh.deinit();
 
     var vertices = [_]Vertex{

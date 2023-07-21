@@ -6,12 +6,18 @@ pub const glfw = @cImport({
 const AREA_SIZE = 512;
 
 const img = @import("img");
-
-const common = @import("common.zig");
-const gl = @import("gl.zig");
+const common = @import("common");
+const gl = @import("gl");
 const std = @import("std");
+const math = @import("math");
 
-const math = @import("math.zig");
+pub const Camera = @import("camera.zig").Camera;
+pub const Text = @import("text.zig").Text;
+pub const Cube = @import("cube.zig").Cube;
+pub const Line = @import("line.zig").Line;
+pub const MeshBuilder = @import("meshbuilder.zig").MeshBuilder;
+pub const SpatialMesh = @import("spatialmesh.zig").SpatialMesh;
+pub const ObjParse = @import("obj.zig").ObjParse;
 
 const Uniform1f = struct {
     name: [:0]const u8,

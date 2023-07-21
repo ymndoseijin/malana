@@ -1,10 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const math = @import("math.zig");
+const math = @import("math");
 
-const geometry = @import("geometry.zig");
-const graphics_set = @import("graphics_set.zig");
-const MeshBuilder = graphics_set.MeshBuilder;
+const geometry = @import("geometry");
+const graphics = @import("graphics.zig");
+const MeshBuilder = graphics.MeshBuilder;
 const Vertex = geometry.Vertex;
 
 pub var gpa = std.heap.GeneralPurposeAllocator(.{
@@ -98,6 +98,6 @@ pub const ObjParse = struct {
 };
 
 pub fn main() !void {
-    var obj = try ObjParse.init(@import("common.zig").allocator);
+    var obj = try ObjParse.init(@import("common").allocator);
     std.debug.print("{}\n", .{(try obj.parse("resources/camera.obj")).indices.items.len});
 }

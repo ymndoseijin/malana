@@ -1,11 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const math = @import("math.zig");
-const common = @import("common.zig");
+const math = @import("math");
+const common = @import("common");
 
-const geometry = @import("geometry.zig");
-const graphics_set = @import("graphics_set.zig");
-const MeshBuilder = graphics_set.MeshBuilder;
+const geometry = @import("geometry");
+const graphics = @import("graphics");
+
+const MeshBuilder = graphics.MeshBuilder;
 const Vertex = geometry.Vertex;
 
 const atan2 = std.math.atan2;

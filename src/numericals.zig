@@ -4,7 +4,7 @@ const atan2 = std.math.atan2;
 const sin = std.math.sin;
 const cos = std.math.cos;
 
-const math = @import("math.zig");
+const math = @import("math");
 const Vec3 = math.Vec3;
 const Mat3 = math.Mat3;
 

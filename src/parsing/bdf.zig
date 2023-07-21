@@ -69,6 +69,9 @@ pub const BdfParse = struct {
                         _ = it.next();
                         width = 15;
                         glyph = try allocator.alloc(bool, width * width);
+                        for (glyph) |*b| {
+                            b.* = false;
+                        }
                     }
                 },
                 .bitmap => {

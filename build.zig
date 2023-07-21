@@ -24,12 +24,60 @@ pub fn build(b: *std.Build) void {
         .name = "ui-toolkit",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = .{ .path = "src/applications/planetarium.zig" },
         .target = target,
         .optimize = optimize,
     });
 
     exe.addModule("img", zigimg_dep.module("zigimg"));
+
+    const gl = b.createModule(.{ .source_file = .{ .path = "src/graphics/gl.zig" } });
+    const math = b.createModule(.{ .source_file = .{ .path = "src/math.zig" } });
+    const common = b.createModule(.{ .source_file = .{ .path = "src/common.zig" } });
+    const parsing = b.createModule(.{
+        .source_file = .{ .path = "src/parsing/parsing.zig" },
+        .dependencies = &.{
+            .{ .name = "math", .module = math },
+            .{ .name = "common", .module = common },
+        },
+    });
+
+    const geometry = b.createModule(.{
+        .source_file = .{ .path = "src/geometry.zig" },
+        .dependencies = &.{
+            .{ .name = "math", .module = math },
+            .{ .name = "common", .module = common },
+            .{ .name = "parsing", .module = parsing },
+        },
+    });
+
+    const graphics = b.createModule(.{
+        .source_file = .{ .path = "src/graphics/graphics.zig" },
+        .dependencies = &.{
+            .{ .name = "math", .module = math },
+            .{ .name = "common", .module = common },
+            .{ .name = "gl", .module = gl },
+            .{ .name = "parsing", .module = parsing },
+            .{ .name = "geometry", .module = geometry },
+            .{ .name = "img", .module = zigimg_dep.module("zigimg") },
+        },
+    });
+
+    const numericals = b.createModule(.{
+        .source_file = .{ .path = "src/numericals.zig" },
+        .dependencies = &.{
+            .{ .name = "math", .module = math },
+            .{ .name = "common", .module = common },
+        },
+    });
+
+    exe.addModule("graphics", graphics);
+    exe.addModule("geometry", geometry);
+    exe.addModule("numericals", numericals);
+    exe.addModule("common", common);
+    exe.addModule("parsing", parsing);
+    exe.addModule("gl", gl);
+    exe.addModule("math", math);
 
     exe.linkLibrary(b.dependency("glfw", .{
         .target = exe.target,

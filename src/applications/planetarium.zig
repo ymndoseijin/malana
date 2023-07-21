@@ -1,16 +1,16 @@
 const std = @import("std");
-const math = @import("math.zig");
-const gl = @import("gl.zig");
-const numericals = @import("numericals.zig");
+const math = @import("math");
+const gl = @import("gl");
+const numericals = @import("numericals");
 const img = @import("img");
-const geometry = @import("geometry.zig");
-const graphics = @import("graphics.zig");
-const graphics_set = @import("graphics_set.zig");
-const common = @import("common.zig");
+const geometry = @import("geometry");
+const graphics = @import("graphics");
+const common = @import("common");
+const Parsing = @import("parsing");
 
-const BdfParse = @import("bdf.zig").BdfParse;
-const ObjParse = @import("obj.zig").ObjParse;
-const VsopParse = @import("vsop.zig").VsopParse;
+const BdfParse = Parsing.BdfParse;
+const ObjParse = graphics.ObjParse;
+const VsopParse = Parsing.VsopParse;
 
 const Mesh = geometry.Mesh;
 const Vertex = geometry.Vertex;
@@ -19,10 +19,10 @@ const HalfEdge = geometry.HalfEdge;
 const Drawing = graphics.Drawing;
 const glfw = graphics.glfw;
 
-const Camera = graphics_set.Camera;
-const Cube = graphics_set.Cube;
-const Line = graphics_set.Line;
-const MeshBuilder = graphics_set.MeshBuilder;
+const Camera = graphics.Camera;
+const Cube = graphics.Cube;
+const Line = graphics.Line;
+const MeshBuilder = graphics.MeshBuilder;
 
 const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
@@ -42,6 +42,8 @@ var scene: graphics.Scene = undefined;
 
 var cam: Camera = undefined;
 var fog: f32 = 2;
+
+var game_time: f64 = 0;
 
 pub fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
     _ = win;
@@ -186,48 +188,18 @@ pub fn bdfToRgba(bdf: *BdfParse, c: u8) ![fs * fs]img.color.Rgba32 {
     return buf;
 }
 
-pub fn recurseHalf(mesh: *MeshBuilder, set: *std.AutoHashMap(*HalfEdge, void), edge: ?*HalfEdge, comptime will_render: bool) !void {
-    if (edge) |actual| {
-        if (set.get(actual)) |_| {
-            return;
-        }
-        try set.put(actual, void{});
-
-        if (will_render) {
-            var v = actual.face.vertices;
-            try mesh.addTri(.{ v[0].*, v[1].*, v[2].* });
-        }
-
-        if (actual.next) |next| {
-            var line: Line = undefined;
-            var pos_a = actual.vertex.pos;
-            var pos_b = next.vertex.pos;
-
-            if (actual.twin) |twin| {
-                try recurseHalf(mesh, set, twin, will_render);
-                line = try Line.init(try scene.new(.line), &[_]Vec3{ pos_a, pos_b }, &[_]Vec3{ .{ 0.0, 0.0, 0.0 }, .{ 0.5, 0.0, 0.0 } });
-            } else {
-                line = try Line.init(try scene.new(.line), &[_]Vec3{ pos_a, pos_b }, &[_]Vec3{ .{ 0.3, 0.3, 0.3 }, .{ 0.0, 0.0, 0.0 } });
-            }
-        }
-        try recurseHalf(mesh, set, actual.next, will_render);
-    }
-}
-
 const Planet = struct {
     vsop: VsopParse(3),
     orb_vsop: VsopParse(6),
-    subdivided: graphics_set.SpatialMesh,
+    subdivided: graphics.SpatialMesh,
 
     pub fn deinit(self: *Planet) void {
         self.vsop.deinit();
         self.orb_vsop.deinit();
     }
 
-    pub fn update(self: *Planet, time: f32) void {
-        const now: f64 = @floatFromInt(std.time.timestamp());
-        const real_time = now / 86400.0 + 2440587.5 + time * 20;
-        const venus_pos = self.vsop.at((real_time - 2451545.0) / 365250.0);
+    pub fn update(self: *Planet) void {
+        const venus_pos = self.vsop.at((game_time - 2451545.0) / 365250.0);
 
         var pos = Vec3{ @floatCast(venus_pos[1]), @floatCast(venus_pos[2]), @floatCast(venus_pos[0]) };
         pos *= @splat(10.0);
@@ -281,7 +253,7 @@ pub fn orbit(a: f32, e: f32, inc: f32, long: f32, arg: f32) !void {
     defer colors.deinit();
 
     var first_v: Vec3 = undefined;
-    var first_c: Vec3 = undefined;
+    var last_c: Vec3 = undefined;
 
     var first = true;
 
@@ -308,7 +280,6 @@ pub fn orbit(a: f32, e: f32, inc: f32, long: f32, arg: f32) !void {
 
         if (first) {
             first_v = .{ res[0][0], res[0][2], res[0][1] };
-            first_c = res[1];
             first = false;
         }
 
@@ -320,10 +291,11 @@ pub fn orbit(a: f32, e: f32, inc: f32, long: f32, arg: f32) !void {
 
         try verts.append(.{ res[0][0], res[0][2], res[0][1] });
         try colors.append(res[1]);
+        last_c = res[1];
     }
 
     try verts.append(first_v);
-    try colors.append(first_c);
+    try colors.append(last_c);
 
     var line = try Line.init(try scene.new(.line), &cam.transform_mat, verts.items, colors.items);
     line.drawing.setUniformFloat("fog", &fog);
@@ -358,13 +330,13 @@ pub fn main() !void {
     scene = try graphics.Scene.init();
     defer scene.deinit();
 
-    var text = try graphics_set.Text.init(try scene.new(.spatial), bdf, .{ 0, 0, 0 }, "cam: { 4.3200, -0.2300 } { 4.6568, 3.9898, 15.5473 }");
+    var text = try graphics.Text.init(try scene.new(.spatial), bdf, .{ 0, 0, 0 }, "cam: { 4.3200, -0.2300 } { 4.6568, 3.9898, 15.5473 }");
     try text.initUniform();
     defer text.deinit();
 
-    var atlas_cube = try graphics_set.makeCube(try scene.new(.spatial), .{ 10, 1, 0 }, &cam.transform_mat);
+    var atlas_cube = try graphics.Cube.makeCube(try scene.new(.spatial), .{ 10, 1, 0 }, &cam.transform_mat);
     try atlas_cube.initUniform();
-    var rgba_image = try graphics_set.Text.makeAtlas(bdf);
+    var rgba_image = try graphics.Text.makeAtlas(bdf);
     defer common.allocator.free(rgba_image.data);
 
     std.debug.print("atlas is {d:4} {d:4}\n", .{ rgba_image.width, rgba_image.height });
@@ -372,7 +344,7 @@ pub fn main() !void {
     try atlas_cube.drawing.textureFromRgba(rgba_image.data, rgba_image.width, rgba_image.height);
 
     for ("*hello!", 0..) |c, i| {
-        var cube = try graphics_set.makeCube(try scene.new(.spatial), .{ 10, 0, @as(f32, @floatFromInt(i)) }, &cam.transform_mat);
+        var cube = try graphics.Cube.makeCube(try scene.new(.spatial), .{ 10, 0, @as(f32, @floatFromInt(i)) }, &cam.transform_mat);
         try cube.initUniform();
 
         var rgba = try bdfToRgba(&bdf, c);
@@ -390,17 +362,8 @@ pub fn main() !void {
     var mesh = Mesh.init(common.allocator);
     defer mesh.deinit();
 
-    const vertices = [_]f32{
-        0, 0, 0,
-        0, 1, 0,
-        1, 1, 0,
-    };
-    _ = vertices;
-
-    const indices = [_]u32{
-        0, 1, 2,
-    };
-    _ = indices;
+    const now: f64 = @floatFromInt(std.time.timestamp());
+    game_time = now / 86400.0 + 2440587.5;
 
     var cube: ?*HalfEdge = try mesh.makeFrom(&Cube.vertices, &Cube.indices, .{
         .pos_offset = 0,
@@ -478,9 +441,7 @@ pub fn main() !void {
         planets[i] = try Planet.init(name, builder);
         try planets[i].initUniform();
 
-        const now: f64 = @floatFromInt(std.time.timestamp());
-        const real_time = now / 86400.0 + 2440587.5;
-        const elems = planets[i].orb_vsop.at((real_time - 2451545.0) / 365250.0);
+        const elems = planets[i].orb_vsop.at((game_time - 2451545.0) / 365250.0);
         std.debug.print("{d:.4}\n", .{elems});
 
         const k = elems[2];
@@ -542,13 +503,14 @@ pub fn main() !void {
         const time = @as(f32, @floatCast(glfw.glfwGetTime()));
 
         const dt = time - last_time;
+        game_time += time * 0.01;
 
         if (down_num > 0) {
             try key_down(&current_keys, last_mods, dt);
         }
 
         inline for (&planets) |*planet| {
-            planet.update(time);
+            planet.update();
         }
         timer += dt;
 
