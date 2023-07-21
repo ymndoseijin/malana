@@ -67,7 +67,7 @@ pub const BdfParse = struct {
                     } else if (std.mem.startsWith(u8, line, "FONTBOUNDINGBOX")) {
                         var it = std.mem.split(u8, line, " ");
                         _ = it.next();
-                        width = try std.fmt.parseInt(u32, it.next().?, 10);
+                        width = 15;
                         glyph = try allocator.alloc(bool, width * width);
                     }
                 },
@@ -79,8 +79,9 @@ pub const BdfParse = struct {
                         try self.map.append(por_que);
                     } else {
                         const val = try std.fmt.parseInt(u32, line, 16);
-                        for (0..width) |x| {
-                            var i = width - x - 1;
+                        const char_width = width;
+                        for (0..char_width) |x| {
+                            var i = char_width - x - 1;
                             glyph[glyph_i] = ((val >> @intCast(i)) & 1) == 1;
                             glyph_i += 1;
                         }
@@ -104,9 +105,9 @@ pub const BdfParse = struct {
 pub fn main() !void {
     var bdf = try BdfParse.init();
     try bdf.parse("b12.bdf");
-    std.debug.print("finish {d}\n", .{'a'});
+    std.debug.print("finish {d}\n", .{bdf.width});
     for (bdf.map.items) |res| {
-        if (res[0] == 'a') {
+        if (res[0] == 12354) {
             for (res[1], 0..) |val, i| {
                 if (i % bdf.width == 0)
                     std.debug.print("\n", .{});

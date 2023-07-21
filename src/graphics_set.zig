@@ -236,8 +236,10 @@ pub const MeshBuilder = struct {
     }
 };
 
-pub fn bdfToRgba(res: []bool) ![12 * 12]img.color.Rgba32 {
-    var buf: [12 * 12]img.color.Rgba32 = undefined;
+const fs = 15;
+
+pub fn bdfToRgba(res: []bool) ![fs * fs]img.color.Rgba32 {
+    var buf: [fs * fs]img.color.Rgba32 = undefined;
     for (res, 0..) |val, i| {
         if (val) {
             buf[i] = .{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -284,8 +286,8 @@ pub const Text = struct {
             const rgba = try bdfToRgba(search[1]);
 
             for (rgba, 0..) |color, j| {
-                const char_x = j % 12;
-                const char_y = @divFloor(j, 12);
+                const char_x = j % bdf.width;
+                const char_y = @divFloor(j, bdf.width);
                 atlas[(atlas_y + char_y) * side_size + atlas_x + char_x] = color;
             }
         }
@@ -309,23 +311,34 @@ pub const Text = struct {
         var x_int: u32 = 0;
 
         var utf8 = (try std.unicode.Utf8View.init(text)).iterator();
+
+        var is_start = true;
+
         while (utf8.nextCodepoint()) |c| : (x_int += 1) {
             const count_float: f32 = @floatFromInt(self.bdf.map.items.len);
             const size: u32 = @intFromFloat(@ceil(@sqrt(count_float)));
             const size_f: f32 = @ceil(@sqrt(count_float));
 
-            std.debug.print("{d:.4} {d:.4}\n", .{ c, x });
-
             for (self.bdf.map.items, 0..) |search, i| {
                 if (search[0] == c) {
+                    if (!is_start) {
+                        const bbx_width: f32 = @floatFromInt(search[2] + 2);
+                        const width: f32 = @floatFromInt(self.bdf.width);
+                        x += bbx_width / width + 2 / width;
+                    } else {
+                        is_start = false;
+                    }
+
                     const atlas_x: f32 = @floatFromInt(i % size);
-                    const atlas_y: f32 = @floatFromInt(@divFloor(i, size));
+                    const atlas_y: f32 = @floatFromInt(@divFloor(i, size) + 1);
+
+                    //std.debug.print("coords {} {d} {d} {d:.4} {d:.4}\n", .{ c, i, size, atlas_x, atlas_y });
 
                     const c_vert = [_]f32{
-                        x,     0, 0, atlas_x,     size_f - atlas_y + 1, 0, 0, 0,
-                        x + 1, 0, 0, atlas_x + 1, size_f - atlas_y + 1, 0, 0, 0,
-                        x + 1, 1, 0, atlas_x + 1, size_f - atlas_y,     0, 0, 0,
-                        x,     1, 0, atlas_x,     size_f - atlas_y,     0, 0, 0,
+                        x,     0, 0, atlas_x,     size_f - atlas_y,     0, 0, 0,
+                        x + 1, 0, 0, atlas_x + 1, size_f - atlas_y,     0, 0, 0,
+                        x + 1, 1, 0, atlas_x + 1, size_f - atlas_y + 1, 0, 0, 0,
+                        x,     1, 0, atlas_x,     size_f - atlas_y + 1, 0, 0, 0,
                     };
 
                     const start: u32 = x_int * 4;
@@ -340,11 +353,6 @@ pub const Text = struct {
                     inline for (c_vert) |val| {
                         try vertices.append(val);
                     }
-
-                    const bbx_width: f32 = @floatFromInt(search[2]);
-                    const width: f32 = @floatFromInt(self.bdf.width);
-                    x += bbx_width / width + 1 / width;
-
                     break;
                 }
             }

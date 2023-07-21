@@ -171,8 +171,10 @@ pub fn makeGrid() !void {
     }
 }
 
-pub fn bdfToRgba(bdf: *BdfParse, c: u8) ![12 * 12]img.color.Rgba32 {
-    var buf: [12 * 12]img.color.Rgba32 = undefined;
+const fs = 15;
+
+pub fn bdfToRgba(bdf: *BdfParse, c: u8) ![fs * fs]img.color.Rgba32 {
+    var buf: [fs * fs]img.color.Rgba32 = undefined;
     var res = try bdf.getChar(c);
     for (res, 0..) |val, i| {
         if (val) {
@@ -375,7 +377,7 @@ pub fn main() !void {
 
         var rgba = try bdfToRgba(&bdf, c);
 
-        try cube.drawing.textureFromRgba(&rgba, 12, 12);
+        try cube.drawing.textureFromRgba(&rgba, fs, fs);
     }
 
     try makeAxis();
@@ -551,7 +553,7 @@ pub fn main() !void {
         timer += dt;
 
         if (timer > 0.025) {
-            try text.printFmt("撮影機: あああ {d:.4} {d:.4} {d:.4}\n", .{ cam.eye, cam.move, 1 / dt });
+            try text.printFmt("⠓ り 撮影機: あああ {d:.4} {d:.4} {d:.4}\n", .{ cam.eye, cam.move, 1 / dt });
             timer = 0;
         }
 

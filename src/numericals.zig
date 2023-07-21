@@ -36,23 +36,6 @@ pub fn newtonMethod(comptime T: type, comptime f: fn (T) T, comptime df: fn (T) 
 
 const TAU = 6.28318530718;
 
-pub fn main() !void {
-    var elems: KeplerElements = .{
-        .a = 2.7,
-        .e = 0.6,
-        .i = 0,
-        .arg = TAU / 4.0,
-        .long = 0,
-        .m0 = 69,
-    };
-
-    const v = TAU;
-    elems.m0 = atan2(f32, -@sqrt(1 - elems.e * elems.e) * sin(v), -elems.e - cos(v)) + TAU / 2.0 - elems.e * (@sqrt(1 - elems.e * elems.e) * sin(v)) / (1 + elems.e * cos(v));
-
-    const pos = keplerToCart(elems, 0, 2);
-    std.debug.print("{d:.4}\n", .{pos});
-}
-
 pub fn keplerInverse(e: f32, mt: f32) f32 {
     var val: f32 = mt;
 
