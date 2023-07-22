@@ -53,16 +53,15 @@ pub const MeshBuilder = struct {
     const SpatialFormat = struct {
         vert: [:0]const u8,
         frag: [:0]const u8,
-        transform: *Mat4,
         pos: Vec3 = .{ 0, 0, 0 },
     };
 
-    pub fn toSpatial(self: MeshBuilder, drawing: *Drawing(.spatial), comptime format: SpatialFormat) !graphics.SpatialMesh {
+    pub fn toSpatial(self: MeshBuilder, drawing: *Drawing(.spatial), transform: *Mat4, comptime format: SpatialFormat) !graphics.SpatialMesh {
         _ = self;
         return try graphics.SpatialMesh.init(
             drawing,
             format.pos,
-            format.transform,
+            transform,
             try graphics.Shader.setupShader(format.vert, format.frag),
         );
     }

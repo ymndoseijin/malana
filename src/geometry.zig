@@ -74,11 +74,13 @@ pub const HalfEdge = struct {
 
 pub const Mesh = struct {
     arena: std.heap.ArenaAllocator,
+    first_half: ?*HalfEdge,
 
     pub fn init(alloc: std.mem.Allocator) Mesh {
         var arena = std.heap.ArenaAllocator.init(alloc);
         return Mesh{
             .arena = arena,
+            .first_half = null,
         };
     }
 
@@ -108,6 +110,18 @@ pub const Mesh = struct {
     };
 
     pub const SubdivideValue = struct { SubdivideEdge, [2]*HalfEdge };
+
+    pub fn subdivideMesh(self: *Mesh, count: usize) !void {
+        const allocator = self.arena.allocator();
+
+        var subdivide_set = std.AutoHashMap(?*HalfEdge, [2]*HalfEdge).init(allocator);
+        defer subdivide_set.deinit();
+
+        for (0..count) |_| {
+            try self.subdivide(self.first_half.?, &subdivide_set);
+            subdivide_set.clearRetainingCapacity();
+        }
+    }
 
     // only for triangles rn
     pub fn subdivide(self: *Mesh, half_edge: *HalfEdge, map: *std.AutoHashMap(?*HalfEdge, [2]*HalfEdge)) !void {
@@ -177,8 +191,7 @@ pub const Mesh = struct {
         length: usize,
     };
 
-    // this merges the vertices with the same pos rather than doing it properly
-    pub fn makeFrom(self: *Mesh, vertices: []const f32, in_indices: []const u32, comptime format: Format, comptime n: comptime_int) !*HalfEdge {
+    pub fn makeFrom(self: *Mesh, vertices: []const f32, in_indices: []const u32, comptime format: Format, comptime n: comptime_int) !void {
         const allocator = self.arena.allocator();
 
         var indices = try allocator.dupe(u32, in_indices);
@@ -211,8 +224,8 @@ pub const Mesh = struct {
             });
         }
 
-        var res = self.makeNgon(converted.items, indices, n);
-        return res;
+        var res = try self.makeNgon(converted.items, indices, n);
+        self.first_half = res;
     }
 
     pub fn makeNgon(self: *Mesh, in_vert: []const Vertex, indices: []const u32, comptime n: comptime_int) !*HalfEdge {
