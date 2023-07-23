@@ -15,7 +15,7 @@ out vec2 TexCoord;
 void main()
 {
    vec3 position = aPos;
-   vec4 vert = transform*model*vec4(position, 1.0);
+   vec4 vert = transform*vec4(position, 1.0);
    gl_Position = vert;
 
 

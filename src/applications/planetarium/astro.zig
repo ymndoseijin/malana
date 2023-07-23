@@ -25,6 +25,7 @@ const Line = graphics.Line;
 const MeshBuilder = graphics.MeshBuilder;
 
 const Mat4 = math.Mat4;
+const Vec2 = math.Vec2;
 const Vec3 = math.Vec3;
 const Vec4 = math.Vec4;
 const Vec3Utils = math.Vec3Utils;
@@ -110,7 +111,7 @@ pub const Planet = struct {
         var pos = Vec3{ @floatCast(venus_pos[1]), @floatCast(venus_pos[2]), @floatCast(venus_pos[0]) };
         pos *= @splat(10.0);
 
-        const rot_m = math.rotationY(TAU / 4.0).cast(4, 4);
+        const rot_m = math.rotationY(f32, TAU / 4.0).cast(4, 4);
         const pos_m = Mat4.translation(pos);
         var model = rot_m.mul(pos_m.mul(Mat4.scaling(Vec4{ 0.2, 0.2, 0.2, 1.0 })));
         self.subdivided.drawing.setUniformMat4("model", &model);
@@ -148,7 +149,7 @@ pub const Planet = struct {
     }
 };
 
-pub fn star(state: *Planetarium, ra: f32, dec: f32) !void {
+pub fn star(state: *Planetarium) !void {
     var mesh = try graphics.SpatialMesh.init(
         try state.skybox_scene.new(.spatial),
         .{ 0.0, 0, 0 },
@@ -156,16 +157,70 @@ pub fn star(state: *Planetarium, ra: f32, dec: f32) !void {
         try graphics.Shader.setupShader("shaders/star/vertex.glsl", "shaders/star/fragment.glsl"),
     );
 
-    mesh.drawing.bindVertex(&[_]f32{
-        100.0, -0.5, -0.5, 0.0, 0.0, 0.0, 0.0, 0.0,
-        100.0, 0.5,  -0.5, 1.0, 0.0, 0.0, 0.0, 0.0,
-        100.0, -0.5, 0.5,  0.0, 1.0, 0.0, 0.0, 0.0,
-        100.0, 0.5,  0.5,  1.0, 1.0, 0.0, 0.0, 0.0,
-    }, &[_]u32{ 0, 1, 2, 3, 2, 1 });
+    var vertices = std.ArrayList(f32).init(common.allocator);
+    var indices = std.ArrayList(u32).init(common.allocator);
 
-    const rot_m = math.rotationZ(ra).mul(math.rotationX(dec)).cast(4, 4);
-    var model = rot_m;
-    mesh.drawing.setUniformMat4("model", &model);
+    defer vertices.deinit();
+    defer indices.deinit();
+
+    var file = try std.fs.cwd().openFile("resources/astro/hygfull.csv", .{});
+    defer file.close();
+
+    var buf_reader = std.io.bufferedReader(file.reader());
+    var in_stream = buf_reader.reader();
+
+    var buf: [4096]u8 = undefined;
+
+    var start = true;
+
+    var i: u32 = 0;
+
+    while (try in_stream.readUntilDelimiterOrEof(&buf, '\n')) |line| : (i += 1) {
+        if (start) {
+            start = false;
+            continue;
+        }
+
+        var it = std.mem.splitAny(u8, line, ",");
+
+        inline for (0..7) |_| {
+            _ = it.next();
+        }
+
+        const ra = try std.fmt.parseFloat(f64, it.next().?) / 360 * TAU * 15;
+        const dec = try std.fmt.parseFloat(f64, it.next().?) / 360 * TAU;
+
+        std.debug.print("{d} {d}\n", .{ ra, dec });
+        //std.os.exit(0);
+
+        const rot = math.rotationY(f64, ra).mul(math.rotationZ(f64, dec));
+
+        const size = 0.01;
+
+        const a = rot.dot(.{ 10.0, -size, -size });
+        const b = rot.dot(.{ 10.0, size, -size });
+        const c = rot.dot(.{ 10.0, -size, size });
+        const d = rot.dot(.{ 10.0, size, size });
+
+        const s: u32 = i * 4;
+
+        const verts = [_]f32{
+            @floatCast(a[0]), @floatCast(a[1]), @floatCast(a[2]), 0.0, 0.0, 0.0, 0.0, 0.0,
+            @floatCast(b[0]), @floatCast(b[1]), @floatCast(b[2]), 1.0, 0.0, 0.0, 0.0, 0.0,
+            @floatCast(c[0]), @floatCast(c[1]), @floatCast(c[2]), 0.0, 1.0, 0.0, 0.0, 0.0,
+            @floatCast(d[0]), @floatCast(d[1]), @floatCast(d[2]), 1.0, 1.0, 0.0, 0.0, 0.0,
+        };
+        const idx = .{ s, s + 1, s + 2, s + 3, s + 2, s + 1 };
+
+        inline for (verts) |val| {
+            try vertices.append(val);
+        }
+
+        inline for (idx) |val| {
+            try indices.append(val);
+        }
+    }
+    mesh.drawing.bindVertex(vertices.items, indices.items);
 
     mesh.drawing.setUniformFloat("fog", &state.fog);
 }

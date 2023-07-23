@@ -25,6 +25,7 @@ const Line = graphics.Line;
 const MeshBuilder = graphics.MeshBuilder;
 
 const Mat4 = math.Mat4;
+const Vec2 = math.Vec2;
 const Vec3 = math.Vec3;
 const Vec4 = math.Vec4;
 const Vec3Utils = math.Vec3Utils;
@@ -400,7 +401,7 @@ pub fn main() !void {
     try camera_obj.drawing.textureFromPath("resources/table.png");
     obj_builder.deinit();
 
-    try astro.star(&planetarium, 0, 0);
+    try astro.star(&planetarium);
 
     while (planetarium.main_win.alive) {
         graphics.waitGraphicsEvent();

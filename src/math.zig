@@ -177,24 +177,24 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
     };
 }
 
-pub fn rotationX(t: f32) Mat3 {
-    return Mat3.init(.{
+pub fn rotationX(comptime T: type, t: T) Mat(T, 3, 3) {
+    return Mat(T, 3, 3).init(.{
         .{ 1, 0, 0 },
         .{ 0, cos(t), sin(t) },
         .{ 0, -sin(t), cos(t) },
     });
 }
 
-pub fn rotationY(t: f32) Mat3 {
-    return Mat3.init(.{
+pub fn rotationY(comptime T: type, t: T) Mat(T, 3, 3) {
+    return Mat(T, 3, 3).init(.{
         .{ cos(t), 0, -sin(t) },
         .{ 0, 1, 0 },
         .{ sin(t), 0, cos(t) },
     });
 }
 
-pub fn rotationZ(t: f32) Mat3 {
-    return Mat3.init(.{
+pub fn rotationZ(comptime T: type, t: T) Mat(T, 3, 3) {
+    return Mat(T, 3, 3).init(.{
         .{ cos(t), sin(t), 0 },
         .{ -sin(t), cos(t), 0 },
         .{ 0, 0, 1 },
