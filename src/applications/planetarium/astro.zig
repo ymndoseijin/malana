@@ -111,8 +111,6 @@ pub const Planet = struct {
         pos *= @splat(10.0);
 
         const rot_m = math.rotationY(TAU / 4.0).cast(4, 4);
-
-        //std.debug.print("shit {d:.4}\n", .{rot_m.columns});
         const pos_m = Mat4.translation(pos);
         var model = rot_m.mul(pos_m.mul(Mat4.scaling(Vec4{ 0.2, 0.2, 0.2, 1.0 })));
         self.subdivided.drawing.setUniformMat4("model", &model);
@@ -149,3 +147,25 @@ pub const Planet = struct {
         };
     }
 };
+
+pub fn star(state: *Planetarium, ra: f32, dec: f32) !void {
+    var mesh = try graphics.SpatialMesh.init(
+        try state.skybox_scene.new(.spatial),
+        .{ 0.0, 0, 0 },
+        &state.skybox_cam.transform_mat,
+        try graphics.Shader.setupShader("shaders/star/vertex.glsl", "shaders/star/fragment.glsl"),
+    );
+
+    mesh.drawing.bindVertex(&[_]f32{
+        100.0, -0.5, -0.5, 0.0, 0.0, 0.0, 0.0, 0.0,
+        100.0, 0.5,  -0.5, 1.0, 0.0, 0.0, 0.0, 0.0,
+        100.0, -0.5, 0.5,  0.0, 1.0, 0.0, 0.0, 0.0,
+        100.0, 0.5,  0.5,  1.0, 1.0, 0.0, 0.0, 0.0,
+    }, &[_]u32{ 0, 1, 2, 3, 2, 1 });
+
+    const rot_m = math.rotationZ(ra).mul(math.rotationX(dec)).cast(4, 4);
+    var model = rot_m;
+    mesh.drawing.setUniformMat4("model", &model);
+
+    mesh.drawing.setUniformFloat("fog", &state.fog);
+}

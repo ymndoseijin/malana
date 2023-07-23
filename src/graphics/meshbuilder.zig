@@ -13,6 +13,7 @@ const Vertex = geometry.Vertex;
 const HalfEdge = geometry.HalfEdge;
 
 const Drawing = graphics.Drawing;
+const SpatialPipeline = graphics.SpatialPipeline;
 const glfw = graphics.glfw;
 const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
@@ -56,7 +57,7 @@ pub const MeshBuilder = struct {
         pos: Vec3 = .{ 0, 0, 0 },
     };
 
-    pub fn toSpatial(self: MeshBuilder, drawing: *Drawing(.spatial), transform: *Mat4, comptime format: SpatialFormat) !graphics.SpatialMesh {
+    pub fn toSpatial(self: MeshBuilder, drawing: *Drawing(SpatialPipeline), transform: *Mat4, comptime format: SpatialFormat) !graphics.SpatialMesh {
         _ = self;
         return try graphics.SpatialMesh.init(
             drawing,

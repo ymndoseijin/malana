@@ -18,7 +18,7 @@ pub fn FieldArrayList(comptime T: type) type {
         pub const Field = std.meta.FieldEnum(T);
         pub const Enums = std.enums.values(Field);
 
-        fn FieldType(comptime field: Field) type {
+        pub fn FieldType(comptime field: Field) type {
             return std.meta.fieldInfo(T, field).type;
         }
 
@@ -62,6 +62,8 @@ test "field array" {
     const FieldList = FieldArrayList(struct { a: u8, b: u5 });
     var arr = try FieldList.init(ally);
     defer arr.deinit(ally);
+
+    std.debug.print("\n {any} aa\n", .{FieldList.FieldType(.a)});
 
     try arr.array(.a).append(3);
 

@@ -97,52 +97,69 @@ pub const Shader = struct {
     }
 };
 
+pub fn Scene(comptime pipelines_union: anytype) type {
+    const DrawingList = common.FieldArrayList(pipelines_union);
+    return struct {
+        drawing_array: DrawingList,
+
+        const Self = @This();
+        pub fn init() !Self {
+            return Self{
+                .drawing_array = try DrawingList.init(common.allocator),
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            inline for (DrawingList.Enums) |field| {
+                for (self.drawing_array.array(field).items) |elem| {
+                    elem.deinit();
+                    common.allocator.destroy(elem);
+                }
+            }
+
+            self.drawing_array.deinit(common.allocator);
+        }
+
+        pub fn new(self: *Self, comptime render: DrawingList.Field) !*@typeInfo(DrawingList.FieldType(render)).Pointer.child {
+            var val = try common.allocator.create(@typeInfo(DrawingList.FieldType(render)).Pointer.child);
+            try self.drawing_array.array(render).append(val);
+            return val;
+        }
+
+        pub fn draw(self: *Self, win: Window) !void {
+            inline for (DrawingList.Enums) |field| {
+                for (self.drawing_array.array(field).items) |*elem| {
+                    try elem.*.draw(win);
+                }
+            }
+        }
+    };
+}
+
 const RenderType = enum {
     line,
-    spatial,
+    triangle,
 };
 
-const DrawingList = common.FieldArrayList(union(RenderType) {
-    line: *Drawing(.line),
-    spatial: *Drawing(.spatial),
-});
-
-pub const Scene = struct {
-    drawing_array: DrawingList,
-
-    pub fn init() !Scene {
-        return Scene{
-            .drawing_array = try DrawingList.init(common.allocator),
-        };
-    }
-
-    pub fn deinit(self: *Scene) void {
-        inline for (DrawingList.Enums) |field| {
-            for (self.drawing_array.array(field).items) |elem| {
-                elem.deinit();
-                common.allocator.destroy(elem);
-            }
-        }
-
-        self.drawing_array.deinit(common.allocator);
-    }
-
-    pub fn new(self: *Scene, comptime render: RenderType) !*Drawing(render) {
-        var val = try common.allocator.create(Drawing(render));
-        try self.drawing_array.array(render).append(val);
-        return val;
-    }
-
-    pub fn draw(self: *Scene, win: Window) !void {
-        inline for (DrawingList.Enums) |field| {
-            for (self.drawing_array.array(field).items) |*elem| {
-                try elem.*.draw(win);
-            }
-        }
-    }
+const VertexAttribute = struct {
+    size: comptime_int,
+};
+const RenderPipeline = struct {
+    vertex_attrib: []const VertexAttribute,
+    render_type: RenderType,
 };
 
-pub fn Drawing(comptime drawing_type: RenderType) type {
+pub const SpatialPipeline = RenderPipeline{
+    .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
+    .render_type = .triangle,
+};
+
+pub const LinePipeline = RenderPipeline{
+    .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 3 } },
+    .render_type = .line,
+};
+
+pub fn Drawing(comptime pipeline: RenderPipeline) type {
     return struct {
         vao: u32,
         vbo: u32,
@@ -162,7 +179,6 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
         transform3d: math.Mat3,
 
         const Self = @This();
-        pub const render_type = drawing_type;
 
         pub fn addUniformFloat(self: *Self, name: [:0]const u8, f: *f32) !void {
             try self.uniform1f_array.append(.{ .name = name, .value = f });
@@ -269,33 +285,17 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
 
             self.vert_count = indices.len;
 
-            switch (drawing_type) {
-                .spatial => {
-                    gl.bindVertexArray(self.vao);
+            gl.bindVertexArray(self.vao);
+            var sum_size: usize = 0;
+            inline for (pipeline.vertex_attrib) |attrib| {
+                sum_size += attrib.size;
+            }
 
-                    // pos
-                    gl.vertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * @sizeOf(f32), @ptrFromInt(0));
-                    gl.enableVertexAttribArray(0);
-
-                    // uv
-                    gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, 8 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
-                    gl.enableVertexAttribArray(1);
-
-                    // normal
-                    gl.vertexAttribPointer(2, 3, gl.FLOAT, gl.FALSE, 8 * @sizeOf(f32), @ptrFromInt(5 * @sizeOf(f32)));
-                    gl.enableVertexAttribArray(2);
-                },
-                .line => {
-                    gl.bindVertexArray(self.vao);
-
-                    // pos
-                    gl.vertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 6 * @sizeOf(f32), @ptrFromInt(0));
-                    gl.enableVertexAttribArray(0);
-
-                    // color
-                    gl.vertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 6 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
-                    gl.enableVertexAttribArray(1);
-                },
+            var index_size: usize = 0;
+            inline for (pipeline.vertex_attrib, 0..) |attrib, i| {
+                gl.vertexAttribPointer(i, attrib.size, gl.FLOAT, gl.FALSE, @intCast(sum_size * @sizeOf(f32)), @ptrFromInt(index_size * @sizeOf(f32)));
+                gl.enableVertexAttribArray(i);
+                index_size += attrib.size;
             }
         }
 
@@ -336,18 +336,14 @@ pub fn Drawing(comptime drawing_type: RenderType) type {
             }
 
             gl.bindVertexArray(self.vao);
-            switch (drawing_type) {
-                .spatial => {
-                    gl.drawElements(gl.TRIANGLES, @intCast(self.vert_count), gl.UNSIGNED_INT, null);
-                    gl.bindVertexArray(0);
-                    gl.bindVertexArray(1);
-                    gl.bindVertexArray(2);
-                },
-                .line => {
-                    gl.drawElements(gl.LINES, @intCast(self.vert_count), gl.UNSIGNED_INT, null);
-                    gl.bindVertexArray(0);
-                    gl.bindVertexArray(1);
-                },
+
+            switch (pipeline.render_type) {
+                .triangle => gl.drawElements(gl.TRIANGLES, @intCast(self.vert_count), gl.UNSIGNED_INT, null),
+                .line => gl.drawElements(gl.LINES, @intCast(self.vert_count), gl.UNSIGNED_INT, null),
+            }
+
+            inline for (0..pipeline.vertex_attrib.len) |i| {
+                gl.bindVertexArray(i);
             }
         }
     };

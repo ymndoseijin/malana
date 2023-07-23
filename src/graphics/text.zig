@@ -14,6 +14,7 @@ const HalfEdge = geometry.HalfEdge;
 
 const Drawing = graphics.Drawing;
 const glfw = graphics.glfw;
+const SpatialPipeline = graphics.SpatialPipeline;
 const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
@@ -39,7 +40,7 @@ pub const Image = struct {
 };
 
 pub const Text = struct {
-    drawing: *Drawing(.spatial),
+    drawing: *Drawing(SpatialPipeline),
     bdf: BdfParse,
     atlas: Image,
     pos: Vec3,
@@ -151,8 +152,8 @@ pub const Text = struct {
         try self.drawing.addUniformVec3("pos", &self.pos);
     }
 
-    pub fn init(drawing: *Drawing(.spatial), bdf: BdfParse, pos: Vec3, text: []const u8) !Text {
-        drawing.* = graphics.Drawing(.spatial).init(try graphics.Shader.setupShader("shaders/text/vertex.glsl", "shaders/text/fragment.glsl"));
+    pub fn init(drawing: *Drawing(SpatialPipeline), bdf: BdfParse, pos: Vec3, text: []const u8) !Text {
+        drawing.* = graphics.Drawing(SpatialPipeline).init(try graphics.Shader.setupShader("shaders/text/vertex.glsl", "shaders/text/fragment.glsl"));
 
         var atlas = try makeAtlas(bdf);
 

@@ -14,12 +14,13 @@ const HalfEdge = geometry.HalfEdge;
 
 const Drawing = graphics.Drawing;
 const glfw = graphics.glfw;
+const SpatialPipeline = graphics.SpatialPipeline;
 const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
 
 pub const SpatialMesh = struct {
-    drawing: *Drawing(.spatial),
+    drawing: *Drawing(SpatialPipeline),
     pos: Vec3,
     transform: *Mat4,
 
@@ -31,8 +32,8 @@ pub const SpatialMesh = struct {
         try self.drawing.addUniformMat4("transform", self.transform);
     }
 
-    pub fn init(drawing: *Drawing(.spatial), pos: Vec3, transform: *Mat4, shader: u32) !SpatialMesh {
-        drawing.* = graphics.Drawing(.spatial).init(shader);
+    pub fn init(drawing: *Drawing(SpatialPipeline), pos: Vec3, transform: *Mat4, shader: u32) !SpatialMesh {
+        drawing.* = graphics.Drawing(SpatialPipeline).init(shader);
 
         try drawing.addUniformMat4("transform", transform);
 

@@ -14,14 +14,15 @@ const HalfEdge = geometry.HalfEdge;
 
 const Drawing = graphics.Drawing;
 const glfw = graphics.glfw;
+const LinePipeline = graphics.LinePipeline;
 const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
 
 pub const Line = struct {
-    pub fn init(drawing: *Drawing(.line), transform: *Mat4, vert: []const Vec3, color: []const Vec3) !Line {
+    pub fn init(drawing: *Drawing(LinePipeline), transform: *Mat4, vert: []const Vec3, color: []const Vec3) !Line {
         var shader = try graphics.Shader.setupShader("shaders/line/vertex.glsl", "shaders/line/fragment.glsl");
-        drawing.* = graphics.Drawing(.line).init(shader);
+        drawing.* = graphics.Drawing(LinePipeline).init(shader);
 
         var vertices = std.ArrayList(f32).init(common.allocator);
         var indices = std.ArrayList(u32).init(common.allocator);
@@ -48,5 +49,5 @@ pub const Line = struct {
     }
     vertices: []f32,
     indices: []u32,
-    drawing: *Drawing(.line),
+    drawing: *Drawing(LinePipeline),
 };

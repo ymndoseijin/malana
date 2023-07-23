@@ -23,7 +23,7 @@ pub const Camera = struct {
 
     transform_mat: math.Mat4,
 
-    move: @Vector(3, f32) = .{ 7, 3.8, 13.7 },
+    move: @Vector(3, f32) = .{ 0, 0, 0 },
     up: @Vector(3, f32) = .{ 0, 1, 0 },
 
     eye: [2]f32 = .{ 4.32, -0.23 },

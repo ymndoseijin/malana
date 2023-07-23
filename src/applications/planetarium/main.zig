@@ -29,6 +29,8 @@ const Vec3 = math.Vec3;
 const Vec4 = math.Vec4;
 const Vec3Utils = math.Vec3Utils;
 
+const SpatialPipeline = graphics.SpatialPipeline;
+
 const astro = @import("astro.zig");
 const Planet = astro.Planet;
 
@@ -36,29 +38,63 @@ var current_keys: [glfw.GLFW_KEY_MENU + 1]bool = .{false} ** (glfw.GLFW_KEY_MENU
 var down_num: usize = 0;
 var last_mods: i32 = 0;
 
+const DrawingList = union(enum) {
+    line: *Drawing(graphics.LinePipeline),
+    spatial: *Drawing(graphics.SpatialPipeline),
+};
+
 pub const Planetarium = struct {
     main_win: *graphics.Window,
-    scene: graphics.Scene,
+    scene: graphics.Scene(DrawingList),
+    skybox_scene: graphics.Scene(DrawingList),
 
     cam: Camera,
+    skybox_cam: Camera,
     fog: f32,
 
     time: f64,
+    pub fn init() !Planetarium {
+        var main_win = try graphics.Window.init(100, 100);
+
+        main_win.setKeyCallback(keyFunc);
+        main_win.setFrameCallback(frameFunc);
+
+        var cam = try Camera.init(0.6, 1, 0.1, 2048);
+        cam.move = .{ 7, 3.8, 13.7 };
+        try cam.updateMat();
+
+        var skybox_cam = try Camera.init(0.6, 1, 0.1, 2048);
+        skybox_cam.move = .{ 0, 0, 0 };
+        try skybox_cam.updateMat();
+
+        const now: f64 = @floatFromInt(std.time.timestamp());
+
+        return Planetarium{
+            .main_win = main_win,
+            .cam = cam,
+            .skybox_cam = skybox_cam,
+            .fog = 2,
+            .time = now / 86400.0 + 2440587.5,
+            .scene = try graphics.Scene(DrawingList).init(),
+            .skybox_scene = try graphics.Scene(DrawingList).init(),
+        };
+    }
+
+    pub fn deinit(self: *Planetarium) void {
+        self.main_win.deinit();
+        self.scene.deinit();
+        self.skybox_scene.deinit();
+    }
 };
 
-var planetarium = Planetarium{
-    .time = 0,
-    .cam = undefined,
-    .scene = undefined,
-    .main_win = undefined,
-    .fog = 2,
-};
+var planetarium: Planetarium = undefined;
 
 pub fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
     _ = win;
     const w: f32 = @floatFromInt(width);
     const h: f32 = @floatFromInt(height);
     try planetarium.cam.setParameters(0.6, w / h, 0.1, 2048);
+    try planetarium.skybox_cam.setParameters(0.6, w / h, 0.1, 2048);
 }
 
 var is_wireframe = false;
@@ -69,7 +105,6 @@ pub fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods
 
     if (action == glfw.GLFW_PRESS) {
         if (key == glfw.GLFW_KEY_C) {
-            std.debug.print("abc\n", .{});
             if (is_wireframe) {
                 gl.polygonMode(gl.FRONT_AND_BACK, gl.FILL);
                 is_wireframe = false;
@@ -102,8 +137,6 @@ pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
         speed *= 7;
         look_speed *= 2;
     }
-
-    std.debug.print("{d:.4} {d:.4}\n", .{ speed, look_speed });
 
     const speed_vec: Vec3 = @splat(speed * dt);
     const eye = speed_vec * Vec3{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) };
@@ -275,7 +308,7 @@ pub fn makeSphere() !Mesh {
         .length = 8,
     }, 3);
 
-    try mesh.subdivideMesh(1);
+    try mesh.subdivideMesh(3);
 
     return mesh;
 }
@@ -287,30 +320,16 @@ pub fn main() !void {
     defer bdf.deinit();
     try bdf.parse("b12.bdf");
 
-    // init Planetarium
     try graphics.initGraphics();
     defer graphics.deinitGraphics();
-    planetarium.main_win = try graphics.Window.init(100, 100);
 
-    gl.enable(gl.DEPTH_TEST);
-    gl.enable(gl.CULL_FACE);
+    planetarium = try Planetarium.init();
+    defer planetarium.deinit();
+
     gl.cullFace(gl.BACK);
     gl.enable(gl.BLEND);
     gl.lineWidth(2);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-    planetarium.main_win.setKeyCallback(keyFunc);
-    planetarium.main_win.setFrameCallback(frameFunc);
-
-    planetarium.cam = try Camera.init(0.6, 1, 0.1, 2048);
-    try planetarium.cam.updateMat();
-
-    const now: f64 = @floatFromInt(std.time.timestamp());
-    planetarium.time = now / 86400.0 + 2440587.5;
-
-    planetarium.scene = try graphics.Scene.init();
-    defer planetarium.scene.deinit();
-    defer planetarium.main_win.deinit();
 
     var text = try graphics.Text.init(try planetarium.scene.new(.spatial), bdf, .{ 0, 0, 0 }, "cam: { 4.3200, -0.2300 } { 4.6568, 3.9898, 15.5473 }");
     try text.initUniform();
@@ -354,8 +373,6 @@ pub fn main() !void {
         const e = (-hk_r + k * @sqrt(hk_r)) / (k - @sqrt(hk_r));
         const w = -2 * atan((k - @sqrt(hk_r)) / h);
 
-        std.debug.print("{d} {d} {d} {d} {d}\n", .{ elems[0], e, inc, o, w - o });
-
         try astro.orbit(&planetarium, @floatCast(elems[0]), @floatCast(e), @floatCast(inc), @floatCast(o), @floatCast(w - o));
     }
 
@@ -372,6 +389,7 @@ pub fn main() !void {
         .{
             .vert = "shaders/triangle/vertex.glsl",
             .frag = "shaders/triangle/fragment.glsl",
+            .pos = .{ 0, 0, 0 },
         },
     );
 
@@ -379,23 +397,27 @@ pub fn main() !void {
     try camera_obj.drawing.addUniformFloat("fog", &planetarium.fog);
 
     camera_obj.drawing.bindVertex(obj_builder.vertices.items, obj_builder.indices.items);
-    try camera_obj.drawing.textureFromPath("resources/gray.png");
+    try camera_obj.drawing.textureFromPath("resources/table.png");
     obj_builder.deinit();
+
+    try astro.star(&planetarium, 0, 0);
 
     while (planetarium.main_win.alive) {
         graphics.waitGraphicsEvent();
 
-        gl.clearColor(0.2, 0.2, 0.2, 1.0);
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
         const time = @as(f32, @floatCast(glfw.glfwGetTime()));
 
         const dt = time - last_time;
-        planetarium.time += time * 0.01;
+        planetarium.time += dt * 5;
 
         if (down_num > 0) {
             try key_down(&current_keys, last_mods, dt);
         }
+        planetarium.skybox_cam.eye = planetarium.cam.eye;
+        try planetarium.skybox_cam.updateMat();
 
         inline for (&planets) |*planet| {
             planet.update(&planetarium);
@@ -407,6 +429,13 @@ pub fn main() !void {
             timer = 0;
         }
 
+        gl.disable(gl.DEPTH_TEST);
+        gl.disable(gl.CULL_FACE);
+        try planetarium.skybox_scene.draw(planetarium.main_win.*);
+
+        gl.enable(gl.DEPTH_TEST);
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.BACK);
         try planetarium.scene.draw(planetarium.main_win.*);
 
         last_time = time;
