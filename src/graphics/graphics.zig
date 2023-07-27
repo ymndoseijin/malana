@@ -29,6 +29,11 @@ const Uniform3f = struct {
     value: *math.Vec3,
 };
 
+const Uniform3fv = struct {
+    name: [:0]const u8,
+    value: *math.Mat3,
+};
+
 const Uniform4fv = struct {
     name: [:0]const u8,
     value: *math.Mat4,
@@ -167,6 +172,8 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
 
         uniform1f_array: std.ArrayList(Uniform1f),
         uniform3f_array: std.ArrayList(Uniform3f),
+
+        uniform3fv_array: std.ArrayList(Uniform3fv),
         uniform4fv_array: std.ArrayList(Uniform4fv),
 
         texture: u32,
@@ -191,6 +198,10 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             try self.uniform4fv_array.append(.{ .name = name, .value = m });
         }
 
+        pub fn addUniformMat3(self: *Self, name: [:0]const u8, m: *math.Mat3) !void {
+            try self.uniform3fv_array.append(.{ .name = name, .value = m });
+        }
+
         pub fn setUniformFloat(self: *Self, name: [:0]const u8, value: *f32) void {
             gl.useProgram(self.shader_program);
             const loc: i32 = gl.getUniformLocation(self.shader_program, name);
@@ -201,6 +212,20 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             gl.useProgram(self.shader_program);
             const loc: i32 = gl.getUniformLocation(self.shader_program, name);
             gl.uniform3f(loc, value[0], value[1], value[2]);
+        }
+
+        pub fn setUniformMat3(self: *Self, name: [:0]const u8, value: *math.Mat3) void {
+            gl.useProgram(self.shader_program);
+            const loc: i32 = gl.getUniformLocation(self.shader_program, name);
+
+            std.debug.print("\n{d}\n", .{@sizeOf(math.Vec3) / @sizeOf(f32)});
+            std.debug.print("\n{d}\n", .{@sizeOf([3]f32) / @sizeOf(f32)});
+            std.debug.print("\n{any}\n", .{@TypeOf(value.columns)});
+            std.debug.print("\n{d:.4}\n", .{value.columns});
+            const a = @as([*]f32, @ptrCast(&value.columns[0][0]));
+            std.debug.print("{d:.4}\n", .{a[0..12].*});
+
+            gl.uniformMatrix3fv(loc, 1, gl.FALSE, &value.columns[0][0]);
         }
 
         pub fn setUniformMat4(self: *Self, name: [:0]const u8, value: *math.Mat4) void {
@@ -220,6 +245,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
 
             drawing.uniform1f_array = std.ArrayList(Uniform1f).init(common.allocator);
             drawing.uniform3f_array = std.ArrayList(Uniform3f).init(common.allocator);
+            drawing.uniform3fv_array = std.ArrayList(Uniform3fv).init(common.allocator);
             drawing.uniform4fv_array = std.ArrayList(Uniform4fv).init(common.allocator);
             drawing.has_texture = false;
             drawing.texture = 0;
@@ -233,6 +259,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
         pub fn deinit(self: *Self) void {
             self.uniform1f_array.deinit();
             self.uniform3f_array.deinit();
+            self.uniform3fv_array.deinit();
             self.uniform4fv_array.deinit();
         }
 
@@ -326,6 +353,12 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
                 gl.uniformMatrix4fv(loc, 1, gl.FALSE, &uni.value.columns[0][0]);
             }
 
+            for (self.uniform3fv_array.items) |uni| {
+                const loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
+
+                gl.uniformMatrix3fv(loc, 1, gl.FALSE, &uni.value.columns[0][0]);
+            }
+
             if (self.has_texture) {
                 gl.activeTexture(gl.TEXTURE0);
                 gl.bindTexture(gl.TEXTURE_2D, self.texture);
@@ -384,6 +417,18 @@ pub fn deinitGraphics() void {
 const GlfwError = error{
     FailedGlfwInit,
     FailedGlfwWindow,
+};
+
+pub const Square = struct {
+    pub const vertices = [_]f32{
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0,
+        1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+    };
+    pub const indices = [_]u32{
+        0, 1, 2, 2, 3, 0,
+    };
 };
 
 pub fn getGlfwKey(win_or: ?*glfw.GLFWwindow, key: c_int, scancode: c_int, action: c_int, mods: c_int) callconv(.C) void {

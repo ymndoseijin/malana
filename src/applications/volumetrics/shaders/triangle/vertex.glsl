@@ -18,7 +18,7 @@ out vec3 Pos;
 
 void main()
 {
-   vec3 position = aPos*0.2;
+   vec3 position = aPos;
    vec4 vert = transform*vec4(position-real_cam_pos, 1.0);
    Pos = position;
    gl_Position = vert;

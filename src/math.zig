@@ -63,9 +63,9 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
         pub const WIDTH: usize = width;
         pub const HEIGHT: usize = height;
 
-        columns: [width]@Vector(height, T),
+        columns: [width][height]T,
 
-        pub fn init(columns: [width]@Vector(height, T)) @This() {
+        pub fn init(columns: [width][height]T) @This() {
             return @This(){ .columns = columns };
         }
 
@@ -82,7 +82,7 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
         }
 
         pub fn cast(from: @This(), comptime cw: usize, comptime ch: usize) Mat(T, cw, ch) {
-            var res: [cw]@Vector(ch, T) = undefined;
+            var res: [cw][ch]T = undefined;
             inline for (0..cw) |i| {
                 inline for (0..ch) |j| {
                     if (i < width and j < height) {
@@ -101,7 +101,7 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
         }
 
         pub fn scaling(vec: @Vector(width, T)) @This() {
-            var res: [width]@Vector(height, T) = undefined;
+            var res: [width][height]T = undefined;
             inline for (0..width) |i| {
                 inline for (0..height) |j| {
                     if (i != j) {

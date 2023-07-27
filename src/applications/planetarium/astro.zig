@@ -126,7 +126,7 @@ pub const Planet = struct {
         pos = math.rotationY(f32, TAU / 4.0).dot(pos);
 
         const pos_m = Mat4.translation(pos);
-        var model = pos_m.mul(Mat4.scaling(Vec4{ 0.2, 0.2, 0.2, 1.0 }));
+        var model = pos_m.mul(Mat4.scaling(Vec4{ 1.0, 1.0, 1.0, 1.0 }));
 
         self.subdivided.drawing.setUniformMat4("model", &model);
         self.subdivided.pos = pos;
