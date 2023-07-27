@@ -22,25 +22,17 @@ const Vec3Utils = math.Vec3Utils;
 pub const SpatialMesh = struct {
     drawing: *Drawing(SpatialPipeline),
     pos: Vec3,
-    transform: *Mat4,
 
     pub fn initUniform(self: *SpatialMesh) !void {
-        try self.drawing.addUniformVec3("pos", &self.pos);
+        try self.drawing.addUniformVec3("spatial_pos", &self.pos);
     }
 
-    pub fn update(self: *SpatialMesh) void {
-        try self.drawing.addUniformMat4("transform", self.transform);
-    }
-
-    pub fn init(drawing: *Drawing(SpatialPipeline), pos: Vec3, transform: *Mat4, shader: u32) !SpatialMesh {
+    pub fn init(drawing: *Drawing(SpatialPipeline), pos: Vec3, shader: u32) !SpatialMesh {
         drawing.* = graphics.Drawing(SpatialPipeline).init(shader);
-
-        try drawing.addUniformMat4("transform", transform);
 
         return SpatialMesh{
             .drawing = drawing,
             .pos = pos,
-            .transform = transform,
         };
     }
 };

@@ -35,9 +35,12 @@ const Uniform4fv = struct {
 };
 
 pub const Shader = struct {
-    pub fn compileShader(source: [:0]const u8, shader_type: gl.Enum) !u32 {
+    pub fn compileShader(comptime source: [:0]const u8, shader_type: gl.Enum) !u32 {
         const shader: u32 = gl.createShader(shader_type);
-        gl.shaderSource(shader, 1, @ptrCast(&source), null);
+
+        const version_idx = comptime std.mem.indexOf(u8, source, "\n").?;
+        const processed_source = source[0..version_idx] ++ "\n" ++ @embedFile("shaders/common.glsl") ++ source[version_idx..];
+        gl.shaderSource(shader, 1, @ptrCast(&processed_source), null);
         gl.compileShader(shader);
         var response: i32 = 1;
         gl.getShaderiv(shader, gl.COMPILE_STATUS, &response);
@@ -45,15 +48,11 @@ pub const Shader = struct {
         var infoLog: [512]u8 = undefined;
         if (response <= 0) {
             gl.getShaderInfoLog(shader, 512, null, &infoLog[0]);
-            std.debug.print("Couldn't compile {s} from source: {s}\n", .{ source, infoLog });
+            std.debug.print("Couldn't compile {s} from source: {s} file\n", .{ processed_source, infoLog });
             std.os.exit(255);
         }
 
         return shader;
-    }
-
-    pub fn shaderFromFile(comptime path: [:0]const u8, shader_type: gl.Enum) !u32 {
-        return try compileShader(@embedFile(path), shader_type);
     }
 
     pub fn linkShaders(shaders: []u32) !u32 {
@@ -69,7 +68,7 @@ pub const Shader = struct {
 
         var response: i32 = 1;
         gl.getShaderiv(shaderProgram, gl.LINK_STATUS, &response);
-        var infoLog: [512]u8 = undefined;
+        var infoLog: [4096]u8 = undefined;
         if (response <= 0) {
             gl.getShaderInfoLog(shaderProgram, 512, null, &infoLog[0]);
             std.debug.print("Couldn't compile from source: {s}\n", .{infoLog});
@@ -85,8 +84,8 @@ pub const Shader = struct {
 
     pub fn setupShader(comptime vertex_path: [:0]const u8, comptime fragment_path: [:0]const u8) !u32 {
         //printf("Compiling vertex shader at %s and fragment at %s\n", vertex_path, fragment_path);
-        const vertex: u32 = try shaderFromFile(vertex_path, gl.VERTEX_SHADER);
-        const fragment: u32 = try shaderFromFile(fragment_path, gl.FRAGMENT_SHADER);
+        const vertex: u32 = try compileShader(vertex_path, gl.VERTEX_SHADER);
+        const fragment: u32 = try compileShader(fragment_path, gl.FRAGMENT_SHADER);
         var shaderArray = [2]u32{ fragment, vertex };
 
         const shader_result: u32 = try linkShaders(&shaderArray);

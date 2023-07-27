@@ -73,8 +73,8 @@ pub const Cube = struct {
         33, 34, 35,
     };
 
-    pub fn makeCube(drawing: *Drawing(.spatial), pos: Vec3, transform: *Mat4) !graphics.SpatialMesh {
-        var mesh = try graphics.SpatialMesh.init(drawing, pos, transform, try graphics.Shader.setupShader("shaders/cube/vertex.glsl", "shaders/cube/fragment.glsl"));
+    pub fn makeCube(drawing: *Drawing(.spatial), pos: Vec3) !graphics.SpatialMesh {
+        var mesh = try graphics.SpatialMesh.init(drawing, pos, try graphics.Shader.setupShader(@embedFile("shaders/cube/vertex.glsl"), @embedFile("shaders/cube/fragment.glsl")));
         mesh.drawing.bindVertex(&Cube.vertices, &Cube.indices);
         return mesh;
     }

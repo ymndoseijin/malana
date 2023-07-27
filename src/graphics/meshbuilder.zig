@@ -57,12 +57,11 @@ pub const MeshBuilder = struct {
         pos: Vec3 = .{ 0, 0, 0 },
     };
 
-    pub fn toSpatial(self: MeshBuilder, drawing: *Drawing(SpatialPipeline), transform: *Mat4, comptime format: SpatialFormat) !graphics.SpatialMesh {
+    pub fn toSpatial(self: MeshBuilder, drawing: *Drawing(SpatialPipeline), comptime format: SpatialFormat) !graphics.SpatialMesh {
         _ = self;
         return try graphics.SpatialMesh.init(
             drawing,
             format.pos,
-            transform,
             try graphics.Shader.setupShader(format.vert, format.frag),
         );
     }

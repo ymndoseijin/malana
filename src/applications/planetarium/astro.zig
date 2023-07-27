@@ -38,8 +38,10 @@ const TAU = 6.28318530718;
 
 const Planetarium = @import("main.zig").Planetarium;
 
+const SCALE = 10.0;
+
 pub fn orbit(state: *Planetarium, a: f32, e: f32, inc: f32, long: f32, arg: f32) !void {
-    const amount = 60;
+    const amount = 200;
     var verts = std.ArrayList(Vec3).init(common.allocator);
     var colors = std.ArrayList(Vec3).init(common.allocator);
 
@@ -67,7 +69,7 @@ pub fn orbit(state: *Planetarium, a: f32, e: f32, inc: f32, long: f32, arg: f32)
         elems.m0 = atan2(f32, -@sqrt(1 - elems.e * elems.e) * sin(v), -elems.e - cos(v)) + TAU / 2.0 - elems.e * (@sqrt(1 - elems.e * elems.e) * sin(v)) / (1 + elems.e * cos(v));
 
         var res = numericals.keplerToCart(elems, 0, elems.m0);
-        res[0] *= @splat(10.0);
+        res[0] *= @splat(SCALE);
 
         try verts.append(.{ res[0][0], res[0][2], res[0][1] });
         try colors.append(res[1]);
@@ -81,7 +83,7 @@ pub fn orbit(state: *Planetarium, a: f32, e: f32, inc: f32, long: f32, arg: f32)
         elems.m0 = atan2(f32, -@sqrt(1 - elems.e * elems.e) * sin(v), -elems.e - cos(v)) + TAU / 2.0 - elems.e * (@sqrt(1 - elems.e * elems.e) * sin(v)) / (1 + elems.e * cos(v));
 
         res = numericals.keplerToCart(elems, 0, elems.m0);
-        res[0] *= @splat(10.0);
+        res[0] *= @splat(SCALE);
 
         try verts.append(.{ res[0][0], res[0][2], res[0][1] });
         try colors.append(res[1]);
@@ -91,14 +93,23 @@ pub fn orbit(state: *Planetarium, a: f32, e: f32, inc: f32, long: f32, arg: f32)
     try verts.append(first_v);
     try colors.append(last_c);
 
-    var line = try Line.init(try state.scene.new(.line), &state.cam.transform_mat, verts.items, colors.items);
+    var line = try Line.init(
+        try state.scene.new(.line),
+        verts.items,
+        colors.items,
+        try graphics.Shader.setupShader(@embedFile("shaders/line/vertex.glsl"), @embedFile("shaders/line/fragment.glsl")),
+    );
+
+    try state.cam.linkDrawing(line.drawing);
     line.drawing.setUniformFloat("fog", &state.fog);
+    try line.drawing.addUniformVec3("real_cam_pos", &state.cam_pos);
 }
 
 pub const Planet = struct {
     vsop: VsopParse(3),
     orb_vsop: VsopParse(6),
     subdivided: graphics.SpatialMesh,
+    sky: graphics.SpatialMesh,
 
     pub fn deinit(self: *Planet) void {
         self.vsop.deinit();
@@ -106,38 +117,61 @@ pub const Planet = struct {
     }
 
     pub fn update(self: *Planet, state: *Planetarium) void {
-        const venus_pos = self.vsop.at((state.time - 2451545.0) / 365250.0);
+        var venus_pos: @Vector(3, f64) = self.vsop.at((state.time - 2451545.0) / 365250.0);
+        venus_pos *= @splat(SCALE);
 
         var pos = Vec3{ @floatCast(venus_pos[1]), @floatCast(venus_pos[2]), @floatCast(venus_pos[0]) };
-        pos *= @splat(10.0);
 
-        const rot_m = math.rotationY(f32, TAU / 4.0).cast(4, 4);
+        //const rot_m = math.rotationY(f32, TAU / 4.0).cast(4, 4);
+        pos = math.rotationY(f32, TAU / 4.0).dot(pos);
+
         const pos_m = Mat4.translation(pos);
-        var model = rot_m.mul(pos_m.mul(Mat4.scaling(Vec4{ 0.2, 0.2, 0.2, 1.0 })));
-        self.subdivided.drawing.setUniformMat4("model", &model);
+        var model = pos_m.mul(Mat4.scaling(Vec4{ 0.2, 0.2, 0.2, 1.0 }));
 
+        self.subdivided.drawing.setUniformMat4("model", &model);
         self.subdivided.pos = pos;
+
+        self.sky.drawing.setUniformMat4("model", &model);
+        self.sky.pos = pos;
     }
 
     pub fn initUniform(self: *Planet) !void {
         try self.subdivided.initUniform();
+        try self.sky.initUniform();
     }
 
     pub fn init(comptime name: []const u8, mesh: MeshBuilder, state: *Planetarium) !Planet {
         var subdivided = try mesh.toSpatial(
             try state.scene.new(.spatial),
-            &state.cam.transform_mat,
             .{
-                .vert = "shaders/ball/vertex.glsl",
-                .frag = "shaders/ball/fragment.glsl",
-                .pos = .{ 0, 2, 0 },
+                .vert = @embedFile("shaders/ball/vertex.glsl"),
+                .frag = @embedFile("shaders/ball/fragment.glsl"),
+                .pos = .{ 0, 0, 0 },
             },
         );
+
+        try state.cam.linkDrawing(subdivided.drawing);
+        try subdivided.drawing.addUniformVec3("real_cam_pos", &state.cam_pos);
         subdivided.drawing.setUniformFloat("fog", &state.fog);
 
         subdivided.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
 
         try subdivided.drawing.textureFromPath("comofas.png");
+
+        var sky = try mesh.toSpatial(
+            try state.scene.new(.spatial),
+            .{
+                .vert = @embedFile("shaders/sky/vertex.glsl"),
+                .frag = @embedFile("shaders/sky/fragment.glsl"),
+                .pos = .{ 0, 0, 0 },
+            },
+        );
+
+        try state.cam.linkDrawing(sky.drawing);
+        try sky.drawing.addUniformVec3("real_cam_pos", &state.cam_pos);
+        sky.drawing.setUniformFloat("fog", &state.fog);
+
+        sky.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
 
         const actual = if (comptime std.mem.eql(u8, "ear", name)) "emb" else name;
 
@@ -145,6 +179,7 @@ pub const Planet = struct {
             .vsop = try VsopParse(3).init("vsop87/VSOP87C." ++ name),
             .orb_vsop = try VsopParse(6).init("vsop87/VSOP87." ++ actual),
             .subdivided = subdivided,
+            .sky = sky,
         };
     }
 };
@@ -153,9 +188,9 @@ pub fn star(state: *Planetarium) !void {
     var mesh = try graphics.SpatialMesh.init(
         try state.skybox_scene.new(.spatial),
         .{ 0.0, 0, 0 },
-        &state.skybox_cam.transform_mat,
-        try graphics.Shader.setupShader("shaders/star/vertex.glsl", "shaders/star/fragment.glsl"),
+        try graphics.Shader.setupShader(@embedFile("shaders/star/vertex.glsl"), @embedFile("shaders/star/fragment.glsl")),
     );
+    try state.cam.linkDrawing(mesh.drawing);
 
     var vertices = std.ArrayList(f32).init(common.allocator);
     var indices = std.ArrayList(u32).init(common.allocator);
@@ -190,12 +225,14 @@ pub fn star(state: *Planetarium) !void {
         const ra = try std.fmt.parseFloat(f64, it.next().?) / 360 * TAU * 15;
         const dec = try std.fmt.parseFloat(f64, it.next().?) / 360 * TAU;
 
-        std.debug.print("{d} {d}\n", .{ ra, dec });
-        //std.os.exit(0);
+        _ = it.next();
+        const mag = try std.fmt.parseFloat(f64, std.mem.trim(u8, it.next().?, " "));
+
+        std.debug.print("{d} {d} {d}\n", .{ ra, dec, mag });
 
         const rot = math.rotationY(f64, ra).mul(math.rotationZ(f64, dec));
 
-        const size = 0.01;
+        const size = 0.2 * std.math.pow(f64, 2, 0.4 * (-4.6 - mag));
 
         const a = rot.dot(.{ 10.0, -size, -size });
         const b = rot.dot(.{ 10.0, size, -size });

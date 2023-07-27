@@ -20,8 +20,8 @@ const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
 
 pub const Line = struct {
-    pub fn init(drawing: *Drawing(LinePipeline), transform: *Mat4, vert: []const Vec3, color: []const Vec3) !Line {
-        var shader = try graphics.Shader.setupShader("shaders/line/vertex.glsl", "shaders/line/fragment.glsl");
+    pub fn init(drawing: *Drawing(LinePipeline), vert: []const Vec3, color: []const Vec3, shader: u32) !Line {
+        //var shader = try graphics.Shader.setupShader(@embedFile("shaders/line/vertex.glsl"), @embedFile("shaders/line/fragment.glsl"));
         drawing.* = graphics.Drawing(LinePipeline).init(shader);
 
         var vertices = std.ArrayList(f32).init(common.allocator);
@@ -39,7 +39,6 @@ pub const Line = struct {
         }
 
         drawing.bindVertex(vertices.items, indices.items);
-        try drawing.addUniformMat4("transform", transform);
 
         return Line{
             .vertices = vertices.items,

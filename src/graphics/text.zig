@@ -85,12 +85,16 @@ pub const Text = struct {
     }
 
     pub fn print(self: *Text, text: []const u8) !void {
+        if (text.len == 0) return;
+
         var vertices = std.ArrayList(f32).init(common.allocator);
         var indices = std.ArrayList(u32).init(common.allocator);
         defer vertices.deinit();
         defer indices.deinit();
 
         var x: f32 = 0;
+        var y: f32 = 0;
+
         var x_int: u32 = 0;
 
         var utf8 = (try std.unicode.Utf8View.init(text)).iterator();
@@ -98,6 +102,11 @@ pub const Text = struct {
         var is_start = true;
 
         while (utf8.nextCodepoint()) |c| : (x_int += 1) {
+            if (c == '\n') {
+                x = 0;
+                is_start = true;
+                y += 1;
+            }
             const count_float: f32 = @floatFromInt(self.bdf.map.items.len);
             const size: u32 = @intFromFloat(@ceil(@sqrt(count_float)));
             const size_f: f32 = @ceil(@sqrt(count_float));
@@ -118,10 +127,10 @@ pub const Text = struct {
                     //std.debug.print("coords {} {d} {d} {d:.4} {d:.4}\n", .{ c, i, size, atlas_x, atlas_y });
 
                     const c_vert = [_]f32{
-                        x,     0, 0, atlas_x,     size_f - atlas_y,     0, 0, 0,
-                        x + 1, 0, 0, atlas_x + 1, size_f - atlas_y,     0, 0, 0,
-                        x + 1, 1, 0, atlas_x + 1, size_f - atlas_y + 1, 0, 0, 0,
-                        x,     1, 0, atlas_x,     size_f - atlas_y + 1, 0, 0, 0,
+                        x,     y,     0, atlas_x,     size_f - atlas_y,     0, 0, 0,
+                        x + 1, y,     0, atlas_x + 1, size_f - atlas_y,     0, 0, 0,
+                        x + 1, y + 1, 0, atlas_x + 1, size_f - atlas_y + 1, 0, 0, 0,
+                        x,     y + 1, 0, atlas_x,     size_f - atlas_y + 1, 0, 0, 0,
                     };
 
                     const start: u32 = x_int * 4;
@@ -152,8 +161,8 @@ pub const Text = struct {
         try self.drawing.addUniformVec3("pos", &self.pos);
     }
 
-    pub fn init(drawing: *Drawing(SpatialPipeline), bdf: BdfParse, pos: Vec3, text: []const u8) !Text {
-        drawing.* = graphics.Drawing(SpatialPipeline).init(try graphics.Shader.setupShader("shaders/text/vertex.glsl", "shaders/text/fragment.glsl"));
+    pub fn init(drawing: *Drawing(SpatialPipeline), bdf: BdfParse, pos: Vec3) !Text {
+        drawing.* = graphics.Drawing(SpatialPipeline).init(try graphics.Shader.setupShader(@embedFile("shaders/text/vertex.glsl"), @embedFile("shaders/text/fragment.glsl")));
 
         var atlas = try makeAtlas(bdf);
 
@@ -165,7 +174,6 @@ pub const Text = struct {
             .drawing = drawing,
             .atlas = atlas,
         };
-        try res.print(text);
 
         return res;
     }

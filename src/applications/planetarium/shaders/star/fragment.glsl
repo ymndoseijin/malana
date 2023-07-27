@@ -5,9 +5,6 @@ in vec2 TexCoord;
 
 uniform sampler2D texture0;
 
-float near = 0.1; 
-float far  = 2048.0; 
-
 void main()
 {
    vec2 pos = (TexCoord-0.5)*2;

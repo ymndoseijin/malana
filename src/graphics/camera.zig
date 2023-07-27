@@ -40,6 +40,11 @@ pub const Camera = struct {
         self.transform_mat = self.perspective_mat.mul(view_mat.mul(translation_mat));
     }
 
+    pub fn linkDrawing(self: *Camera, drawing: anytype) !void {
+        try drawing.addUniformMat4("transform", &self.transform_mat);
+        try drawing.addUniformVec3("cam_pos", &self.move);
+    }
+
     pub fn setParameters(self: *Camera, fovy: f32, aspect: f32, nearZ: f32, farZ: f32) !void {
         self.perspective_mat = math.perspectiveMatrix(fovy, aspect, nearZ, farZ);
         try self.updateMat();

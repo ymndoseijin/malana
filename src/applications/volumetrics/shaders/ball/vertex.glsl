@@ -5,6 +5,7 @@ layout (location = 2) in vec3 aNormal;
 
 uniform mat4 transform;
 uniform mat4 model;
+uniform vec3 real_cam_pos;
 
 uniform vec2 in_resolution;
 uniform float time;
@@ -14,18 +15,18 @@ uniform vec3 pos;
 out vec2 TexCoord;
 out vec3 Normal;
 out float Time;
+out vec3 Pos;
 
 void main()
 {
    vec3 position = aPos;
-   //position /= mix(sqrt(position.x*position.x+position.y*position.y+position.z*position.z), 1, cos(time*0.5)+1);
-   position /= sqrt(position.x*position.x+position.y*position.y+position.z*position.z);
+   mat3 norm_matrix = transpose(inverse(mat3(model)));
+   //position /= sqrt(position.x*position.x+position.y*position.y+position.z*position.z);
 
-   //float t = (cos(time*0.5)+1)/2;
-   //mat4 actual = (1-t)*mat4(1.0)+model*t;
-   vec4 vert = transform*model*vec4(position, 1.0);
-   gl_Position = vert;
+   Pos = vec3(model * vec4(position, 1.0))-real_cam_pos;
+
+   gl_Position = transform * (model * vec4(position, 1.0)-vec4(real_cam_pos, 0.0));
    TexCoord = aTexCoord;
    Time = time;
-   Normal = aNormal;
+   Normal = norm_matrix*aNormal;
 }

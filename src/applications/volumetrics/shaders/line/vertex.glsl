@@ -13,7 +13,7 @@ out vec3 Color;
 
 void main()
 {
-   vec3 position = aPos;
+   vec3 position = aPos-real_cam_pos;
    //position /= sqrt(position.x*position.x+position.y*position.y+position.z*position.z);
    gl_Position = transform*vec4(position, 1.0);
    Color = aColor;

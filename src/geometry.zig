@@ -321,6 +321,37 @@ pub const Mesh = struct {
 
         return start;
     }
+
+    pub fn fixNormals(self: *Mesh) !void {
+        const allocator = self.arena.allocator();
+
+        var set = std.AutoHashMap(*HalfEdge, void).init(allocator);
+        var stack = std.ArrayList(?*HalfEdge).init(allocator);
+
+        defer set.deinit();
+        defer stack.deinit();
+
+        try stack.append(self.first_half);
+
+        while (stack.items.len > 0) {
+            var edge_or = stack.pop();
+            if (edge_or) |edge| {
+                if (set.get(edge)) |_| continue;
+                try set.put(edge, void{});
+
+                var position = &edge.vertex.pos;
+
+                position.* /= @splat(@sqrt(@reduce(.Add, position.* * position.*)));
+
+                if (edge.next) |_| {
+                    if (edge.twin) |twin| {
+                        try stack.append(twin);
+                    }
+                }
+                try stack.append(edge.next);
+            }
+        }
+    }
 };
 
 pub fn main() !void {
