@@ -119,72 +119,13 @@ pub fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods
 const TAU = 6.28318530718;
 
 pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
-    _ = mods;
-
-    var look_speed: f32 = 1 * dt;
-    var speed: f32 = 2;
-
-    const eye_x = state.cam.eye[0];
-    const eye_y = state.cam.eye[1];
-
-    if (keys[glfw.GLFW_KEY_LEFT_SHIFT]) {
-        speed *= 7;
-        look_speed *= 2;
-    }
-
-    const speed_vec: Vec3 = @splat(speed * dt);
-    const eye = speed_vec * Vec3{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) };
-
-    const cross_eye = speed_vec * -Vec3Utils.crossn(eye, state.cam.up);
-
-    const up_eye = speed_vec * Vec3Utils.crossn(eye, cross_eye);
-
     if (keys[glfw.GLFW_KEY_Q]) {
         state.main_win.alive = false;
     }
 
-    if (keys[glfw.GLFW_KEY_W]) {
-        state.cam_pos += eye;
-    }
-
-    if (keys[glfw.GLFW_KEY_S]) {
-        state.cam_pos -= eye;
-    }
-
-    if (keys[glfw.GLFW_KEY_A]) {
-        state.cam_pos += cross_eye;
-    }
-
-    if (keys[glfw.GLFW_KEY_D]) {
-        state.cam_pos -= cross_eye;
-    }
-
-    if (keys[glfw.GLFW_KEY_R]) {
-        state.cam_pos += up_eye;
-    }
-
-    if (keys[glfw.GLFW_KEY_F]) {
-        state.cam_pos -= up_eye;
-    }
-
-    if (keys[graphics.glfw.GLFW_KEY_L]) {
-        state.cam.eye[0] += look_speed;
-    }
-
-    if (keys[graphics.glfw.GLFW_KEY_H]) {
-        state.cam.eye[0] -= look_speed;
-    }
-
-    if (keys[graphics.glfw.GLFW_KEY_K]) {
-        if (state.cam.eye[1] < TAU) state.cam.eye[1] += look_speed;
-    }
-
-    if (keys[graphics.glfw.GLFW_KEY_J]) {
-        if (state.cam.eye[1] > -TAU) state.cam.eye[1] -= look_speed;
-    }
-
-    try state.cam.updateMat();
+    try state.cam.spatialMove(keys, mods, dt, &state.cam_pos, Camera.DefaultSpatial);
 }
+
 pub fn makeAxis() !void {
     var line = try Line.init(
         try state.scene.new(.line),

@@ -122,71 +122,11 @@ pub fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods
 const TAU = 6.28318530718;
 
 pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
-    _ = mods;
-
-    var look_speed: f32 = 1 * dt;
-    var speed: f32 = 2;
-
-    const eye_x = planetarium.cam.eye[0];
-    const eye_y = planetarium.cam.eye[1];
-
-    if (keys[glfw.GLFW_KEY_LEFT_SHIFT]) {
-        speed *= 7;
-        look_speed *= 2;
-    }
-
-    const speed_vec: Vec3 = @splat(speed * dt);
-    const eye = speed_vec * Vec3{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) };
-
-    const cross_eye = speed_vec * -Vec3Utils.crossn(eye, planetarium.cam.up);
-
-    const up_eye = speed_vec * Vec3Utils.crossn(eye, cross_eye);
-
     if (keys[glfw.GLFW_KEY_Q]) {
         planetarium.main_win.alive = false;
     }
 
-    if (keys[glfw.GLFW_KEY_W]) {
-        planetarium.cam_pos += eye;
-    }
-
-    if (keys[glfw.GLFW_KEY_S]) {
-        planetarium.cam_pos -= eye;
-    }
-
-    if (keys[glfw.GLFW_KEY_A]) {
-        planetarium.cam_pos += cross_eye;
-    }
-
-    if (keys[glfw.GLFW_KEY_D]) {
-        planetarium.cam_pos -= cross_eye;
-    }
-
-    if (keys[glfw.GLFW_KEY_R]) {
-        planetarium.cam_pos += up_eye;
-    }
-
-    if (keys[glfw.GLFW_KEY_F]) {
-        planetarium.cam_pos -= up_eye;
-    }
-
-    if (keys[graphics.glfw.GLFW_KEY_L]) {
-        planetarium.cam.eye[0] += look_speed;
-    }
-
-    if (keys[graphics.glfw.GLFW_KEY_H]) {
-        planetarium.cam.eye[0] -= look_speed;
-    }
-
-    if (keys[graphics.glfw.GLFW_KEY_K]) {
-        if (planetarium.cam.eye[1] < TAU) planetarium.cam.eye[1] += look_speed;
-    }
-
-    if (keys[graphics.glfw.GLFW_KEY_J]) {
-        if (planetarium.cam.eye[1] > -TAU) planetarium.cam.eye[1] -= look_speed;
-    }
-
-    try planetarium.cam.updateMat();
+    try planetarium.cam.spatialMove(keys, mods, dt, &planetarium.cam_pos, Camera.DefaultSpatial);
 }
 pub fn makeAxis() !void {
     var line = try Line.init(
@@ -384,8 +324,8 @@ pub fn main() !void {
 
     var timer: f32 = 0;
 
-    const planets_suffix = .{ "mer", "ven", "ear", "mar", "jup", "sat", "ura", "nep" };
-    //const planets_suffix = .{"ear"};
+    //const planets_suffix = .{ "mer", "ven", "ear", "mar", "jup", "sat", "ura", "nep" };
+    const planets_suffix = .{"ear"};
     var planets: [planets_suffix.len]Planet = undefined;
     inline for (planets_suffix, 0..) |name, i| {
         planets[i] = try Planet.init(name, builder, &planetarium);
@@ -439,7 +379,7 @@ pub fn main() !void {
     try camera_obj.drawing.textureFromPath("resources/table.png");
     obj_builder.deinit();
 
-    //try astro.star(&planetarium);
+    try astro.star(&planetarium);
 
     var camera_pos: Vec3 = .{ 0, 0, 0 };
 
@@ -468,7 +408,7 @@ pub fn main() !void {
         }
         timer += dt;
 
-        if (timer > 0.025) {
+        if (timer > 0.25) {
             try text.printFmt("⠓ り 撮影機: あああ {d:.4} {d:.4} {d:.4}\n", .{ planetarium.cam.eye, planetarium.cam_pos, 1 / dt });
             timer = 0;
         }
