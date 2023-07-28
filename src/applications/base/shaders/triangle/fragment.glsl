@@ -12,18 +12,16 @@ uniform vec3 spatial_pos;
 uniform float fog;
 
 float RADIUS = 1.1;
-float SURFACE = 0.9;
+float SURFACE = 1.0;
 
-const float actual = 1.0;
-float fac = RADIUS/actual;
 
-vec3 CENTER = spatial_pos*fac;
+vec3 CENTER = vec3(0);
 
-vec3 coeff = (vec3(5.8e-6, 13.6e-6, 33.1e-6)*6471e3/RADIUS)*0.1;
+vec3 coeff = vec3(5.8e-6, 13.6e-6, 33.1e-6)*6471e3/RADIUS*0.1;
 float FALLOFF = 4*RADIUS;
 
 float dens(vec3 pos) {
-   float h = length(pos-CENTER)-SURFACE;
+   float h = length(pos-spatial_pos)-SURFACE;
    return exp(-h/(RADIUS-SURFACE)*FALLOFF);
 }
 
@@ -34,19 +32,18 @@ vec2 ray_sphere_intersect(
     vec3 dir, // the direction of the ray
     float radius // and the sphere radius
 ) {
-   start -= CENTER;
-   // ray-sphere intersection that assumes
-   // the sphere is centered at the origin.
-   // No intersection when result.x > result.y
-   float a = dot(dir, dir);
-   float b = 2.0 * dot(dir, start);
-   float c = dot(start, start) - (radius * radius);
-   float d = (b*b) - 4.0*a*c;
-   if (d < 0.0) return vec2(1e5,-1e5);
-   return vec2(
-         (-b - sqrt(d))/(2.0*a),
-         (-b + sqrt(d))/(2.0*a)
-         );
+    // ray-sphere intersection that assumes
+    // the sphere is centered at the origin.
+    // No intersection when result.x > result.y
+    float a = dot(dir, dir);
+    float b = 2.0 * dot(dir, start);
+    float c = dot(start, start) - (radius * radius);
+    float d = (b*b) - 4.0*a*c;
+    if (d < 0.0) return vec2(1e5,-1e5);
+    return vec2(
+        (-b - sqrt(d))/(2.0*a),
+        (-b + sqrt(d))/(2.0*a)
+    );
 }
 
 vec3 transmittance(vec3 start, vec3 end) {
@@ -69,6 +66,9 @@ float distance(float r, vec3 center, vec3 pos) {
    return length(pos-center)-r;
 }
 
+const float actual = 1.0;
+float fac = RADIUS/actual;
+
 void main()
 {
    vec3 cam_pos = real_cam_pos*fac;
@@ -83,7 +83,7 @@ void main()
 
    vec3 res = vec3(0);
 
-   vec3 sun_pos = CENTER;
+   vec3 sun_pos = vec3(3.0, 0.0, 0.0)*fac;
 
    for (int i = 0; i < STEPS; i++) {
       start += dir*DS;
@@ -100,7 +100,8 @@ void main()
 
    //res *= 4;
 
-   FragColor = vec4(res, length(res)*0.5);
    //FragColor = vec4(vec3(hit.y-hit.x)/fac, 1.0);
-
+   
+   FragColor = vec4(res, 1.0);
 }
+

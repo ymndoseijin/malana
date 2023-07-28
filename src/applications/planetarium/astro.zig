@@ -40,6 +40,129 @@ const Planetarium = @import("main.zig").Planetarium;
 
 const SCALE = 10.0;
 
+const Pixel = struct { r: u8, g: u8, b: u8, a: u8 };
+
+const ImageTexture = struct {
+    data: []Pixel,
+    width: usize,
+    height: usize,
+
+    pub fn get(self: ImageTexture, x: usize, y: usize) Pixel {
+        return self.data[self.width * y + x];
+    }
+
+    pub fn set(self: *ImageTexture, x: usize, y: usize, pix: Pixel) void {
+        self.data[self.width * y + x] = pix;
+    }
+};
+
+const Cubemap = struct {
+    faces: [6]ImageTexture,
+    pub fn deinit(self: *Cubemap) void {
+        for (self.faces) |face| {
+            common.allocator.free(face.data);
+        }
+    }
+};
+
+fn processImage(comptime name: []const u8) !Cubemap {
+    var read_image = try img.Image.fromFilePath(common.allocator, "resources/" ++ name ++ ".qoi");
+    defer read_image.deinit();
+
+    var arr: []img.color.Rgba32 = undefined;
+    switch (read_image.pixels) {
+        .rgba32 => |data| {
+            arr = data;
+        },
+        else => return error.InvalidImage,
+    }
+
+    const square_width = 500;
+
+    var res: Cubemap = undefined;
+
+    var og = ImageTexture{
+        .data = try common.allocator.alloc(Pixel, arr.len),
+        .width = read_image.width,
+        .height = read_image.height,
+    };
+    defer common.allocator.free(og.data);
+
+    for (arr, 0..) |pix, i| {
+        og.data[i].r = pix.r;
+        og.data[i].g = pix.g;
+        og.data[i].b = pix.b;
+        og.data[i].a = pix.a;
+    }
+
+    for (0..6) |face_idx| {
+        var face_img = ImageTexture{
+            .data = try common.allocator.alloc(Pixel, square_width * square_width),
+            .width = square_width,
+            .height = square_width,
+        };
+        for (0..face_img.width) |x_int| {
+            for (0..face_img.height) |y_int| {
+                var plane_x: f64 = @floatFromInt(x_int);
+                plane_x /= @floatFromInt(face_img.width);
+                plane_x *= 2;
+                plane_x -= 1;
+                var plane_y: f64 = @floatFromInt(y_int);
+                plane_y /= @floatFromInt(face_img.height);
+                plane_y *= 2;
+                plane_y -= 1;
+
+                //plane_x *= -1;
+                //plane_y *= -1;
+
+                const x: f64 = switch (face_idx) {
+                    0 => -1.0,
+                    1 => -plane_x,
+                    2 => plane_x,
+                    3 => 1.0,
+                    4 => -plane_x,
+                    5 => -plane_x,
+                    else => unreachable,
+                };
+                const z: f64 = switch (face_idx) {
+                    0 => -plane_y,
+                    1 => 1.0,
+                    2 => -plane_y,
+                    3 => -plane_y,
+                    4 => -1.0,
+                    5 => -plane_y,
+                    else => unreachable,
+                };
+                const y: f64 = switch (face_idx) {
+                    0 => -plane_x,
+                    1 => plane_y,
+                    2 => -1.0,
+                    3 => plane_x,
+                    4 => -plane_y,
+                    5 => 1.0,
+                    else => unreachable,
+                };
+
+                const r = @sqrt(x * x + y * y + z * z);
+
+                const w_s: f64 = @floatFromInt(og.width);
+                const h_s: f64 = @floatFromInt(og.height);
+
+                const x_f = std.math.atan2(f64, y, x) / TAU;
+                const y_f = std.math.acos(z / r) / TAU * 2;
+
+                const x_s: usize = @intFromFloat(@mod(x_f, 1) * w_s);
+                const y_s: usize = @intFromFloat(@mod(y_f, 1) * h_s);
+
+                face_img.set(x_int, y_int, og.get(x_s, y_s));
+            }
+        }
+        res.faces[face_idx] = face_img;
+    }
+
+    return res;
+}
+
 pub fn orbit(state: *Planetarium, a: f32, e: f32, inc: f32, long: f32, arg: f32) !void {
     const amount = 200;
     var verts = std.ArrayList(Vec3).init(common.allocator);
@@ -156,7 +279,15 @@ pub const Planet = struct {
 
         subdivided.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
 
-        try subdivided.drawing.textureFromPath("comofas.png");
+        var res = try processImage(name);
+        defer res.deinit();
+
+        try subdivided.drawing.cubemapFromRgba(res.faces[0].data, res.faces[0].width, res.faces[0].height, .xp);
+        try subdivided.drawing.cubemapFromRgba(res.faces[1].data, res.faces[1].width, res.faces[1].height, .yp);
+        try subdivided.drawing.cubemapFromRgba(res.faces[2].data, res.faces[2].width, res.faces[2].height, .zm);
+        try subdivided.drawing.cubemapFromRgba(res.faces[3].data, res.faces[3].width, res.faces[3].height, .xm);
+        try subdivided.drawing.cubemapFromRgba(res.faces[4].data, res.faces[4].width, res.faces[4].height, .ym);
+        try subdivided.drawing.cubemapFromRgba(res.faces[5].data, res.faces[5].width, res.faces[5].height, .zp);
 
         var sky = try mesh.toSpatial(
             try state.scene.new(.spatial),
