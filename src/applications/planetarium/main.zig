@@ -384,8 +384,8 @@ pub fn main() !void {
 
     var timer: f32 = 0;
 
-    //const planets_suffix = .{ "mer", "ven", "ear", "mar", "jup", "sat", "ura", "nep" };
-    const planets_suffix = .{"ear"};
+    const planets_suffix = .{ "mer", "ven", "ear", "mar", "jup", "sat", "ura", "nep" };
+    //const planets_suffix = .{"ear"};
     var planets: [planets_suffix.len]Planet = undefined;
     inline for (planets_suffix, 0..) |name, i| {
         planets[i] = try Planet.init(name, builder, &planetarium);
