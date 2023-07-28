@@ -82,7 +82,7 @@ pub const State = struct {
 
 var state: State = undefined;
 
-pub fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
+fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
     _ = win;
     const w: f32 = @floatFromInt(width);
     const h: f32 = @floatFromInt(height);
@@ -91,7 +91,7 @@ pub fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
 
 var is_wireframe = false;
 
-pub fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods: i32) !void {
+fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods: i32) !void {
     _ = win;
     _ = scancode;
 
@@ -116,7 +116,7 @@ pub fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods
 
 const TAU = 6.28318530718;
 
-pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
+fn key_down(keys: []bool, mods: i32, dt: f32) !void {
     if (keys[glfw.GLFW_KEY_Q]) {
         state.main_win.alive = false;
     }
@@ -124,7 +124,7 @@ pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
     try state.cam.spatialMove(keys, mods, dt, &state.cam.move, Camera.DefaultSpatial);
 }
 
-pub fn makeAxis() !void {
+fn makeAxis() !void {
     var line = try Line.init(
         try state.scene.new(.line),
         &[_]Vec3{ .{ 0, 0.01, 0 }, .{ 2, 0, 0 } },
@@ -156,7 +156,7 @@ pub fn makeAxis() !void {
     line.drawing.setUniformFloat("fog", &state.fog);
 }
 
-pub fn makeGrid() !void {
+fn makeGrid() !void {
     const size = 100;
     for (0..size) |i| {
         var x: f32 = @floatFromInt(i);
@@ -184,56 +184,6 @@ pub fn makeGrid() !void {
 
 const fs = 15;
 
-pub fn toMesh(half: *HalfEdge) !graphics.MeshBuilder {
-    var builder = try graphics.MeshBuilder.init();
-
-    var set = std.AutoHashMap(*HalfEdge, void).init(common.allocator);
-    var stack = std.ArrayList(?*HalfEdge).init(common.allocator);
-
-    defer set.deinit();
-    defer stack.deinit();
-
-    try stack.append(half);
-
-    while (stack.items.len > 0) {
-        var edge_or = stack.pop();
-        if (edge_or) |edge| {
-            if (set.get(edge)) |_| continue;
-            try set.put(edge, void{});
-
-            var v = edge.face.vertices;
-
-            var a = v[0].*;
-            var b = v[1].*;
-            var c = v[2].*;
-
-            try builder.addTri(.{ a, b, c });
-
-            if (edge.next) |_| {
-                if (edge.twin) |twin| {
-                    try stack.append(twin);
-                }
-            }
-            try stack.append(edge.next);
-        }
-    }
-
-    return builder;
-}
-
-pub fn bdfToRgba(bdf: *BdfParse, c: u8) ![fs * fs]img.color.Rgba32 {
-    var buf: [fs * fs]img.color.Rgba32 = undefined;
-    var res = try bdf.getChar(c);
-    for (res, 0..) |val, i| {
-        if (val) {
-            buf[i] = .{ .r = 255, .g = 255, .b = 255, .a = 255 };
-        } else {
-            buf[i] = .{ .r = 30, .g = 100, .b = 100, .a = 255 };
-        }
-    }
-    return buf;
-}
-
 const Pixel = struct { r: u8, g: u8, b: u8, a: u8 };
 
 const ImageTexture = struct {
@@ -260,7 +210,7 @@ const Cubemap = struct {
 };
 
 fn processImage() !Cubemap {
-    var read_image = try img.Image.fromFilePath(common.allocator, "resources/8k_earth_daymap.qoi");
+    var read_image = try img.Image.fromFilePath(common.allocator, "resources/ear.qoi");
     defer read_image.deinit();
 
     var arr: []img.color.Rgba32 = undefined;

@@ -113,10 +113,10 @@ pub const Text = struct {
 
             for (self.bdf.map.items, 0..) |search, i| {
                 if (search[0] == c) {
+                    const bbx_width: f32 = @floatFromInt(search[2]);
+                    const width: f32 = @floatFromInt(self.bdf.width);
                     if (!is_start) {
-                        const bbx_width: f32 = @floatFromInt(search[2] + 2);
-                        const width: f32 = @floatFromInt(self.bdf.width);
-                        x += bbx_width / width + 2 / width;
+                        x += bbx_width;
                     } else {
                         is_start = false;
                     }
@@ -127,10 +127,10 @@ pub const Text = struct {
                     //std.debug.print("coords {} {d} {d} {d:.4} {d:.4}\n", .{ c, i, size, atlas_x, atlas_y });
 
                     const c_vert = [_]f32{
-                        x,     y,     0, atlas_x,     size_f - atlas_y,     0, 0, 0,
-                        x + 1, y,     0, atlas_x + 1, size_f - atlas_y,     0, 0, 0,
-                        x + 1, y + 1, 0, atlas_x + 1, size_f - atlas_y + 1, 0, 0, 0,
-                        x,     y + 1, 0, atlas_x,     size_f - atlas_y + 1, 0, 0, 0,
+                        x,         y,         0, atlas_x,     size_f - atlas_y,     0, 0, 0,
+                        x + width, y,         0, atlas_x + 1, size_f - atlas_y,     0, 0, 0,
+                        x + width, y + width, 0, atlas_x + 1, size_f - atlas_y + 1, 0, 0, 0,
+                        x,         y + width, 0, atlas_x,     size_f - atlas_y + 1, 0, 0, 0,
                     };
 
                     const start: u32 = x_int * 4;

@@ -18,7 +18,7 @@ void main()
    iResolution = in_resolution;
    vec3 pixel_scale = vec3(1/iResolution.x, 1/iResolution.y, 1);
 
-   vec3 position = (aPos+pos)*2*pixel_scale*FONT_SIZE;
+   vec3 position = (aPos+pos)*2*pixel_scale;
    position.xy -= 1.;
    position.z = 0;
    vec4 vert = vec4(position, 1.0);
