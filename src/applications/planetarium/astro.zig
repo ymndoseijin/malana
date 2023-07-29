@@ -368,11 +368,11 @@ pub fn star(state: *Planetarium) !void {
         _ = it.next();
         const mag = try std.fmt.parseFloat(f64, std.mem.trim(u8, it.next().?, " "));
 
-        std.debug.print("{d} {d} {d}\n", .{ ra, dec, mag });
-
         const rot = math.rotationY(f64, ra).mul(math.rotationZ(f64, dec));
 
-        const size = 0.2 * std.math.pow(f64, 10, 0.4 * (-4.6 - mag));
+        const size = 0.2 * std.math.pow(f64, 10, 0.1 * (-4.6 - mag));
+
+        std.debug.print("{d} size {d} {d} {d}\n", .{ size, ra, dec, mag });
 
         const a = rot.dot(.{ 10.0, -size, -size });
         const b = rot.dot(.{ 10.0, size, -size });

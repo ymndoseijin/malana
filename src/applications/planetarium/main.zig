@@ -94,7 +94,7 @@ pub fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
     _ = win;
     const w: f32 = @floatFromInt(width);
     const h: f32 = @floatFromInt(height);
-    try planetarium.cam.setParameters(0.6, w / h, 0.1 / 100.0, 2048 * 2348);
+    try planetarium.cam.setParameters(0.6, w / h, 0.01, 2048 * 234);
 }
 
 var is_wireframe = false;
