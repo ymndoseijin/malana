@@ -19,13 +19,13 @@ out vec3 Pos;
 
 void main()
 {
-   vec3 position = aPos;
+   vec3 position = aPos*min(100, length(model * vec4(aPos, 1.0))*0.2);
    mat3 norm_matrix = transpose(inverse(mat3(model)));
    //position /= sqrt(position.x*position.x+position.y*position.y+position.z*position.z);
 
    Pos = vec3(model * vec4(position, 1.0));
 
-   gl_Position = transform * (model * vec4(position, 1.0)-vec4(real_cam_pos, 0.0));
+   gl_Position = transform * (model * vec4(position, 1.0));
    TexCoord = aTexCoord;
    Time = time;
    Normal = norm_matrix*aNormal;

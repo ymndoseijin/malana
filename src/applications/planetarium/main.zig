@@ -50,7 +50,8 @@ pub const Planetarium = struct {
     skybox_scene: graphics.Scene(DrawingList),
 
     cam: Camera,
-    cam_pos: Vec3,
+    cam_pos: @Vector(3, f64),
+    other_pos: Vec3,
 
     fog: f32,
 
@@ -59,6 +60,7 @@ pub const Planetarium = struct {
         var main_win = try graphics.Window.init(100, 100);
 
         main_win.setKeyCallback(keyFunc);
+        main_win.setScrollCallback(scrollFunc);
         main_win.setFrameCallback(frameFunc);
 
         var cam = try Camera.init(0.6, 1, 0.1, 2048);
@@ -71,6 +73,7 @@ pub const Planetarium = struct {
             .main_win = main_win,
             .cam = cam,
             .cam_pos = .{ 7, 3.8, 13.7 },
+            .other_pos = .{ 7, 3.8, 13.7 },
             .fog = 2,
             .time = now / 86400.0 + 2440587.5,
             .scene = try graphics.Scene(DrawingList).init(),
@@ -91,10 +94,18 @@ pub fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
     _ = win;
     const w: f32 = @floatFromInt(width);
     const h: f32 = @floatFromInt(height);
-    try planetarium.cam.setParameters(0.6, w / h, 0.1, 2048);
+    try planetarium.cam.setParameters(0.6, w / h, 0.1 / 100.0, 2048 * 2348);
 }
 
 var is_wireframe = false;
+
+var speed: f32 = 1.0;
+
+pub fn scrollFunc(win: *graphics.Window, x: f64, y: f64) !void {
+    _ = win;
+    _ = x;
+    speed += @floatCast(y / 20);
+}
 
 pub fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods: i32) !void {
     _ = win;
@@ -126,7 +137,11 @@ pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
         planetarium.main_win.alive = false;
     }
 
-    try planetarium.cam.spatialMove(keys, mods, dt, &planetarium.cam_pos, Camera.DefaultSpatial);
+    var mine = Camera.DefaultSpatial;
+    mine.move_speed = 250 * std.math.pow(f32, 2, speed);
+    mine.speed_multiplier = 4;
+    std.debug.print("{d:.4} ops\n", .{mine.move_speed});
+    try planetarium.cam.spatialMove(keys, mods, dt, &planetarium.cam_pos, mine);
 }
 pub fn makeAxis() !void {
     var line = try Line.init(
@@ -137,7 +152,7 @@ pub fn makeAxis() !void {
     );
     line.drawing.setUniformFloat("fog", &planetarium.fog);
     try planetarium.cam.linkDrawing(line.drawing);
-    try line.drawing.addUniformVec3("real_cam_pos", &planetarium.cam_pos);
+    try line.drawing.addUniformVec3("real_cam_pos", &planetarium.other_pos);
 
     line = try Line.init(
         try planetarium.scene.new(.line),
@@ -147,7 +162,7 @@ pub fn makeAxis() !void {
     );
     line.drawing.setUniformFloat("fog", &planetarium.fog);
     try planetarium.cam.linkDrawing(line.drawing);
-    try line.drawing.addUniformVec3("real_cam_pos", &planetarium.cam_pos);
+    try line.drawing.addUniformVec3("real_cam_pos", &planetarium.other_pos);
 
     line = try Line.init(
         try planetarium.scene.new(.line),
@@ -157,7 +172,7 @@ pub fn makeAxis() !void {
     );
     try planetarium.cam.linkDrawing(line.drawing);
     line.drawing.setUniformFloat("fog", &planetarium.fog);
-    try line.drawing.addUniformVec3("real_cam_pos", &planetarium.cam_pos);
+    try line.drawing.addUniformVec3("real_cam_pos", &planetarium.other_pos);
 }
 
 pub fn makeGrid() !void {
@@ -175,7 +190,7 @@ pub fn makeGrid() !void {
 
         try planetarium.cam.linkDrawing(line.drawing);
         line.drawing.setUniformFloat("fog", &planetarium.fog);
-        try line.drawing.addUniformVec3("real_cam_pos", &planetarium.cam_pos);
+        try line.drawing.addUniformVec3("real_cam_pos", &planetarium.other_pos);
 
         line = try Line.init(
             try planetarium.scene.new(.line),
@@ -186,7 +201,7 @@ pub fn makeGrid() !void {
 
         try planetarium.cam.linkDrawing(line.drawing);
         line.drawing.setUniformFloat("fog", &planetarium.fog);
-        try line.drawing.addUniformVec3("real_cam_pos", &planetarium.cam_pos);
+        try line.drawing.addUniformVec3("real_cam_pos", &planetarium.other_pos);
     }
 }
 
@@ -324,8 +339,8 @@ pub fn main() !void {
 
     var timer: f32 = 0;
 
-    //const planets_suffix = .{ "mer", "ven", "ear", "mar", "jup", "sat", "ura", "nep" };
-    const planets_suffix = .{"ear"};
+    const planets_suffix = .{ "mer", "ven", "ear", "mar", "jup", "sat", "ura", "nep" };
+    //const planets_suffix = .{"ear"};
     var planets: [planets_suffix.len]Planet = undefined;
     inline for (planets_suffix, 0..) |name, i| {
         planets[i] = try Planet.init(name, builder, &planetarium);
@@ -394,7 +409,7 @@ pub fn main() !void {
         const dt = time - last_time;
         //planetarium.time += dt * 5;
 
-        var pos_m = Mat4.translation(camera_pos - planetarium.cam_pos);
+        var pos_m = Mat4.translation(camera_pos - planetarium.other_pos);
         camera_obj.drawing.setUniformMat4("model", &pos_m);
 
         if (down_num > 0) {
@@ -408,8 +423,8 @@ pub fn main() !void {
         }
         timer += dt;
 
-        if (timer > 0.25) {
-            try text.printFmt("⠓ り 撮影機: あああ {d:.4} {d:.4} {d:.4}\n", .{ planetarium.cam.eye, planetarium.cam_pos, 1 / dt });
+        if (timer > 0.05) {
+            try text.printFmt("⠓ り 撮影機: あああ {d:.4} {d:.4} {d:.4} {d:.4}\n", .{ speed, planetarium.cam.eye, planetarium.other_pos, 1 / dt });
             timer = 0;
         }
 
@@ -425,5 +440,8 @@ pub fn main() !void {
         last_time = time;
 
         graphics.glfw.glfwSwapBuffers(planetarium.main_win.glfw_win);
+        planetarium.other_pos[0] = @floatCast(planetarium.cam_pos[0]);
+        planetarium.other_pos[1] = @floatCast(planetarium.cam_pos[1]);
+        planetarium.other_pos[2] = @floatCast(planetarium.cam_pos[2]);
     }
 }

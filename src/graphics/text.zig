@@ -92,6 +92,8 @@ pub const Text = struct {
         defer vertices.deinit();
         defer indices.deinit();
 
+        const width: f32 = @floatFromInt(self.bdf.width);
+
         var x: f32 = 0;
         var y: f32 = 0;
 
@@ -105,7 +107,9 @@ pub const Text = struct {
             if (c == '\n') {
                 x = 0;
                 is_start = true;
-                y += 1;
+                y -= width;
+                x_int -= 1;
+                continue;
             }
             const count_float: f32 = @floatFromInt(self.bdf.map.items.len);
             const size: u32 = @intFromFloat(@ceil(@sqrt(count_float)));
@@ -113,8 +117,7 @@ pub const Text = struct {
 
             for (self.bdf.map.items, 0..) |search, i| {
                 if (search[0] == c) {
-                    const bbx_width: f32 = @floatFromInt(search[2]);
-                    const width: f32 = @floatFromInt(self.bdf.width);
+                    const bbx_width: f32 = @floatFromInt(search[2] + 2);
                     if (!is_start) {
                         x += bbx_width;
                     } else {
@@ -123,8 +126,6 @@ pub const Text = struct {
 
                     const atlas_x: f32 = @floatFromInt(i % size);
                     const atlas_y: f32 = @floatFromInt(@divFloor(i, size) + 1);
-
-                    //std.debug.print("coords {} {d} {d} {d:.4} {d:.4}\n", .{ c, i, size, atlas_x, atlas_y });
 
                     const c_vert = [_]f32{
                         x,         y,         0, atlas_x,     size_f - atlas_y,     0, 0, 0,

@@ -38,7 +38,7 @@ const TAU = 6.28318530718;
 
 const Planetarium = @import("main.zig").Planetarium;
 
-const SCALE = 10.0;
+const SCALE = 2348.1034;
 
 const Pixel = struct { r: u8, g: u8, b: u8, a: u8 };
 
@@ -225,7 +225,7 @@ pub fn orbit(state: *Planetarium, a: f32, e: f32, inc: f32, long: f32, arg: f32)
 
     try state.cam.linkDrawing(line.drawing);
     line.drawing.setUniformFloat("fog", &state.fog);
-    try line.drawing.addUniformVec3("real_cam_pos", &state.cam_pos);
+    try line.drawing.addUniformVec3("real_cam_pos", &state.other_pos);
 }
 
 pub const Planet = struct {
@@ -234,22 +234,30 @@ pub const Planet = struct {
     subdivided: graphics.SpatialMesh,
     sky: graphics.SpatialMesh,
 
+    name: []const u8,
+
     pub fn deinit(self: *Planet) void {
         self.vsop.deinit();
         self.orb_vsop.deinit();
     }
 
     pub fn update(self: *Planet, state: *Planetarium) void {
-        var venus_pos: @Vector(3, f64) = self.vsop.at((state.time - 2451545.0) / 365250.0);
+        var og_pos: @Vector(3, f64) = self.vsop.at((state.time - 2451545.0) / 365250.0);
+
+        var venus_pos = @Vector(3, f64){ og_pos[1], og_pos[2], og_pos[0] };
+
+        //std.debug.print("{d:.4} {s} POR QUE\n", .{ @reduce(.Add, og_pos * og_pos), self.name });
+
         venus_pos *= @splat(SCALE);
 
-        var pos = Vec3{ @floatCast(venus_pos[1]), @floatCast(venus_pos[2]), @floatCast(venus_pos[0]) };
+        venus_pos = math.rotationY(f64, TAU / 4.0).dot(venus_pos);
 
-        //const rot_m = math.rotationY(f32, TAU / 4.0).cast(4, 4);
-        pos = math.rotationY(f32, TAU / 4.0).dot(pos);
+        venus_pos -= state.cam_pos;
+
+        var pos = Vec3{ @floatCast(venus_pos[0]), @floatCast(venus_pos[1]), @floatCast(venus_pos[2]) };
 
         const pos_m = Mat4.translation(pos);
-        var model = pos_m.mul(Mat4.scaling(Vec4{ 1.0, 1.0, 1.0, 1.0 }));
+        var model = pos_m;
 
         self.subdivided.drawing.setUniformMat4("model", &model);
         self.subdivided.pos = pos;
@@ -274,7 +282,7 @@ pub const Planet = struct {
         );
 
         try state.cam.linkDrawing(subdivided.drawing);
-        try subdivided.drawing.addUniformVec3("real_cam_pos", &state.cam_pos);
+        try subdivided.drawing.addUniformVec3("real_cam_pos", &state.other_pos);
         subdivided.drawing.setUniformFloat("fog", &state.fog);
 
         subdivided.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
@@ -299,7 +307,7 @@ pub const Planet = struct {
         );
 
         try state.cam.linkDrawing(sky.drawing);
-        try sky.drawing.addUniformVec3("real_cam_pos", &state.cam_pos);
+        try sky.drawing.addUniformVec3("real_cam_pos", &state.other_pos);
         sky.drawing.setUniformFloat("fog", &state.fog);
 
         sky.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
@@ -311,6 +319,7 @@ pub const Planet = struct {
             .orb_vsop = try VsopParse(6).init("vsop87/VSOP87." ++ actual),
             .subdivided = subdivided,
             .sky = sky,
+            .name = name,
         };
     }
 };
@@ -363,7 +372,7 @@ pub fn star(state: *Planetarium) !void {
 
         const rot = math.rotationY(f64, ra).mul(math.rotationZ(f64, dec));
 
-        const size = 0.2 * std.math.pow(f64, 2, 0.4 * (-4.6 - mag));
+        const size = 0.2 * std.math.pow(f64, 10, 0.4 * (-4.6 - mag));
 
         const a = rot.dot(.{ 10.0, -size, -size });
         const b = rot.dot(.{ 10.0, size, -size });

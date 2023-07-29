@@ -20,13 +20,13 @@ out vec3 cubePos;
 
 void main()
 {
-   vec3 position = aPos*0.9;
+   vec3 position = aPos*0.1;
    mat3 norm_matrix = transpose(inverse(mat3(model)));
    //position /= sqrt(position.x*position.x+position.y*position.y+position.z*position.z);
 
-   Pos = vec3(model * vec4(position, 1.0))-real_cam_pos;
+   Pos = vec3(model * vec4(position, 1.0));
 
-   gl_Position = transform * (model * vec4(position, 1.0)-vec4(real_cam_pos, 0.0)) ;
+   gl_Position = transform * (model * vec4(position, 1.0)) ;
    TexCoord = aTexCoord;
    Time = time;
    Normal = norm_matrix*aNormal;

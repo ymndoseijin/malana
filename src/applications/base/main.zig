@@ -328,7 +328,7 @@ pub fn main() !void {
     var text = try graphics.Text.init(
         try state.scene.new(.spatial),
         bdf,
-        .{ 0, 1, 0 },
+        .{ 0, 100, 0 },
     );
     try text.initUniform();
     defer text.deinit();
@@ -389,7 +389,7 @@ pub fn main() !void {
         timer += dt;
 
         if (timer > 1.0) {
-            try text.printFmt("cam: {d:.4} {d:.4} {d:.4}\n", .{ state.cam.eye, state.cam.move, 1 / dt });
+            try text.printFmt("a\nb\nc\nd", .{});
 
             //idx += 1;
             idx %= 6;

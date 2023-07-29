@@ -38,6 +38,6 @@ vec2 ray_sphere_intersect(
 
 void main()
 {
-   FragColor = vec4(0.0);
+   FragColor = vec4(vec3(1.0), 0.3);
 
 }

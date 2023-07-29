@@ -500,6 +500,18 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
     }
 }
 
+pub fn getScroll(win_or: ?*glfw.GLFWwindow, xoffset: f64, yoffset: f64) callconv(.C) void {
+    const glfw_win = win_or orelse return;
+
+    if (windowMap.?.get(glfw_win)) |win| {
+        if (win.scroll_func) |fun| {
+            fun(win, xoffset, yoffset) catch {
+                @panic("error!");
+            };
+        }
+    }
+}
+
 pub fn waitGraphicsEvent() void {
     glfw.glfwPollEvents();
 }
@@ -512,6 +524,11 @@ pub const Window = struct {
 
     key_func: ?*const fn (*Window, i32, i32, i32, i32) anyerror!void,
     frame_func: ?*const fn (*Window, i32, i32) anyerror!void,
+    scroll_func: ?*const fn (*Window, f64, f64) anyerror!void,
+
+    pub fn setScrollCallback(self: *Window, fun: *const fn (*Window, f64, f64) anyerror!void) void {
+        self.scroll_func = fun;
+    }
 
     pub fn setKeyCallback(self: *Window, fun: *const fn (*Window, i32, i32, i32, i32) anyerror!void) void {
         self.key_func = fun;
@@ -531,6 +548,7 @@ pub const Window = struct {
         _ = glfw.glfwSetFramebufferSizeCallback(glfw_win, getFramebufferSize);
         //glfw.glfwSetMouseButtonCallback(win, mouse_button_callback);
         //glfw.glfwSetCursorPosCallback(win, cursor_position_callback);
+        _ = glfw.glfwSetScrollCallback(glfw_win, getScroll);
 
         if (!gl_dispatch_table.init(GlDispatchTableLoader)) return error.GlInitFailed;
 
@@ -545,6 +563,7 @@ pub const Window = struct {
         @memset(win, Window{
             .glfw_win = glfw_win,
             .key_func = null,
+            .scroll_func = null,
             .frame_func = null,
             .alive = true,
         });

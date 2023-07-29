@@ -108,7 +108,7 @@ pub const Camera = struct {
         .down_look_key = glfw.GLFW_KEY_J,
     };
 
-    pub fn spatialMove(cam: *Camera, keys: []bool, mods: i32, dt: f32, cam_pos: *Vec3, format: SpatialFormat) !void {
+    pub fn spatialMove(cam: *Camera, keys: []bool, mods: i32, dt: f32, cam_pos: anytype, format: SpatialFormat) !void {
         _ = mods;
         var look_speed: f32 = format.look_speed * dt;
         var speed: f32 = format.move_speed * dt;
