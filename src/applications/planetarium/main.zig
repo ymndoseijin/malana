@@ -33,7 +33,6 @@ const Vec3Utils = math.Vec3Utils;
 const SpatialPipeline = graphics.SpatialPipeline;
 
 const astro = @import("astro.zig");
-const Planet = astro.Planet;
 
 var current_keys: [glfw.GLFW_KEY_MENU + 1]bool = .{false} ** (glfw.GLFW_KEY_MENU + 1);
 var down_num: usize = 0;
@@ -55,6 +54,7 @@ pub const Planetarium = struct {
 
     fog: f32,
 
+    variables: [2]f32 = .{ -4.0, 0.0 },
     time: f64,
     pub fn init() !Planetarium {
         var main_win = try graphics.Window.init(100, 100);
@@ -99,12 +99,12 @@ pub fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
 
 var is_wireframe = false;
 
-var speed: f32 = 1.0;
+var variables_index: usize = 0;
 
 pub fn scrollFunc(win: *graphics.Window, x: f64, y: f64) !void {
     _ = win;
     _ = x;
-    speed += @floatCast(y / 20);
+    planetarium.variables[variables_index] += @floatCast(y / 20);
 }
 
 pub fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods: i32) !void {
@@ -121,6 +121,12 @@ pub fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods
                 is_wireframe = true;
             }
         }
+
+        if (key == glfw.GLFW_KEY_E) {
+            variables_index += 1;
+            variables_index %= planetarium.variables.len;
+        }
+
         current_keys[@intCast(key)] = true;
         last_mods = mods;
         down_num += 1;
@@ -138,7 +144,7 @@ pub fn key_down(keys: []bool, mods: i32, dt: f32) !void {
     }
 
     var mine = Camera.DefaultSpatial;
-    mine.move_speed = 250 * std.math.pow(f32, 2, speed);
+    mine.move_speed = 250 * std.math.pow(f32, 2, planetarium.variables[0]);
     mine.speed_multiplier = 4;
     std.debug.print("{d:.4} ops\n", .{mine.move_speed});
     try planetarium.cam.spatialMove(keys, mods, dt, &planetarium.cam_pos, mine);
@@ -308,6 +314,19 @@ pub fn makeSphere() !Mesh {
 pub fn main() !void {
     defer _ = common.gpa_instance.deinit();
 
+    const elements: numericals.KeplerElements = .{
+        .a = 384748,
+        .e = 0.0549006,
+        .i = 0,
+        .arg = 0,
+        .long = 0,
+        .m0 = 0,
+        .t0 = 0,
+    };
+    var res = numericals.keplerToCart(elements, 0, 0);
+    std.debug.print("pf {d:.10}\n", .{res[0]});
+    std.os.exit(0);
+
     var bdf = try BdfParse.init();
     defer bdf.deinit();
     try bdf.parse("b12.bdf");
@@ -339,12 +358,14 @@ pub fn main() !void {
 
     var timer: f32 = 0;
 
-    const planets_suffix = .{ "mer", "ven", "ear", "mar", "jup", "sat", "ura", "nep" };
-    //const planets_suffix = .{"ear"};
-    var planets: [planets_suffix.len]Planet = undefined;
+    //const planets_suffix = .{ "mer", "ven", "ear", "mar", "jup", "sat", "ura", "nep" };
+    const planets_suffix = .{"ear"};
+    var planets: [planets_suffix.len]astro.VsopPlanet = undefined;
     inline for (planets_suffix, 0..) |name, i| {
-        planets[i] = try Planet.init(name, builder, &planetarium);
+        planets[i] = try astro.VsopPlanet.init(name, builder, &planetarium);
         try planets[i].initUniform();
+        planets[i].update(&planetarium);
+        planetarium.cam_pos += planets[i].sky.pos + planetarium.cam_pos;
 
         const elems = planets[i].orb_vsop.at((planetarium.time - 2451545.0) / 365250.0);
         std.debug.print("{d:.4}\n", .{elems});
@@ -394,9 +415,12 @@ pub fn main() !void {
     try camera_obj.drawing.textureFromPath("resources/table.png");
     obj_builder.deinit();
 
-    try astro.star(&planetarium);
+    //try astro.star(&planetarium);
 
-    var camera_pos: Vec3 = .{ 0, 0, 0 };
+    var p = try astro.KeplerPlanet.init("ear", &planets[0].pos, 1.32712440018e17, elements, builder, &planetarium);
+    p.update(&planetarium);
+
+    //try astro.orbit(&planetarium, elements.a, elements.e, elements.i, elements.long, elements.arg);
 
     while (planetarium.main_win.alive) {
         graphics.waitGraphicsEvent();
@@ -407,24 +431,28 @@ pub fn main() !void {
         const time = @as(f32, @floatCast(glfw.glfwGetTime()));
 
         const dt = time - last_time;
-        //planetarium.time += dt * 5;
+        planetarium.time += dt * 0;
 
-        var pos_m = Mat4.translation(camera_pos - planetarium.other_pos);
-        camera_obj.drawing.setUniformMat4("model", &pos_m);
+        //var pos_m = Mat4.translation(planetarium.camera_pos - planetarium.other_pos);
+        //camera_obj.drawing.setUniformMat4("model", &pos_m);
 
         if (down_num > 0) {
             try key_down(&current_keys, last_mods, dt);
         }
+
         planetarium.cam.eye = planetarium.cam.eye;
         try planetarium.cam.updateMat();
 
         inline for (&planets) |*planet| {
             planet.update(&planetarium);
         }
+
+        p.update(&planetarium);
+
         timer += dt;
 
         if (timer > 0.05) {
-            try text.printFmt("⠓ り 撮影機: あああ {d:.4} {d:.4} {d:.4} {d:.4}\n", .{ speed, planetarium.cam.eye, planetarium.other_pos, 1 / dt });
+            try text.printFmt("⠓ り 撮影機: あああ {d:.4} {d:.4} {d:.4} {d:.4}\n", .{ planetarium.variables, planetarium.cam.eye, planetarium.other_pos, 1 / dt });
             timer = 0;
         }
 

@@ -163,7 +163,7 @@ fn processImage(comptime name: []const u8) !Cubemap {
     return res;
 }
 
-pub fn orbit(state: *Planetarium, a: f32, e: f32, inc: f32, long: f32, arg: f32) !void {
+pub fn orbit(state: *Planetarium, a: f64, e: f64, inc: f64, long: f64, arg: f64) !void {
     const amount = 200;
     var verts = std.ArrayList(Vec3).init(common.allocator);
     var colors = std.ArrayList(Vec3).init(common.allocator);
@@ -189,28 +189,34 @@ pub fn orbit(state: *Planetarium, a: f32, e: f32, inc: f32, long: f32, arg: f32)
         const f: f32 = @floatFromInt(i);
 
         var v = f / amount * TAU;
-        elems.m0 = atan2(f32, -@sqrt(1 - elems.e * elems.e) * sin(v), -elems.e - cos(v)) + TAU / 2.0 - elems.e * (@sqrt(1 - elems.e * elems.e) * sin(v)) / (1 + elems.e * cos(v));
+        elems.m0 = atan2(f64, -@sqrt(1 - elems.e * elems.e) * sin(v), -elems.e - cos(v)) + TAU / 2.0 - elems.e * (@sqrt(1 - elems.e * elems.e) * sin(v)) / (1 + elems.e * cos(v));
 
         var res = numericals.keplerToCart(elems, 0, elems.m0);
         res[0] *= @splat(SCALE);
 
-        try verts.append(.{ res[0][0], res[0][2], res[0][1] });
-        try colors.append(res[1]);
+        var vec = Vec3{ @floatCast(res[0][0]), @floatCast(res[0][1]), @floatCast(res[0][2]) };
+        var color_vec = Vec3{ @floatCast(res[1][0]), @floatCast(res[1][1]), @floatCast(res[1][2]) };
+
+        try verts.append(.{ vec[0], vec[2], vec[1] });
+        try colors.append(color_vec);
 
         if (first) {
-            first_v = .{ res[0][0], res[0][2], res[0][1] };
+            first_v = .{ vec[0], vec[2], vec[1] };
             first = false;
         }
 
         v = (f + 1) / amount * TAU;
-        elems.m0 = atan2(f32, -@sqrt(1 - elems.e * elems.e) * sin(v), -elems.e - cos(v)) + TAU / 2.0 - elems.e * (@sqrt(1 - elems.e * elems.e) * sin(v)) / (1 + elems.e * cos(v));
+        elems.m0 = atan2(f64, -@sqrt(1 - elems.e * elems.e) * sin(v), -elems.e - cos(v)) + TAU / 2.0 - elems.e * (@sqrt(1 - elems.e * elems.e) * sin(v)) / (1 + elems.e * cos(v));
 
         res = numericals.keplerToCart(elems, 0, elems.m0);
         res[0] *= @splat(SCALE);
 
-        try verts.append(.{ res[0][0], res[0][2], res[0][1] });
-        try colors.append(res[1]);
-        last_c = res[1];
+        vec = Vec3{ @floatCast(res[0][0]), @floatCast(res[0][1]), @floatCast(res[0][2]) };
+        color_vec = Vec3{ @floatCast(res[1][0]), @floatCast(res[1][1]), @floatCast(res[1][2]) };
+
+        try verts.append(.{ vec[0], vec[2], vec[1] });
+        try colors.append(color_vec);
+        last_c = color_vec;
     }
 
     try verts.append(first_v);
@@ -228,50 +234,43 @@ pub fn orbit(state: *Planetarium, a: f32, e: f32, inc: f32, long: f32, arg: f32)
     try line.drawing.addUniformVec3("real_cam_pos", &state.other_pos);
 }
 
-pub const Planet = struct {
-    vsop: VsopParse(3),
-    orb_vsop: VsopParse(6),
+pub const KeplerPlanet = struct {
+    ref: *@Vector(3, f64),
+    parent_mu: f64,
+    name: []const u8,
     subdivided: graphics.SpatialMesh,
     sky: graphics.SpatialMesh,
+    elems: numericals.KeplerElements,
 
-    name: []const u8,
+    pub fn update(self: *KeplerPlanet, state: *Planetarium) void {
+        //const t = state.time;
 
-    pub fn deinit(self: *Planet) void {
-        self.vsop.deinit();
-        self.orb_vsop.deinit();
-    }
+        var res = numericals.keplerToCart(self.elems, 0, 0);
+        std.debug.print("pf {d:.10}\n", .{res[0]});
+        res[0] /= @splat(149597870.7);
 
-    pub fn update(self: *Planet, state: *Planetarium) void {
-        var og_pos: @Vector(3, f64) = self.vsop.at((state.time - 2451545.0) / 365250.0);
+        res[0] += self.ref.*;
+        res[0] *= @splat(SCALE);
 
-        var venus_pos = @Vector(3, f64){ og_pos[1], og_pos[2], og_pos[0] };
+        var venus_pos = Vec3{ @floatCast(res[0][0]), @floatCast(res[0][1]), @floatCast(res[0][2]) };
 
-        //std.debug.print("{d:.4} {s} POR QUE\n", .{ @reduce(.Add, og_pos * og_pos), self.name });
+        std.debug.print("PORRA {d:.4}\n", .{venus_pos});
 
-        venus_pos *= @splat(SCALE);
+        self.sky.drawing.setUniformVec3("planet_pos", &venus_pos);
 
-        venus_pos = math.rotationY(f64, TAU / 4.0).dot(venus_pos);
+        venus_pos -= state.other_pos;
 
-        venus_pos -= state.cam_pos;
-
-        var pos = Vec3{ @floatCast(venus_pos[0]), @floatCast(venus_pos[1]), @floatCast(venus_pos[2]) };
-
-        const pos_m = Mat4.translation(pos);
+        const pos_m = Mat4.translation(venus_pos);
         var model = pos_m;
 
         self.subdivided.drawing.setUniformMat4("model", &model);
-        self.subdivided.pos = pos;
+        self.subdivided.pos = venus_pos;
 
         self.sky.drawing.setUniformMat4("model", &model);
-        self.sky.pos = pos;
+        self.sky.pos = venus_pos;
     }
 
-    pub fn initUniform(self: *Planet) !void {
-        try self.subdivided.initUniform();
-        try self.sky.initUniform();
-    }
-
-    pub fn init(comptime name: []const u8, mesh: MeshBuilder, state: *Planetarium) !Planet {
+    pub fn init(comptime name: []const u8, parent: *@Vector(3, f64), parent_mu: f64, elems: numericals.KeplerElements, mesh: MeshBuilder, state: *Planetarium) !KeplerPlanet {
         var subdivided = try mesh.toSpatial(
             try state.scene.new(.spatial),
             .{
@@ -310,6 +309,109 @@ pub const Planet = struct {
         try sky.drawing.addUniformVec3("real_cam_pos", &state.other_pos);
         sky.drawing.setUniformFloat("fog", &state.fog);
 
+        try sky.drawing.addUniformFloat("falloff", &state.variables[1]);
+        sky.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
+
+        return .{
+            .ref = parent,
+            .parent_mu = parent_mu,
+            .elems = elems,
+            .subdivided = subdivided,
+            .sky = sky,
+            .name = name,
+        };
+    }
+};
+
+pub const VsopPlanet = struct {
+    vsop: VsopParse(3),
+    orb_vsop: VsopParse(6),
+    subdivided: graphics.SpatialMesh,
+    sky: graphics.SpatialMesh,
+
+    name: []const u8,
+    pos: @Vector(3, f64),
+
+    pub fn deinit(self: *VsopPlanet) void {
+        self.vsop.deinit();
+        self.orb_vsop.deinit();
+    }
+
+    pub fn update(self: *VsopPlanet, state: *Planetarium) void {
+        var og_pos: @Vector(3, f64) = self.vsop.at((state.time - 2451545.0) / 365250.0);
+
+        var venus_pos = @Vector(3, f64){ og_pos[1], og_pos[2], og_pos[0] };
+
+        venus_pos = math.rotationY(f64, TAU / 4.0).dot(venus_pos);
+        self.pos = venus_pos;
+
+        //std.debug.print("{d:.4} {s} POR QUE\n", .{ @reduce(.Add, og_pos * og_pos), self.name });
+
+        venus_pos *= @splat(SCALE);
+
+        var pos = Vec3{ @floatCast(venus_pos[0]), @floatCast(venus_pos[1]), @floatCast(venus_pos[2]) };
+
+        self.sky.drawing.setUniformVec3("planet_pos", &pos);
+
+        venus_pos -= state.cam_pos;
+
+        pos = Vec3{ @floatCast(venus_pos[0]), @floatCast(venus_pos[1]), @floatCast(venus_pos[2]) };
+
+        const pos_m = Mat4.translation(pos);
+        var model = pos_m;
+
+        self.subdivided.drawing.setUniformMat4("model", &model);
+        self.subdivided.pos = pos;
+
+        self.sky.drawing.setUniformMat4("model", &model);
+        self.sky.pos = pos;
+    }
+
+    pub fn initUniform(self: *VsopPlanet) !void {
+        try self.subdivided.initUniform();
+        try self.sky.initUniform();
+    }
+
+    pub fn init(comptime name: []const u8, mesh: MeshBuilder, state: *Planetarium) !VsopPlanet {
+        var subdivided = try mesh.toSpatial(
+            try state.scene.new(.spatial),
+            .{
+                .vert = @embedFile("shaders/ball/vertex.glsl"),
+                .frag = @embedFile("shaders/ball/fragment.glsl"),
+                .pos = .{ 0, 0, 0 },
+            },
+        );
+
+        try state.cam.linkDrawing(subdivided.drawing);
+        try subdivided.drawing.addUniformVec3("real_cam_pos", &state.other_pos);
+        subdivided.drawing.setUniformFloat("fog", &state.fog);
+
+        subdivided.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
+
+        var res = try processImage(name);
+        defer res.deinit();
+
+        try subdivided.drawing.cubemapFromRgba(res.faces[0].data, res.faces[0].width, res.faces[0].height, .xp);
+        try subdivided.drawing.cubemapFromRgba(res.faces[1].data, res.faces[1].width, res.faces[1].height, .yp);
+        try subdivided.drawing.cubemapFromRgba(res.faces[2].data, res.faces[2].width, res.faces[2].height, .zm);
+        try subdivided.drawing.cubemapFromRgba(res.faces[3].data, res.faces[3].width, res.faces[3].height, .xm);
+        try subdivided.drawing.cubemapFromRgba(res.faces[4].data, res.faces[4].width, res.faces[4].height, .ym);
+        try subdivided.drawing.cubemapFromRgba(res.faces[5].data, res.faces[5].width, res.faces[5].height, .zp);
+
+        var sky = try mesh.toSpatial(
+            try state.scene.new(.spatial),
+            .{
+                .vert = @embedFile("shaders/sky/vertex.glsl"),
+                .frag = @embedFile("shaders/sky/fragment.glsl"),
+                .pos = .{ 0, 0, 0 },
+            },
+        );
+
+        try state.cam.linkDrawing(sky.drawing);
+        try sky.drawing.addUniformVec3("real_cam_pos", &state.other_pos);
+        sky.drawing.setUniformFloat("fog", &state.fog);
+
+        try sky.drawing.addUniformFloat("falloff", &state.variables[1]);
         sky.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
 
         const actual = if (comptime std.mem.eql(u8, "ear", name)) "emb" else name;
@@ -317,6 +419,7 @@ pub const Planet = struct {
         return .{
             .vsop = try VsopParse(3).init("vsop87/VSOP87C." ++ name),
             .orb_vsop = try VsopParse(6).init("vsop87/VSOP87." ++ actual),
+            .pos = .{ 0, 0, 0 },
             .subdivided = subdivided,
             .sky = sky,
             .name = name,

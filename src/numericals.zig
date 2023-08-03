@@ -9,14 +9,17 @@ const Vec3 = math.Vec3;
 const Mat3 = math.Mat3;
 
 pub const KeplerElements = struct {
-    a: f32,
-    e: f32,
-    arg: f32,
-    long: f32,
-    i: f32,
-    m0: f32,
-    t0: f32 = 0,
+    a: f64,
+    e: f64,
+    arg: f64,
+    long: f64,
+    i: f64,
+    m0: f64,
+    t0: f64 = 0,
 };
+
+pub const sun_mu = 1.32712440018e20;
+pub const sun_mu_au = 1.32712440018e20;
 
 pub fn eulerMethod(comptime T: type, comptime f: fn (T) T, comptime dt: T) fn (T) T {
     return struct {
@@ -36,8 +39,8 @@ pub fn newtonMethod(comptime T: type, comptime f: fn (T) T, comptime df: fn (T) 
 
 const TAU = 6.28318530718;
 
-pub fn keplerInverse(e: f32, mt: f32) f32 {
-    var val: f32 = mt;
+pub fn keplerInverse(e: f64, mt: f64) f64 {
+    var val: f64 = mt;
 
     for (0..10) |_| {
         const df = val - e * sin(val) - mt;
@@ -47,7 +50,7 @@ pub fn keplerInverse(e: f32, mt: f32) f32 {
     return val;
 }
 
-pub fn keplerToCart(elem: KeplerElements, t: f32, mu: f32) [2]Vec3 {
+pub fn keplerToCart(elem: KeplerElements, t: f64, mu: f64) [2]@Vector(3, f64) {
     const a = elem.a;
     const e = elem.e;
     const arg = elem.arg;
@@ -58,21 +61,21 @@ pub fn keplerToCart(elem: KeplerElements, t: f32, mu: f32) [2]Vec3 {
 
     const dt = 86400 * (t - t0);
 
-    const mt = m0 + dt * @sqrt(mu / (a * a * a));
+    const mt = @mod(m0 + dt * @sqrt(mu / (1.496e11 * 1.496e11 * 1.496e11 * a * a * a)), TAU);
 
     const et = keplerInverse(e, mt);
 
-    const vt = 2 * atan2(f32, @sqrt(1 + e) * sin(et / 2), @sqrt(1 - e) * cos(et / 2));
+    const vt = 2 * atan2(f64, @sqrt(1 + e) * sin(et / 2), @sqrt(1 - e) * cos(et / 2));
 
-    const rc: Vec3 = @splat(a * (1 - e * cos(et)));
+    const rc: @Vector(3, f64) = @splat(a * (1 - e * cos(et)));
 
-    const ot = rc * Vec3{ cos(vt), sin(vt), 0 };
+    const ot = rc * @Vector(3, f64){ cos(vt), sin(vt), 0 };
 
-    const v_factor: Vec3 = @splat(@sqrt(mu * a));
-    const ot_v = v_factor / rc * Vec3{ -sin(et), @sqrt(1 - e * e) * cos(et), 0 };
+    const v_factor: @Vector(3, f64) = @splat(@sqrt(mu * a));
+    const ot_v = v_factor / rc * @Vector(3, f64){ -sin(et), @sqrt(1 - e * e) * cos(et), 0 };
 
-    var rt = math.rotationZ(f32, -long).mul(math.rotationX(f32, -i).mul(math.rotationZ(f32, -arg))).dot(ot);
-    var rt_v = math.rotationZ(f32, -long).mul(math.rotationX(f32, -i).mul(math.rotationZ(f32, -arg))).dot(ot_v);
+    var rt = math.rotationZ(f64, -long).mul(math.rotationX(f64, -i).mul(math.rotationZ(f64, -arg))).dot(ot);
+    var rt_v = math.rotationZ(f64, -long).mul(math.rotationX(f64, -i).mul(math.rotationZ(f64, -arg))).dot(ot_v);
 
     return .{ rt, rt_v };
 }

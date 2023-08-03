@@ -11,14 +11,14 @@ uniform vec3 real_cam_pos;
 uniform vec3 spatial_pos;
 uniform float fog;
 
-const float RADIUS = 1.0;
-const float SURFACE = 0.8;
+float RADIUS = 1.1;
+float SURFACE = 1.0;
 
 
 vec3 CENTER = vec3(0);
 
-const vec3 coeff = vec3(5.8e-2, 13.6e-2, 33.1e-2)*10;
-const float FALLOFF = 4.0;
+vec3 coeff = vec3(5.8e-6, 13.6e-6, 33.1e-6)*6471e3/RADIUS*0.1;
+float FALLOFF = 4*RADIUS;
 
 float dens(vec3 pos) {
    float h = length(pos-spatial_pos)-SURFACE;
@@ -66,20 +66,24 @@ float distance(float r, vec3 center, vec3 pos) {
    return length(pos-center)-r;
 }
 
+const float actual = 1.0;
+float fac = RADIUS/actual;
+
 void main()
 {
-   vec3 position = Pos;
-   vec3 dir = normalize(position-real_cam_pos);
+   vec3 cam_pos = real_cam_pos*fac;
+   vec3 position = Pos*fac;
+   vec3 dir = normalize(position-cam_pos);
 
-   vec2 hit = ray_sphere_intersect(real_cam_pos, dir, 1.0);
+   vec2 hit = ray_sphere_intersect(cam_pos, dir, RADIUS);
 
-   vec3 start = real_cam_pos+dir*hit.x;
-   vec3 end = real_cam_pos+dir*hit.y;
+   vec3 start = cam_pos+dir*hit.x;
+   vec3 end = cam_pos+dir*hit.y;
    float DS = length(end-start)/STEPS;
 
    vec3 res = vec3(0);
 
-   vec3 sun_pos = vec3(1.0, 0.0, 0.0);
+   vec3 sun_pos = vec3(3.0, 0.0, 0.0)*fac;
 
    for (int i = 0; i < STEPS; i++) {
       start += dir*DS;
@@ -90,13 +94,14 @@ void main()
       float b0 = 1;
       vec3 Bh = dens*coeff;
       float phase = 3/(16*PI)*(1+pow(dot(dir, normalize(sunDiff)), 2));
-      vec3 Lsun = 5*transmittance(start, sun_pos*RADIUS*3)*phase*Bh;
+      vec3 Lsun = 40*transmittance(start, sunDiff)*phase*Bh;
       res += transmittance(position, start)*Lsun*DS;
    }
 
-   res *= 4;
+   //res *= 4;
 
-   //FragColor = vec4(vec3(hit.y-hit.x), 1.0);
+   //FragColor = vec4(vec3(hit.y-hit.x)/fac, 1.0);
+   
    FragColor = vec4(res, 1.0);
 }
 

@@ -60,7 +60,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    inline for (.{ "volumetrics", "planetarium", "base" }) |app| {
+    inline for (.{ "volumetrics", "planetarium", "base", "plotter" }) |app| {
         const exe = b.addExecutable(.{
             .name = app,
             // In this case the main source file is merely a path, however, in more
