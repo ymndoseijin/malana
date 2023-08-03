@@ -8,7 +8,13 @@ const graphics = @import("graphics");
 const common = @import("common");
 const Parsing = @import("parsing");
 
-const RuntimeEval = @import("eval.zig").RuntimeEval;
+const Fun = struct {
+    pub fn pow(a: f32, b: f32) f32 {
+        return std.math.pow(f32, a, b);
+    }
+};
+
+const RuntimeEval = @import("eval.zig").RuntimeEval(f32, false, .{.{ "pow", Fun.pow }});
 
 const BdfParse = Parsing.BdfParse;
 const ObjParse = graphics.ObjParse;
@@ -122,8 +128,9 @@ fn key_down(keys: []bool, mods: i32, dt: f32) !void {
     try state.cam.spatialMove(keys, mods, dt, &state.cam.move, Camera.DefaultSpatial);
 }
 
-pub fn plot(ctx: *RuntimeEval(f32, false), source: [:0]const u8) !Mesh {
+pub fn plot(ctx: *RuntimeEval, input: [:0]const u8) !graphics.MeshBuilder {
     var mesh = Mesh.init(common.allocator);
+    defer mesh.deinit();
 
     try mesh.makeFrom(&graphics.Square.vertices, &graphics.Square.indices, .{
         .pos_offset = 0,
@@ -142,6 +149,13 @@ pub fn plot(ctx: *RuntimeEval(f32, false), source: [:0]const u8) !Mesh {
 
     try stack.append(mesh.first_half);
 
+    var ast = try std.zig.Ast.parse(common.allocator, input, .zig);
+    defer ast.deinit(common.allocator);
+
+    var buff: [2]u32 = undefined;
+    const container = ast.fullContainerDecl(&buff, 0).?;
+    const index = ast.nodes.get(container.ast.members[0]).data.rhs;
+
     while (stack.items.len > 0) {
         var edge_or = stack.pop();
         if (edge_or) |edge| {
@@ -156,7 +170,7 @@ pub fn plot(ctx: *RuntimeEval(f32, false), source: [:0]const u8) !Mesh {
             try ctx.identifiers.put("x", x);
             try ctx.identifiers.put("y", y);
 
-            position[2] = try ctx.eval(common.allocator, source);
+            position[2] = try ctx.traverse(ast, ast.nodes.get(index), index, 0);
 
             if (edge.next) |_| {
                 if (edge.twin) |twin| {
@@ -167,7 +181,7 @@ pub fn plot(ctx: *RuntimeEval(f32, false), source: [:0]const u8) !Mesh {
         }
     }
 
-    return mesh;
+    return toMesh(mesh.first_half.?);
 }
 
 pub fn toMesh(half: *HalfEdge) !graphics.MeshBuilder {
@@ -246,20 +260,8 @@ pub fn main() !void {
     try state.cam.linkDrawing(surface.drawing);
     try surface.initUniform();
 
-    var ctx = RuntimeEval(f32, false).init(common.allocator);
+    var ctx = RuntimeEval.init(common.allocator);
     defer ctx.deinit();
-
-    var timer = try std.time.Timer.start();
-    var mesh = try plot(&ctx, "const y = x*x*x+y*y*y;");
-    std.debug.print("took {} units\n", .{timer.lap()});
-
-    var builder = try toMesh(mesh.first_half.?);
-    std.debug.print("{} verts\n", .{builder.vertices.items.len});
-
-    surface.drawing.bindVertex(builder.vertices.items, builder.indices.items);
-
-    mesh.deinit();
-    builder.deinit();
 
     var model = math.rotationX(f32, -TAU / 4.0);
     surface.drawing.setUniformMat3("model", &model);
@@ -275,7 +277,12 @@ pub fn main() !void {
         const time = @as(f32, @floatCast(glfw.glfwGetTime()));
 
         const dt = time - last_time;
-        //state.time += dt * 5;
+        state.time += dt * 0.1;
+
+        try ctx.identifiers.put("t", @floatCast(state.time));
+        var builder = try plot(&ctx, "const z = pow(x, 3+t)+pow(y, 3+t);");
+        surface.drawing.bindVertex(builder.vertices.items, builder.indices.items);
+        builder.deinit();
 
         if (down_num > 0) {
             try key_down(&current_keys, last_mods, dt);

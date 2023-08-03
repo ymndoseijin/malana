@@ -1,9 +1,8 @@
 const std = @import("std");
 
-pub fn RuntimeEval(comptime eval_type: type, comptime debug: bool) type {
+pub fn RuntimeEval(comptime eval_type: type, comptime debug: bool, comptime functions: anytype) type {
     return struct {
         identifiers: std.StringHashMap(eval_type),
-
         const Self = @This();
 
         pub fn init(gpa: std.mem.Allocator) Self {
@@ -25,20 +24,20 @@ pub fn RuntimeEval(comptime eval_type: type, comptime debug: bool) type {
                     for (0..depth) |_| std.debug.print("| ", .{});
                     std.debug.print("left_token:\n", .{});
                 }
-                const lhs = try self.traverse(ast, left_token, depth + 1);
+                const lhs = try self.traverse(ast, left_token, node.data.lhs, depth + 1);
 
                 if (debug) {
                     for (0..depth) |_| std.debug.print("| ", .{});
                     std.debug.print("right_token:\n", .{});
                 }
-                const rhs = try self.traverse(ast, right_token, depth + 1);
+                const rhs = try self.traverse(ast, right_token, node.data.rhs, depth + 1);
 
                 return .{ lhs, rhs };
             }
             return error.InvalidSides;
         }
 
-        pub fn traverse(self: *Self, ast: std.zig.Ast, node: std.zig.Ast.Node, depth: usize) !eval_type {
+        pub fn traverse(self: *Self, ast: std.zig.Ast, node: std.zig.Ast.Node, node_index: u32, depth: usize) !eval_type {
             if (node.main_token == 0) return error.InvalidNullNode;
 
             const token = ast.tokens.get(node.main_token);
@@ -68,6 +67,28 @@ pub fn RuntimeEval(comptime eval_type: type, comptime debug: bool) type {
                     }
                     return error.UnknownIdentifier;
                 },
+                .call => {
+                    var call_buff: [1]u32 = undefined;
+                    const call = ast.fullCall(&call_buff, node_index) orelse return error.InvalidFunction;
+                    const fun_params = call.ast.params;
+                    const fun_name = ast.tokenSlice(ast.nodes.get(node.data.lhs).main_token);
+
+                    inline for (functions) |pair| {
+                        const pair_name = pair[0];
+                        const pair_fun = pair[1];
+                        const param_count = @typeInfo(@TypeOf(pair_fun)).Fn.params.len;
+                        if (std.mem.eql(u8, fun_name, pair_name) and param_count == fun_params.len) {
+                            const Args = std.meta.ArgsTuple(@TypeOf(pair_fun));
+                            var args: Args = undefined;
+                            inline for (&args, 0..) |*arg, i| {
+                                arg.* = try self.traverse(ast, ast.nodes.get(fun_params[i]), fun_params[i], depth + 1);
+                            }
+                            return @call(.always_inline, pair_fun, args);
+                        }
+                    }
+
+                    return error.UnknownFunction;
+                },
                 else => return error.InvalidNode,
             }
         }
@@ -84,7 +105,23 @@ pub fn RuntimeEval(comptime eval_type: type, comptime debug: bool) type {
             const container = ast.fullContainerDecl(&buff, 0).?;
             const index = ast.nodes.get(container.ast.members[0]).data.rhs;
 
-            return self.traverse(ast, ast.nodes.get(index), 0);
+            return self.traverse(ast, ast.nodes.get(index), index, 0);
         }
     };
+}
+
+test "functions" {
+    const ally = std.testing.allocator;
+    std.debug.print("\n", .{});
+
+    const Fun = struct {
+        pub fn pow(a: f32, b: f32) f32 {
+            return std.math.pow(f32, a, b);
+        }
+    };
+
+    var ctx = RuntimeEval(f32, true, .{.{ "pow", Fun.pow }}).init(ally);
+    defer ctx.deinit();
+    try ctx.identifiers.put("x", 2);
+    std.debug.print("{}\n", .{try ctx.eval(ally, "const res = pow(x, 3);")});
 }
