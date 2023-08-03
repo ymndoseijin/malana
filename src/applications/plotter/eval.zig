@@ -67,7 +67,7 @@ pub fn RuntimeEval(comptime eval_type: type, comptime debug: bool, comptime func
                     }
                     return error.UnknownIdentifier;
                 },
-                .call => {
+                .call, .call_one => {
                     var call_buff: [1]u32 = undefined;
                     const call = ast.fullCall(&call_buff, node_index) orelse return error.InvalidFunction;
                     const fun_params = call.ast.params;
@@ -77,6 +77,7 @@ pub fn RuntimeEval(comptime eval_type: type, comptime debug: bool, comptime func
                         const pair_name = pair[0];
                         const pair_fun = pair[1];
                         const param_count = @typeInfo(@TypeOf(pair_fun)).Fn.params.len;
+
                         if (std.mem.eql(u8, fun_name, pair_name) and param_count == fun_params.len) {
                             const Args = std.meta.ArgsTuple(@TypeOf(pair_fun));
                             var args: Args = undefined;
@@ -89,6 +90,7 @@ pub fn RuntimeEval(comptime eval_type: type, comptime debug: bool, comptime func
 
                     return error.UnknownFunction;
                 },
+                .grouped_expression => return try self.traverse(ast, ast.nodes.get(node.data.lhs), node.data.lhs, depth + 1),
                 else => return error.InvalidNode,
             }
         }
@@ -118,10 +120,13 @@ test "functions" {
         pub fn pow(a: f32, b: f32) f32 {
             return std.math.pow(f32, a, b);
         }
+        pub fn sin(x: f32) f32 {
+            return std.math.sin(x);
+        }
     };
 
-    var ctx = RuntimeEval(f32, true, .{.{ "pow", Fun.pow }}).init(ally);
+    var ctx = RuntimeEval(f32, true, .{ .{ "pow", Fun.pow }, .{ "sin", Fun.sin } }).init(ally);
     defer ctx.deinit();
     try ctx.identifiers.put("x", 2);
-    std.debug.print("{}\n", .{try ctx.eval(ally, "const res = pow(x, 3);")});
+    std.debug.print("{}\n", .{try ctx.eval(ally, "const res = 0.2*(pow(x, 3+sin(x))+1);")});
 }

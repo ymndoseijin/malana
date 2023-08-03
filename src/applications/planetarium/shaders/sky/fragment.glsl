@@ -96,5 +96,5 @@ void main()
 
    //FragColor = vec4(vec3(hit.y-hit.x), 1.0);
    //FragColor = vec4(vec3(dens(dir*hit.x)*100), 1.0);
-   FragColor = vec4(1.0);
+   FragColor = vec4(0.5);
 }

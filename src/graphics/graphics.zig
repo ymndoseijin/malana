@@ -481,6 +481,18 @@ pub fn getGlfwKey(win_or: ?*glfw.GLFWwindow, key: c_int, scancode: c_int, action
     }
 }
 
+pub fn getGlfwChar(win_or: ?*glfw.GLFWwindow, codepoint: c_uint) callconv(.C) void {
+    const glfw_win = win_or orelse return;
+
+    if (windowMap.?.get(glfw_win)) |win| {
+        if (win.char_func) |fun| {
+            fun(win, codepoint) catch {
+                @panic("error!");
+            };
+        }
+    }
+}
+
 pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int) callconv(.C) void {
     std.debug.print("olá!\n", .{});
 
@@ -523,6 +535,7 @@ pub const Window = struct {
     current_height: i32 = 100,
 
     key_func: ?*const fn (*Window, i32, i32, i32, i32) anyerror!void,
+    char_func: ?*const fn (*Window, u32) anyerror!void,
     frame_func: ?*const fn (*Window, i32, i32) anyerror!void,
     scroll_func: ?*const fn (*Window, f64, f64) anyerror!void,
 
@@ -532,6 +545,10 @@ pub const Window = struct {
 
     pub fn setKeyCallback(self: *Window, fun: *const fn (*Window, i32, i32, i32, i32) anyerror!void) void {
         self.key_func = fun;
+    }
+
+    pub fn setCharCallback(self: *Window, fun: *const fn (*Window, u32) anyerror!void) void {
+        self.char_func = fun;
     }
 
     pub fn setFrameCallback(self: *Window, fun: *const fn (*Window, i32, i32) anyerror!void) void {
@@ -545,6 +562,7 @@ pub const Window = struct {
 
         glfw.glfwMakeContextCurrent(glfw_win);
         _ = glfw.glfwSetKeyCallback(glfw_win, getGlfwKey);
+        _ = glfw.glfwSetCharCallback(glfw_win, getGlfwChar);
         _ = glfw.glfwSetFramebufferSizeCallback(glfw_win, getFramebufferSize);
         //glfw.glfwSetMouseButtonCallback(win, mouse_button_callback);
         //glfw.glfwSetCursorPosCallback(win, cursor_position_callback);
@@ -563,6 +581,7 @@ pub const Window = struct {
         @memset(win, Window{
             .glfw_win = glfw_win,
             .key_func = null,
+            .char_func = null,
             .scroll_func = null,
             .frame_func = null,
             .alive = true,

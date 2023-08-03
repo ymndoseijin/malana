@@ -12,9 +12,12 @@ const Fun = struct {
     pub fn pow(a: f32, b: f32) f32 {
         return std.math.pow(f32, a, b);
     }
+    pub fn sin(x: f32) f32 {
+        return std.math.sin(x);
+    }
 };
 
-const RuntimeEval = @import("eval.zig").RuntimeEval(f32, false, .{.{ "pow", Fun.pow }});
+const RuntimeEval = @import("eval.zig").RuntimeEval(f32, false, .{ .{ "pow", Fun.pow }, .{ "sin", Fun.sin } });
 
 const BdfParse = Parsing.BdfParse;
 const ObjParse = graphics.ObjParse;
@@ -60,10 +63,15 @@ pub const State = struct {
 
     time: f64,
 
+    input_mode: bool,
+    plot_eq: [:0]const u8,
+    scratch_text: std.ArrayList(u8),
+
     pub fn init() !State {
         var main_win = try graphics.Window.init(100, 100);
 
         main_win.setKeyCallback(keyFunc);
+        main_win.setCharCallback(charFunc);
         main_win.setFrameCallback(frameFunc);
 
         var cam = try Camera.init(0.6, 1, 0.1, 2048);
@@ -76,6 +84,9 @@ pub const State = struct {
             .time = 0,
             .scene = try graphics.Scene(DrawingList).init(),
             .skybox_scene = try graphics.Scene(DrawingList).init(),
+            .input_mode = false,
+            .plot_eq = try common.allocator.dupeZ(u8, "const z = 0.2*(sin(x*10*sin(t))+sin(y*10*sin(t)));"),
+            .scratch_text = std.ArrayList(u8).init(common.allocator),
         };
     }
 
@@ -83,6 +94,8 @@ pub const State = struct {
         self.main_win.deinit();
         self.scene.deinit();
         self.skybox_scene.deinit();
+        self.scratch_text.deinit();
+        common.allocator.free(self.plot_eq);
     }
 };
 
@@ -97,23 +110,60 @@ fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
 
 var is_wireframe = false;
 
+fn charFunc(win: *graphics.Window, codepoint: u32) !void {
+    _ = win;
+
+    if (state.input_mode) {
+        var buff: [16]u8 = undefined;
+        const size = try std.unicode.utf8Encode(@intCast(codepoint), &buff);
+        const result = buff[0..size];
+
+        for (result) |char| {
+            try state.scratch_text.append(char);
+        }
+    } else if (codepoint == 'i') {
+        state.input_mode = true;
+    }
+}
+
 fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods: i32) !void {
     _ = win;
     _ = scancode;
 
     if (action == glfw.GLFW_PRESS) {
-        if (key == glfw.GLFW_KEY_C) {
-            if (is_wireframe) {
-                gl.polygonMode(gl.FRONT_AND_BACK, gl.FILL);
-                is_wireframe = false;
-            } else {
-                gl.polygonMode(gl.FRONT_AND_BACK, gl.LINE);
-                is_wireframe = true;
+        defer down_num += 1;
+        if (state.input_mode) {
+            switch (key) {
+                glfw.GLFW_KEY_ESCAPE => {
+                    state.input_mode = false;
+                    //state.scratch_text.shrinkRetainingCapacity(0);
+                },
+                glfw.GLFW_KEY_ENTER => {
+                    state.input_mode = false;
+                    common.allocator.free(state.plot_eq);
+                    state.plot_eq = try common.allocator.dupeZ(u8, state.scratch_text.items);
+                },
+                glfw.GLFW_KEY_BACKSPACE => {
+                    state.scratch_text.shrinkRetainingCapacity(state.scratch_text.items.len - 1);
+                },
+                else => {},
             }
+            return;
+        }
+        switch (key) {
+            glfw.GLFW_KEY_C => {
+                if (is_wireframe) {
+                    gl.polygonMode(gl.FRONT_AND_BACK, gl.FILL);
+                    is_wireframe = false;
+                } else {
+                    gl.polygonMode(gl.FRONT_AND_BACK, gl.LINE);
+                    is_wireframe = true;
+                }
+            },
+            else => {},
         }
         current_keys[@intCast(key)] = true;
         last_mods = mods;
-        down_num += 1;
     } else if (action == glfw.GLFW_RELEASE) {
         current_keys[@intCast(key)] = false;
         down_num -= 1;
@@ -128,19 +178,7 @@ fn key_down(keys: []bool, mods: i32, dt: f32) !void {
     try state.cam.spatialMove(keys, mods, dt, &state.cam.move, Camera.DefaultSpatial);
 }
 
-pub fn plot(ctx: *RuntimeEval, input: [:0]const u8) !graphics.MeshBuilder {
-    var mesh = Mesh.init(common.allocator);
-    defer mesh.deinit();
-
-    try mesh.makeFrom(&graphics.Square.vertices, &graphics.Square.indices, .{
-        .pos_offset = 0,
-        .uv_offset = 3,
-        .norm_offset = 5,
-        .length = 8,
-    }, 3);
-
-    try mesh.subdivideMesh(5);
-
+pub fn plot(mesh: Mesh, ctx: *RuntimeEval, input: [:0]const u8) !graphics.MeshBuilder {
     var set = std.AutoHashMap(*HalfEdge, void).init(common.allocator);
     var stack = std.ArrayList(?*HalfEdge).init(common.allocator);
 
@@ -154,6 +192,7 @@ pub fn plot(ctx: *RuntimeEval, input: [:0]const u8) !graphics.MeshBuilder {
 
     var buff: [2]u32 = undefined;
     const container = ast.fullContainerDecl(&buff, 0).?;
+    if (container.ast.members.len == 0) return error.MissingMember;
     const index = ast.nodes.get(container.ast.members[0]).data.rhs;
 
     while (stack.items.len > 0) {
@@ -239,15 +278,6 @@ pub fn main() !void {
     gl.lineWidth(2);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    var text = try graphics.Text.init(
-        try state.scene.new(.spatial),
-        bdf,
-        .{ 0, 100, 0 },
-    );
-    defer text.deinit();
-
-    try text.initUniform();
-
     var surface = try graphics.SpatialMesh.init(
         try state.scene.new(.spatial),
         .{ 0, 0, 0 },
@@ -268,6 +298,27 @@ pub fn main() !void {
 
     var last_time: f32 = 0;
 
+    var text = try graphics.Text.init(
+        try state.scene.new(.spatial),
+        bdf,
+        .{ 0, 14, 0 },
+    );
+
+    try text.initUniform();
+    defer text.deinit();
+
+    var mesh = Mesh.init(common.allocator);
+    defer mesh.deinit();
+
+    try mesh.makeFrom(&graphics.Square.vertices, &graphics.Square.indices, .{
+        .pos_offset = 0,
+        .uv_offset = 3,
+        .norm_offset = 5,
+        .length = 8,
+    }, 3);
+
+    try mesh.subdivideMesh(3);
+
     while (state.main_win.alive) {
         graphics.waitGraphicsEvent();
 
@@ -277,15 +328,36 @@ pub fn main() !void {
         const time = @as(f32, @floatCast(glfw.glfwGetTime()));
 
         const dt = time - last_time;
-        state.time += dt * 0.1;
+        state.time += dt * 0.5;
 
-        try ctx.identifiers.put("t", @floatCast(state.time));
-        var builder = try plot(&ctx, "const z = pow(x, 3+t)+pow(y, 3+t);");
-        surface.drawing.bindVertex(builder.vertices.items, builder.indices.items);
-        builder.deinit();
+        blk: {
+            try ctx.identifiers.put("t", @floatCast(state.time));
+            var builder = plot(mesh, &ctx, state.plot_eq) catch |err| {
+                switch (err) {
+                    error.InvalidSides => std.debug.print("Invalid usage of operator\n", .{}),
+                    error.UnknownIdentifier => std.debug.print("Unknown identifier\n", .{}),
+                    error.InvalidNode => std.debug.print("Invalid node\n", .{}),
+                    error.UnknownFunction => std.debug.print("Unknown function used\n", .{}),
+                    error.InvalidNullNode => std.debug.print("Invalid starting node\n", .{}),
+                    error.MissingMember => std.debug.print("Missing starting node, did you forget a semicolon?\n", .{}),
+                    else => return err,
+                }
+                common.allocator.free(state.plot_eq);
+                state.plot_eq = try common.allocator.dupeZ(u8, "const z = 0;");
+                break :blk;
+            };
+            surface.drawing.bindVertex(builder.vertices.items, builder.indices.items);
+            builder.deinit();
+        }
 
         if (down_num > 0) {
             try key_down(&current_keys, last_mods, dt);
+        }
+
+        if (@mod(@floor(state.time * 3), 2) == 0 or !state.input_mode) {
+            try text.printFmt("cam: {} {d:.4} {d:.4} {d:.4} {d:.4}\n{s}\n", .{ state.input_mode, state.cam.eye, state.cam.move, 1 / dt, state.time, state.scratch_text.items });
+        } else {
+            try text.printFmt("cam: {} {d:.4} {d:.4} {d:.4} {d:.4}\n{s}█\n", .{ state.input_mode, state.cam.eye, state.cam.move, 1 / dt, state.time, state.scratch_text.items });
         }
 
         state.cam.eye = state.cam.eye;

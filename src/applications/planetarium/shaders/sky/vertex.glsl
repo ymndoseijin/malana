@@ -19,7 +19,7 @@ out vec3 Pos;
 
 void main()
 {
-   vec3 position = aPos*0.2;
+   vec3 position = aPos*10.0;
    mat3 norm_matrix = transpose(inverse(mat3(model)));
    //position /= sqrt(position.x*position.x+position.y*position.y+position.z*position.z);
 

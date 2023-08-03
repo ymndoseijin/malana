@@ -243,9 +243,9 @@ pub const KeplerPlanet = struct {
     elems: numericals.KeplerElements,
 
     pub fn update(self: *KeplerPlanet, state: *Planetarium) void {
-        //const t = state.time;
+        const t = state.time;
 
-        var res = numericals.keplerToCart(self.elems, 0, 0);
+        var res = numericals.keplerToCart(self.elems, @floatCast(t), self.parent_mu);
         std.debug.print("pf {d:.10}\n", .{res[0]});
         res[0] /= @splat(149597870.7);
 

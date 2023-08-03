@@ -325,7 +325,7 @@ pub fn main() !void {
     };
     var res = numericals.keplerToCart(elements, 0, 0);
     std.debug.print("pf {d:.10}\n", .{res[0]});
-    std.os.exit(0);
+    //std.os.exit(0);
 
     var bdf = try BdfParse.init();
     defer bdf.deinit();
@@ -431,7 +431,7 @@ pub fn main() !void {
         const time = @as(f32, @floatCast(glfw.glfwGetTime()));
 
         const dt = time - last_time;
-        planetarium.time += dt * 0;
+        planetarium.time += dt * 0.1;
 
         //var pos_m = Mat4.translation(planetarium.camera_pos - planetarium.other_pos);
         //camera_obj.drawing.setUniformMat4("model", &pos_m);
