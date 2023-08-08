@@ -402,7 +402,7 @@ pub fn main() !void {
         .{
             .vert = @embedFile("shaders/triangle/vertex.glsl"),
             .frag = @embedFile("shaders/triangle/fragment.glsl"),
-            .pos = .{ 200000, 0, 0 },
+            .pos = .{ 0, 0, 0 },
         },
     );
 
@@ -431,10 +431,10 @@ pub fn main() !void {
         const time = @as(f32, @floatCast(glfw.glfwGetTime()));
 
         const dt = time - last_time;
-        planetarium.time += dt * 0.1;
+        planetarium.time += dt * 0;
 
-        //var pos_m = Mat4.translation(planetarium.camera_pos - planetarium.other_pos);
-        //camera_obj.drawing.setUniformMat4("model", &pos_m);
+        var pos_m = Mat4.translation(-planetarium.other_pos);
+        camera_obj.drawing.setUniformMat4("model", &pos_m);
 
         if (down_num > 0) {
             try key_down(&current_keys, last_mods, dt);

@@ -289,12 +289,14 @@ pub const KeplerPlanet = struct {
         var res = try processImage(name);
         defer res.deinit();
 
-        try subdivided.drawing.cubemapFromRgba(res.faces[0].data, res.faces[0].width, res.faces[0].height, .xp);
-        try subdivided.drawing.cubemapFromRgba(res.faces[1].data, res.faces[1].width, res.faces[1].height, .yp);
-        try subdivided.drawing.cubemapFromRgba(res.faces[2].data, res.faces[2].width, res.faces[2].height, .zm);
-        try subdivided.drawing.cubemapFromRgba(res.faces[3].data, res.faces[3].width, res.faces[3].height, .xm);
-        try subdivided.drawing.cubemapFromRgba(res.faces[4].data, res.faces[4].width, res.faces[4].height, .ym);
-        try subdivided.drawing.cubemapFromRgba(res.faces[5].data, res.faces[5].width, res.faces[5].height, .zp);
+        try subdivided.drawing.cubemapFromRgba(.{
+            res.faces[0],
+            res.faces[3],
+            res.faces[1],
+            res.faces[4],
+            res.faces[5],
+            res.faces[2],
+        }, res.faces[0].width, res.faces[0].height);
 
         var sky = try mesh.toSpatial(
             try state.scene.new(.spatial),
@@ -391,12 +393,14 @@ pub const VsopPlanet = struct {
         var res = try processImage(name);
         defer res.deinit();
 
-        try subdivided.drawing.cubemapFromRgba(res.faces[0].data, res.faces[0].width, res.faces[0].height, .xp);
-        try subdivided.drawing.cubemapFromRgba(res.faces[1].data, res.faces[1].width, res.faces[1].height, .yp);
-        try subdivided.drawing.cubemapFromRgba(res.faces[2].data, res.faces[2].width, res.faces[2].height, .zm);
-        try subdivided.drawing.cubemapFromRgba(res.faces[3].data, res.faces[3].width, res.faces[3].height, .xm);
-        try subdivided.drawing.cubemapFromRgba(res.faces[4].data, res.faces[4].width, res.faces[4].height, .ym);
-        try subdivided.drawing.cubemapFromRgba(res.faces[5].data, res.faces[5].width, res.faces[5].height, .zp);
+        try subdivided.drawing.cubemapFromRgba(.{
+            res.faces[0],
+            res.faces[3],
+            res.faces[1],
+            res.faces[4],
+            res.faces[5],
+            res.faces[2],
+        }, res.faces[0].width, res.faces[0].height);
 
         var sky = try mesh.toSpatial(
             try state.scene.new(.spatial),

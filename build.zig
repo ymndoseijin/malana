@@ -102,10 +102,27 @@ pub fn build(b: *std.Build) void {
     }
 
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = .{ .path = "src/applications/plotter/ui.zig" },
         .target = target,
         .optimize = optimize,
     });
+
+    unit_tests.addModule("img", zigimg_dep.module("zigimg"));
+
+    unit_tests.addModule("graphics", graphics);
+    unit_tests.addModule("geometry", geometry);
+    unit_tests.addModule("numericals", numericals);
+    unit_tests.addModule("common", common);
+    unit_tests.addModule("parsing", parsing);
+    unit_tests.addModule("gl", gl);
+    unit_tests.addModule("math", math);
+
+    unit_tests.linkLibrary(b.dependency("glfw", .{
+        .target = unit_tests.target,
+        .optimize = unit_tests.optimize,
+    }).artifact("glfw"));
+
+    unit_tests.linkLibC();
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 

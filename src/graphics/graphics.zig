@@ -176,9 +176,8 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
         uniform3fv_array: std.ArrayList(Uniform3fv),
         uniform4fv_array: std.ArrayList(Uniform4fv),
 
-        texture: u32,
-        has_texture: bool,
-        has_cube_texture: bool,
+        textures: std.ArrayList(u32),
+        cube_textures: std.ArrayList(u32),
 
         vert_count: usize,
 
@@ -248,9 +247,10 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             drawing.uniform3f_array = std.ArrayList(Uniform3f).init(common.allocator);
             drawing.uniform3fv_array = std.ArrayList(Uniform3fv).init(common.allocator);
             drawing.uniform4fv_array = std.ArrayList(Uniform4fv).init(common.allocator);
-            drawing.has_texture = false;
-            drawing.has_cube_texture = false;
-            drawing.texture = 0;
+
+            drawing.cube_textures = std.ArrayList(u32).init(common.allocator);
+            drawing.textures = std.ArrayList(u32).init(common.allocator);
+
             drawing.vert_count = 0;
             drawing.transform = math.Mat3.identity();
             drawing.transform3d = math.Mat3.identity();
@@ -263,39 +263,41 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             self.uniform3f_array.deinit();
             self.uniform3fv_array.deinit();
             self.uniform4fv_array.deinit();
+
+            self.textures.deinit();
+            self.cube_textures.deinit();
         }
 
         const cubemapOrientation = enum { xp, yp, zp, xm, ym, zm };
 
-        pub fn cubemapFromRgba(self: *Self, data: anytype, width: usize, height: usize, comptime id: cubemapOrientation) !void {
-            if (!self.has_cube_texture) {
-                gl.genTextures(1, &self.texture);
-            }
-            gl.bindTexture(gl.TEXTURE_CUBE_MAP, self.texture);
+        pub fn cubemapFromRgba(self: *Self, sides: anytype, width: usize, height: usize) !void {
+            var texture_id: u32 = undefined;
+            gl.genTextures(1, &texture_id);
+            gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture_id);
 
             gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
             gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
             gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
             gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
-            const val = switch (id) {
-                .xp => gl.TEXTURE_CUBE_MAP_POSITIVE_X,
-                .yp => gl.TEXTURE_CUBE_MAP_POSITIVE_Y,
-                .zp => gl.TEXTURE_CUBE_MAP_POSITIVE_Z,
-                .xm => gl.TEXTURE_CUBE_MAP_NEGATIVE_X,
-                .ym => gl.TEXTURE_CUBE_MAP_NEGATIVE_Y,
-                .zm => gl.TEXTURE_CUBE_MAP_NEGATIVE_Z,
-            };
-            gl.texImage2D(val, 0, gl.RGBA8, @intCast(width), @intCast(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, &data[0]);
+            inline for (sides, 0..) |data, i| {
+                gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, gl.RGBA8, @intCast(width), @intCast(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, &data.data[0]);
+            }
 
             //gl.generateMipmap(gl.TEXTURE_2D);
 
-            self.has_cube_texture = true;
+            try self.cube_textures.append(texture_id);
+        }
+
+        pub fn getIthTexture(comptime T: type, i: usize) !T {
+            if (i > 31) return error.TooManyTextures;
+            return @intCast(0x84C0 + i);
         }
 
         pub fn textureFromRgba(self: *Self, data: anytype, width: usize, height: usize) !void {
-            gl.genTextures(1, &self.texture);
-            gl.bindTexture(gl.TEXTURE_2D, self.texture);
+            var texture_id: u32 = undefined;
+            gl.genTextures(1, &texture_id);
+            gl.bindTexture(gl.TEXTURE_2D, texture_id);
 
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
@@ -315,7 +317,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
 
             //gl.generateMipmap(gl.TEXTURE_2D);
 
-            self.has_texture = true;
+            try self.textures.append(texture_id);
         }
 
         pub fn textureFromPath(self: *Self, path: [:0]const u8) !void {
@@ -389,20 +391,23 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
                 gl.uniformMatrix3fv(loc, 1, gl.FALSE, &uni.value.columns[0][0]);
             }
 
-            if (self.has_cube_texture) {
-                gl.activeTexture(gl.TEXTURE0);
-                gl.bindTexture(gl.TEXTURE_CUBE_MAP, self.texture);
+            for (self.cube_textures.items, 0..) |texture, index| {
+                gl.activeTexture(try getIthTexture(c_uint, index));
+                gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture);
 
                 //const textureUniformLoc: i32 = gl.getUniformLocation(self.shader_program, "texture0");
                 //gl.uniform1i(textureUniformLoc, 0);
             }
 
-            if (self.has_texture) {
-                gl.activeTexture(gl.TEXTURE0);
-                gl.bindTexture(gl.TEXTURE_2D, self.texture);
+            for (self.textures.items, 0..) |texture, index| {
+                std.debug.print("{} {}\n", .{ try getIthTexture(c_uint, index), gl.TEXTURE0 });
+                gl.activeTexture(try getIthTexture(c_uint, index));
+                gl.bindTexture(gl.TEXTURE_2D, texture);
 
-                const textureUniformLoc: i32 = gl.getUniformLocation(self.shader_program, "texture0");
-                gl.uniform1i(textureUniformLoc, 0);
+                var buff: [64]u8 = undefined;
+                const res = try std.fmt.bufPrintZ(&buff, "texture{}", .{index});
+                const textureUniformLoc: i32 = gl.getUniformLocation(self.shader_program, res);
+                gl.uniform1i(textureUniformLoc, @intCast(index));
             }
 
             gl.bindVertexArray(self.vao);
