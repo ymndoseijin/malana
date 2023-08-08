@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn RuntimeEval(comptime eval_type: type, comptime debug: bool, comptime functions: anytype) type {
+pub fn RuntimeEval(comptime eval_type: type, comptime debug: bool, comptime functions: type) type {
     return struct {
         identifiers: std.StringHashMap(eval_type),
         const Self = @This();
@@ -53,6 +53,10 @@ pub fn RuntimeEval(comptime eval_type: type, comptime debug: bool, comptime func
                     const sides = try self.getSides(ast, node, depth);
                     return sides[0] + sides[1];
                 },
+                .sub => {
+                    const sides = try self.getSides(ast, node, depth);
+                    return sides[0] - sides[1];
+                },
                 .mul => {
                     const sides = try self.getSides(ast, node, depth);
                     return sides[0] * sides[1];
@@ -73,9 +77,9 @@ pub fn RuntimeEval(comptime eval_type: type, comptime debug: bool, comptime func
                     const fun_params = call.ast.params;
                     const fun_name = ast.tokenSlice(ast.nodes.get(node.data.lhs).main_token);
 
-                    inline for (functions) |pair| {
-                        const pair_name = pair[0];
-                        const pair_fun = pair[1];
+                    inline for (@typeInfo(functions).Struct.decls) |pair_decl| {
+                        const pair_name = pair_decl.name;
+                        const pair_fun = @field(functions, pair_name);
                         const param_count = @typeInfo(@TypeOf(pair_fun)).Fn.params.len;
 
                         if (std.mem.eql(u8, fun_name, pair_name) and param_count == fun_params.len) {
@@ -91,6 +95,7 @@ pub fn RuntimeEval(comptime eval_type: type, comptime debug: bool, comptime func
                     return error.UnknownFunction;
                 },
                 .grouped_expression => return try self.traverse(ast, ast.nodes.get(node.data.lhs), node.data.lhs, depth + 1),
+                .negation => return -try self.traverse(ast, ast.nodes.get(node.data.lhs), node.data.lhs, depth + 1),
                 else => return error.InvalidNode,
             }
         }
@@ -125,7 +130,7 @@ test "functions" {
         }
     };
 
-    var ctx = RuntimeEval(f32, true, .{ .{ "pow", Fun.pow }, .{ "sin", Fun.sin } }).init(ally);
+    var ctx = RuntimeEval(f32, true, Fun).init(ally);
     defer ctx.deinit();
     try ctx.identifiers.put("x", 2);
     std.debug.print("{}\n", .{try ctx.eval(ally, "const res = 0.2*(pow(x, 3+sin(x))+1);")});

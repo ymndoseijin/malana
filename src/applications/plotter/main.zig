@@ -17,7 +17,7 @@ const Fun = struct {
     }
 };
 
-const RuntimeEval = @import("eval.zig").RuntimeEval(f32, false, .{ .{ "pow", Fun.pow }, .{ "sin", Fun.sin } });
+const RuntimeEval = @import("eval.zig").RuntimeEval(f32, false, Fun);
 
 const BdfParse = Parsing.BdfParse;
 const ObjParse = graphics.ObjParse;
@@ -317,7 +317,7 @@ pub fn main() !void {
         .length = 8,
     }, 3);
 
-    try mesh.subdivideMesh(3);
+    try mesh.subdivideMesh(4);
 
     while (state.main_win.alive) {
         graphics.waitGraphicsEvent();
@@ -339,7 +339,7 @@ pub fn main() !void {
                     error.InvalidNode => std.debug.print("Invalid node\n", .{}),
                     error.UnknownFunction => std.debug.print("Unknown function used\n", .{}),
                     error.InvalidNullNode => std.debug.print("Invalid starting node\n", .{}),
-                    error.MissingMember => std.debug.print("Missing starting node, did you forget a semicolon?\n", .{}),
+                    error.MissingMember => std.debug.print("Missing starting node\n", .{}),
                     else => return err,
                 }
                 common.allocator.free(state.plot_eq);
