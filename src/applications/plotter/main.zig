@@ -101,7 +101,7 @@ pub const State = struct {
 
 var state: State = undefined;
 
-fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
+fn frameFunc(win: *anyopaque, width: i32, height: i32) !void {
     _ = win;
     const w: f32 = @floatFromInt(width);
     const h: f32 = @floatFromInt(height);
@@ -110,7 +110,7 @@ fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
 
 var is_wireframe = false;
 
-fn charFunc(win: *graphics.Window, codepoint: u32) !void {
+fn charFunc(win: *anyopaque, codepoint: u32) !void {
     _ = win;
 
     if (state.input_mode) {
@@ -126,7 +126,7 @@ fn charFunc(win: *graphics.Window, codepoint: u32) !void {
     }
 }
 
-fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods: i32) !void {
+fn keyFunc(win: *anyopaque, key: i32, scancode: i32, action: i32, mods: i32) !void {
     _ = win;
     _ = scancode;
 

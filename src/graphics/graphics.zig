@@ -148,19 +148,40 @@ const RenderType = enum {
 const VertexAttribute = struct {
     size: comptime_int,
 };
+
+const CullType = enum {
+    front,
+    back,
+    front_and_back,
+};
+
+const Framebuffer = struct {
+    framebuffer_id: u32,
+    shader_id: u32,
+};
+
 const RenderPipeline = struct {
     vertex_attrib: []const VertexAttribute,
     render_type: RenderType,
+    depth_test: bool,
+    cull_face: bool,
+    cull_type: CullType = .back,
+    framebuffer: ?[]Framebuffer = null,
 };
 
 pub const SpatialPipeline = RenderPipeline{
     .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
     .render_type = .triangle,
+    .depth_test = true,
+    .cull_face = true,
+    .cull_type = .back,
 };
 
 pub const LinePipeline = RenderPipeline{
     .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 3 } },
     .render_type = .line,
+    .depth_test = true,
+    .cull_face = false,
 };
 
 pub fn Drawing(comptime pipeline: RenderPipeline) type {
@@ -358,6 +379,29 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
         }
 
         pub fn draw(self: *Self, window: Window) !void {
+            if (pipeline.depth_test) {
+                gl.enable(gl.DEPTH_TEST);
+            } else {
+                gl.disable(gl.DEPTH_TEST);
+            }
+
+            if (pipeline.cull_face) {
+                gl.enable(gl.CULL_FACE);
+                switch (pipeline.cull_type) {
+                    .back => gl.cullFace(gl.BACK),
+                    .front => gl.cullFace(gl.FRONT),
+                    .front_and_back => gl.cullFace(gl.FRONT_AND_BACK),
+                }
+            } else {
+                gl.disable(gl.CULL_FACE);
+            }
+
+            if (pipeline.framebuffer) |framebuffer| {
+                gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer.id);
+            } else {
+                gl.bindFramebuffer(gl.FRAMEBUFFER, 0);
+            }
+
             gl.useProgram(self.shader_program);
             const time = @as(f32, @floatCast(glfw.glfwGetTime()));
             const now: f32 = 2 * time;
@@ -440,12 +484,17 @@ const GlDispatchTableLoader = struct {
     }
 };
 
-var windowMap: ?std.AutoHashMap(*glfw.GLFWwindow, *Window) = null;
+const MapType = struct {
+    *anyopaque,
+    *Window,
+};
+
+var windowMap: ?std.AutoHashMap(*glfw.GLFWwindow, MapType) = null;
 
 pub fn initGraphics() !void {
     if (glfw.glfwInit() == glfw.GLFW_FALSE) return GlfwError.FailedGlfwInit;
 
-    windowMap = std.AutoHashMap(*glfw.GLFWwindow, *Window).init(common.allocator);
+    windowMap = std.AutoHashMap(*glfw.GLFWwindow, MapType).init(common.allocator);
 
     glfw.glfwWindowHint(glfw.GLFW_SAMPLES, 4); // 4x antialiasing
     glfw.glfwWindowHint(glfw.GLFW_CONTEXT_VERSION_MAJOR, 4); // We want OpenGL 3.3
@@ -477,8 +526,9 @@ pub const Square = struct {
 pub fn getGlfwKey(win_or: ?*glfw.GLFWwindow, key: c_int, scancode: c_int, action: c_int, mods: c_int) callconv(.C) void {
     const glfw_win = win_or orelse return;
 
-    if (windowMap.?.get(glfw_win)) |win| {
-        if (win.key_func) |fun| {
+    if (windowMap.?.get(glfw_win)) |map| {
+        var win = map[1];
+        if (win.events.key_func) |fun| {
             fun(win, key, scancode, action, mods) catch {
                 @panic("error!");
             };
@@ -489,8 +539,9 @@ pub fn getGlfwKey(win_or: ?*glfw.GLFWwindow, key: c_int, scancode: c_int, action
 pub fn getGlfwChar(win_or: ?*glfw.GLFWwindow, codepoint: c_uint) callconv(.C) void {
     const glfw_win = win_or orelse return;
 
-    if (windowMap.?.get(glfw_win)) |win| {
-        if (win.char_func) |fun| {
+    if (windowMap.?.get(glfw_win)) |map| {
+        var win = map[1];
+        if (win.events.char_func) |fun| {
             fun(win, codepoint) catch {
                 @panic("error!");
             };
@@ -503,13 +554,14 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
 
     const glfw_win = win_or orelse return;
 
-    if (windowMap.?.get(glfw_win)) |win| {
+    if (windowMap.?.get(glfw_win)) |map| {
+        var win = map[1];
         win.current_width = width;
         win.current_height = height;
 
         gl.viewport(0, 0, width, height);
 
-        if (win.frame_func) |fun| {
+        if (win.events.frame_func) |fun| {
             fun(win, width, height) catch {
                 @panic("error!");
             };
@@ -520,8 +572,9 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
 pub fn getScroll(win_or: ?*glfw.GLFWwindow, xoffset: f64, yoffset: f64) callconv(.C) void {
     const glfw_win = win_or orelse return;
 
-    if (windowMap.?.get(glfw_win)) |win| {
-        if (win.scroll_func) |fun| {
+    if (windowMap.?.get(glfw_win)) |map| {
+        var win = map[1];
+        if (win.events.scroll_func) |fun| {
             fun(win, xoffset, yoffset) catch {
                 @panic("error!");
             };
@@ -533,34 +586,49 @@ pub fn waitGraphicsEvent() void {
     glfw.glfwPollEvents();
 }
 
+pub const EventTable = struct {
+    key_func: ?*const fn (*anyopaque, i32, i32, i32, i32) anyerror!void,
+    char_func: ?*const fn (*anyopaque, u32) anyerror!void,
+    frame_func: ?*const fn (*anyopaque, i32, i32) anyerror!void,
+    scroll_func: ?*const fn (*anyopaque, f64, f64) anyerror!void,
+};
+
 pub const Window = struct {
     glfw_win: *glfw.GLFWwindow,
     alive: bool,
     current_width: i32 = 100,
     current_height: i32 = 100,
 
-    key_func: ?*const fn (*Window, i32, i32, i32, i32) anyerror!void,
-    char_func: ?*const fn (*Window, u32) anyerror!void,
-    frame_func: ?*const fn (*Window, i32, i32) anyerror!void,
-    scroll_func: ?*const fn (*Window, f64, f64) anyerror!void,
+    events: EventTable,
 
-    pub fn setScrollCallback(self: *Window, fun: *const fn (*Window, f64, f64) anyerror!void) void {
-        self.scroll_func = fun;
+    pub fn setScrollCallback(self: *Window, fun: *const fn (*anyopaque, f64, f64) anyerror!void) void {
+        self.events.scroll_func = fun;
     }
 
-    pub fn setKeyCallback(self: *Window, fun: *const fn (*Window, i32, i32, i32, i32) anyerror!void) void {
-        self.key_func = fun;
+    pub fn setKeyCallback(self: *Window, fun: *const fn (*anyopaque, i32, i32, i32, i32) anyerror!void) void {
+        self.events.key_func = fun;
     }
 
-    pub fn setCharCallback(self: *Window, fun: *const fn (*Window, u32) anyerror!void) void {
-        self.char_func = fun;
+    pub fn setCharCallback(self: *Window, fun: *const fn (*anyopaque, u32) anyerror!void) void {
+        self.events.char_func = fun;
     }
 
-    pub fn setFrameCallback(self: *Window, fun: *const fn (*Window, i32, i32) anyerror!void) void {
-        self.frame_func = fun;
+    pub fn setFrameCallback(self: *Window, fun: *const fn (*anyopaque, i32, i32) anyerror!void) void {
+        self.events.frame_func = fun;
+    }
+
+    pub fn addToMap(self: *Window, elem: *anyopaque) !void {
+        try windowMap.?.put(self.glfw_win, .{ elem, self });
     }
 
     pub fn init(width: i32, height: i32) !*Window {
+        var win = try common.allocator.create(Window);
+        win.* = try initBare(width, height);
+        try win.addToMap(win);
+        return win;
+    }
+
+    pub fn initBare(width: i32, height: i32) !Window {
         const win_or = glfw.glfwCreateWindow(width, height, "My Title", null, null);
 
         const glfw_win = win_or orelse return GlfwError.FailedGlfwWindow;
@@ -582,19 +650,18 @@ pub const Window = struct {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 
-        var win = try common.allocator.alloc(Window, 1);
-        @memset(win, Window{
-            .glfw_win = glfw_win,
+        const events: EventTable = .{
             .key_func = null,
             .char_func = null,
             .scroll_func = null,
             .frame_func = null,
+        };
+
+        return Window{
+            .glfw_win = glfw_win,
+            .events = events,
             .alive = true,
-        });
-
-        try windowMap.?.put(glfw_win, &win[0]);
-
-        return &win[0];
+        };
     }
 
     pub fn deinit(self: *Window) void {

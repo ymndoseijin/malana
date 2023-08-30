@@ -90,7 +90,7 @@ pub const Planetarium = struct {
 
 var planetarium: Planetarium = undefined;
 
-pub fn frameFunc(win: *graphics.Window, width: i32, height: i32) !void {
+pub fn frameFunc(win: *anyopaque, width: i32, height: i32) !void {
     _ = win;
     const w: f32 = @floatFromInt(width);
     const h: f32 = @floatFromInt(height);
@@ -101,13 +101,13 @@ var is_wireframe = false;
 
 var variables_index: usize = 0;
 
-pub fn scrollFunc(win: *graphics.Window, x: f64, y: f64) !void {
+pub fn scrollFunc(win: *anyopaque, x: f64, y: f64) !void {
     _ = win;
     _ = x;
     planetarium.variables[variables_index] += @floatCast(y / 20);
 }
 
-pub fn keyFunc(win: *graphics.Window, key: i32, scancode: i32, action: i32, mods: i32) !void {
+pub fn keyFunc(win: *anyopaque, key: i32, scancode: i32, action: i32, mods: i32) !void {
     _ = win;
     _ = scancode;
 

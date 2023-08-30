@@ -21,10 +21,19 @@ const Box = struct {
     size: Vec2,
     pos: Vec2,
 
-    state: BoxState,
+    //state: BoxState,
     children: std.ArrayList(*Box),
 
     focusable: Focusable,
+
+    pub fn init(allocator: std.mem.Allocator, pos: Vec2, size: Vec2) Box {
+        return .{
+            .focusable = Focusable{},
+            .children = std.ArrayList(*Box).init(allocator),
+            .pos = pos,
+            .size = size,
+        };
+    }
 
     pub fn inside_box(self: Box, pos: Vec2) bool {
         const e_x = self.size[0] + self.pos[0];
@@ -65,11 +74,26 @@ const Focusable = struct {
 };
 
 const Ui = struct {
-    focused: *Focusable,
+    focused: ?*Focusable,
+    elements: std.ArrayList(*Box),
+
+    pub fn init(allocator: std.mem.Allocator) Ui {
+        return .{
+            .focused = null,
+            .elements = std.ArrayList(*Box).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Ui) void {
+        self.elements.deinit();
+    }
 };
 
 test "focusable" {
-    const focus = Focusable{};
+    const ally = std.testing.allocator;
+    var ui = Ui.init(ally);
+    defer ui.deinit();
 
-    try focus.frame_func(undefined, 10, 10);
+    var box = Box.init(ally, .{ 0, 0 }, .{ 20, 20 });
+    try ui.elements.append(&box);
 }
