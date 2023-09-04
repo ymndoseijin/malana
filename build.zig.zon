@@ -10,5 +10,9 @@
             .url = "https://github.com/hexops/glfw/archive/b2f564195804b86f62efb33d48daa046f1d8ca43.tar.gz",
             .hash = "122084cd0c37822d43ad4d72c1cfdc9d83e7066b52536812c367b95d165811c1c134",
         },
+        .zilliam = .{
+           .url = "https://github.com/ymndoseijin/zilliam/archive/1db59233abed7a15b82d4c28bceb7721495db943.tar.gz",
+           .hash = "122031c617b54031b70c6cf43ba30716a1373e8645a66f1698d689e75ba6f8129552",
+        },
     },
 }

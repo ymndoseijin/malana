@@ -263,12 +263,12 @@ pub fn toMesh(half: *HalfEdge) !graphics.MeshBuilder {
 pub fn main() !void {
     defer _ = common.gpa_instance.deinit();
 
+    try graphics.initGraphics();
+    defer graphics.deinitGraphics();
+
     var bdf = try BdfParse.init();
     defer bdf.deinit();
     try bdf.parse("b12.bdf");
-
-    try graphics.initGraphics();
-    defer graphics.deinitGraphics();
 
     state = try State.init();
     defer state.deinit();

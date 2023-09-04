@@ -15,9 +15,12 @@ pub const Camera = @import("camera.zig").Camera;
 pub const Text = @import("text.zig").Text;
 pub const Cube = @import("cube.zig").Cube;
 pub const Line = @import("line.zig").Line;
+pub const Axis = @import("axis.zig").makeAxis;
+pub const Grid = @import("grid.zig").makeGrid;
 pub const MeshBuilder = @import("meshbuilder.zig").MeshBuilder;
 pub const SpatialMesh = @import("spatialmesh.zig").SpatialMesh;
 pub const ObjParse = @import("obj.zig").ObjParse;
+pub const ComptimeMeshBuilder = @import("comptime_meshbuilder.zig").ComptimeMeshBuilder;
 
 const Uniform1f = struct {
     name: [:0]const u8,
@@ -173,8 +176,7 @@ pub const SpatialPipeline = RenderPipeline{
     .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
     .render_type = .triangle,
     .depth_test = true,
-    .cull_face = true,
-    .cull_type = .back,
+    .cull_face = false,
 };
 
 pub const LinePipeline = RenderPipeline{
@@ -238,13 +240,6 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
         pub fn setUniformMat3(self: *Self, name: [:0]const u8, value: *math.Mat3) void {
             gl.useProgram(self.shader_program);
             const loc: i32 = gl.getUniformLocation(self.shader_program, name);
-
-            std.debug.print("\n{d}\n", .{@sizeOf(math.Vec3) / @sizeOf(f32)});
-            std.debug.print("\n{d}\n", .{@sizeOf([3]f32) / @sizeOf(f32)});
-            std.debug.print("\n{any}\n", .{@TypeOf(value.columns)});
-            std.debug.print("\n{d:.4}\n", .{value.columns});
-            const a = @as([*]f32, @ptrCast(&value.columns[0][0]));
-            std.debug.print("{d:.4}\n", .{a[0..12].*});
 
             gl.uniformMatrix3fv(loc, 1, gl.FALSE, &value.columns[0][0]);
         }
@@ -444,7 +439,6 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             }
 
             for (self.textures.items, 0..) |texture, index| {
-                std.debug.print("{} {}\n", .{ try getIthTexture(c_uint, index), gl.TEXTURE0 });
                 gl.activeTexture(try getIthTexture(c_uint, index));
                 gl.bindTexture(gl.TEXTURE_2D, texture);
 
@@ -523,13 +517,39 @@ pub const Square = struct {
     };
 };
 
+pub fn getGlfwCursorPos(win_or: ?*glfw.GLFWwindow, xpos: f64, ypos: f64) callconv(.C) void {
+    const glfw_win = win_or orelse return;
+
+    if (windowMap.?.get(glfw_win)) |map| {
+        var win = map[1];
+        if (win.events.cursor_func) |fun| {
+            fun(map[0], xpos, ypos) catch {
+                @panic("error!");
+            };
+        }
+    }
+}
+
+pub fn getGlfwMouseButton(win_or: ?*glfw.GLFWwindow, button: c_int, action: c_int, mods: c_int) callconv(.C) void {
+    const glfw_win = win_or orelse return;
+
+    if (windowMap.?.get(glfw_win)) |map| {
+        var win = map[1];
+        if (win.events.mouse_func) |fun| {
+            fun(map[0], button, action, mods) catch {
+                @panic("error!");
+            };
+        }
+    }
+}
+
 pub fn getGlfwKey(win_or: ?*glfw.GLFWwindow, key: c_int, scancode: c_int, action: c_int, mods: c_int) callconv(.C) void {
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
         if (win.events.key_func) |fun| {
-            fun(win, key, scancode, action, mods) catch {
+            fun(map[0], key, scancode, action, mods) catch {
                 @panic("error!");
             };
         }
@@ -542,7 +562,7 @@ pub fn getGlfwChar(win_or: ?*glfw.GLFWwindow, codepoint: c_uint) callconv(.C) vo
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
         if (win.events.char_func) |fun| {
-            fun(win, codepoint) catch {
+            fun(map[0], codepoint) catch {
                 @panic("error!");
             };
         }
@@ -550,8 +570,6 @@ pub fn getGlfwChar(win_or: ?*glfw.GLFWwindow, codepoint: c_uint) callconv(.C) vo
 }
 
 pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int) callconv(.C) void {
-    std.debug.print("olá!\n", .{});
-
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
@@ -562,7 +580,7 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
         gl.viewport(0, 0, width, height);
 
         if (win.events.frame_func) |fun| {
-            fun(win, width, height) catch {
+            fun(map[0], width, height) catch {
                 @panic("error!");
             };
         }
@@ -575,7 +593,7 @@ pub fn getScroll(win_or: ?*glfw.GLFWwindow, xoffset: f64, yoffset: f64) callconv
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
         if (win.events.scroll_func) |fun| {
-            fun(win, xoffset, yoffset) catch {
+            fun(map[0], xoffset, yoffset) catch {
                 @panic("error!");
             };
         }
@@ -591,6 +609,8 @@ pub const EventTable = struct {
     char_func: ?*const fn (*anyopaque, u32) anyerror!void,
     frame_func: ?*const fn (*anyopaque, i32, i32) anyerror!void,
     scroll_func: ?*const fn (*anyopaque, f64, f64) anyerror!void,
+    mouse_func: ?*const fn (*anyopaque, i32, i32, i32) anyerror!void,
+    cursor_func: ?*const fn (*anyopaque, f64, f64) anyerror!void,
 };
 
 pub const Window = struct {
@@ -617,6 +637,14 @@ pub const Window = struct {
         self.events.frame_func = fun;
     }
 
+    pub fn setMouseButtonCallback(self: *Window, fun: *const fn (*anyopaque, i32, i32, i32) anyerror!void) void {
+        self.events.mouse_func = fun;
+    }
+
+    pub fn setCursorCallback(self: *Window, fun: *const fn (*anyopaque, f64, f64) anyerror!void) void {
+        self.events.cursor_func = fun;
+    }
+
     pub fn addToMap(self: *Window, elem: *anyopaque) !void {
         try windowMap.?.put(self.glfw_win, .{ elem, self });
     }
@@ -637,8 +665,8 @@ pub const Window = struct {
         _ = glfw.glfwSetKeyCallback(glfw_win, getGlfwKey);
         _ = glfw.glfwSetCharCallback(glfw_win, getGlfwChar);
         _ = glfw.glfwSetFramebufferSizeCallback(glfw_win, getFramebufferSize);
-        //glfw.glfwSetMouseButtonCallback(win, mouse_button_callback);
-        //glfw.glfwSetCursorPosCallback(win, cursor_position_callback);
+        _ = glfw.glfwSetMouseButtonCallback(glfw_win, getGlfwMouseButton);
+        _ = glfw.glfwSetCursorPosCallback(glfw_win, getGlfwCursorPos);
         _ = glfw.glfwSetScrollCallback(glfw_win, getScroll);
 
         if (!gl_dispatch_table.init(GlDispatchTableLoader)) return error.GlInitFailed;
@@ -655,6 +683,8 @@ pub const Window = struct {
             .char_func = null,
             .scroll_func = null,
             .frame_func = null,
+            .mouse_func = null,
+            .cursor_func = null,
         };
 
         return Window{

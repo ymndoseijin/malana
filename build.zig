@@ -15,6 +15,11 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    const zilliam_dep = b.dependency("zilliam", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const zigimg_dep = b.dependency("zigimg", .{
         .target = target,
         .optimize = optimize,
@@ -60,7 +65,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    inline for (.{ "volumetrics", "planetarium", "base", "plotter" }) |app| {
+    inline for (.{ "volumetrics", "planetarium", "base", "plotter", "ui", "geo" }) |app| {
         const exe = b.addExecutable(.{
             .name = app,
             // In this case the main source file is merely a path, however, in more
@@ -71,6 +76,7 @@ pub fn build(b: *std.Build) void {
         });
 
         exe.addModule("img", zigimg_dep.module("zigimg"));
+        exe.addModule("zilliam", zilliam_dep.module("zilliam"));
 
         exe.addModule("graphics", graphics);
         exe.addModule("geometry", geometry);
