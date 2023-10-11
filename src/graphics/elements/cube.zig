@@ -3,7 +3,7 @@ const math = @import("math");
 const gl = @import("gl");
 const img = @import("img");
 const geometry = @import("geometry");
-const graphics = @import("graphics.zig");
+const graphics = @import("../graphics.zig");
 const common = @import("common");
 
 const BdfParse = @import("parsing").BdfParse;

@@ -230,7 +230,7 @@ pub fn orbit(state: *Planetarium, a: f64, e: f64, inc: f64, long: f64, arg: f64)
     );
 
     try state.cam.linkDrawing(line.drawing);
-    line.drawing.setUniformFloat("fog", &state.fog);
+    line.drawing.setUniformFloat("fog", state.fog);
     try line.drawing.addUniformVec3("real_cam_pos", &state.other_pos);
 }
 
@@ -256,17 +256,17 @@ pub const KeplerPlanet = struct {
 
         std.debug.print("PORRA {d:.4}\n", .{venus_pos});
 
-        self.sky.drawing.setUniformVec3("planet_pos", &venus_pos);
+        self.sky.drawing.setUniformVec3("planet_pos", venus_pos);
 
         venus_pos -= state.other_pos;
 
         const pos_m = Mat4.translation(venus_pos);
         var model = pos_m;
 
-        self.subdivided.drawing.setUniformMat4("model", &model);
+        self.subdivided.drawing.setUniformMat4("model", model);
         self.subdivided.pos = venus_pos;
 
-        self.sky.drawing.setUniformMat4("model", &model);
+        self.sky.drawing.setUniformMat4("model", model);
         self.sky.pos = venus_pos;
     }
 
@@ -282,7 +282,7 @@ pub const KeplerPlanet = struct {
 
         try state.cam.linkDrawing(subdivided.drawing);
         try subdivided.drawing.addUniformVec3("real_cam_pos", &state.other_pos);
-        subdivided.drawing.setUniformFloat("fog", &state.fog);
+        subdivided.drawing.setUniformFloat("fog", state.fog);
 
         subdivided.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
 
@@ -309,7 +309,7 @@ pub const KeplerPlanet = struct {
 
         try state.cam.linkDrawing(sky.drawing);
         try sky.drawing.addUniformVec3("real_cam_pos", &state.other_pos);
-        sky.drawing.setUniformFloat("fog", &state.fog);
+        sky.drawing.setUniformFloat("fog", state.fog);
 
         try sky.drawing.addUniformFloat("falloff", &state.variables[1]);
         sky.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
@@ -353,7 +353,7 @@ pub const VsopPlanet = struct {
 
         var pos = Vec3{ @floatCast(venus_pos[0]), @floatCast(venus_pos[1]), @floatCast(venus_pos[2]) };
 
-        self.sky.drawing.setUniformVec3("planet_pos", &pos);
+        self.sky.drawing.setUniformVec3("planet_pos", pos);
 
         venus_pos -= state.cam_pos;
 
@@ -362,10 +362,10 @@ pub const VsopPlanet = struct {
         const pos_m = Mat4.translation(pos);
         var model = pos_m;
 
-        self.subdivided.drawing.setUniformMat4("model", &model);
+        self.subdivided.drawing.setUniformMat4("model", model);
         self.subdivided.pos = pos;
 
-        self.sky.drawing.setUniformMat4("model", &model);
+        self.sky.drawing.setUniformMat4("model", model);
         self.sky.pos = pos;
     }
 
@@ -386,7 +386,7 @@ pub const VsopPlanet = struct {
 
         try state.cam.linkDrawing(subdivided.drawing);
         try subdivided.drawing.addUniformVec3("real_cam_pos", &state.other_pos);
-        subdivided.drawing.setUniformFloat("fog", &state.fog);
+        subdivided.drawing.setUniformFloat("fog", state.fog);
 
         subdivided.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
 
@@ -413,7 +413,7 @@ pub const VsopPlanet = struct {
 
         try state.cam.linkDrawing(sky.drawing);
         try sky.drawing.addUniformVec3("real_cam_pos", &state.other_pos);
-        sky.drawing.setUniformFloat("fog", &state.fog);
+        sky.drawing.setUniformFloat("fog", state.fog);
 
         try sky.drawing.addUniformFloat("falloff", &state.variables[1]);
         sky.drawing.bindVertex(mesh.vertices.items, mesh.indices.items);
@@ -506,5 +506,5 @@ pub fn star(state: *Planetarium) !void {
     }
     mesh.drawing.bindVertex(vertices.items, indices.items);
 
-    mesh.drawing.setUniformFloat("fog", &state.fog);
+    mesh.drawing.setUniformFloat("fog", state.fog);
 }

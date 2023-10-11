@@ -40,6 +40,7 @@ pub fn build(b: *std.Build) void {
         .source_file = .{ .path = "src/geometry.zig" },
         .dependencies = &.{
             .{ .name = "math", .module = math },
+            .{ .name = "zilliam", .module = zilliam_dep.module("zilliam") },
             .{ .name = "common", .module = common },
             .{ .name = "parsing", .module = parsing },
         },
@@ -65,7 +66,22 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    inline for (.{ "volumetrics", "planetarium", "base", "plotter", "ui", "geo" }) |app| {
+    const ui = b.createModule(.{
+        .source_file = .{ .path = "src/ui.zig" },
+        .dependencies = &.{
+            .{ .name = "img", .module = zigimg_dep.module("zigimg") },
+            .{ .name = "zilliam", .module = zilliam_dep.module("zilliam") },
+            .{ .name = "graphics", .module = graphics },
+            .{ .name = "geometry", .module = geometry },
+            .{ .name = "numericals", .module = numericals },
+            .{ .name = "common", .module = common },
+            .{ .name = "parsing", .module = parsing },
+            .{ .name = "gl", .module = gl },
+            .{ .name = "math", .module = math },
+        },
+    });
+
+    inline for (.{ "base", "geo" }) |app| {
         const exe = b.addExecutable(.{
             .name = app,
             // In this case the main source file is merely a path, however, in more
@@ -75,16 +91,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         });
 
-        exe.addModule("img", zigimg_dep.module("zigimg"));
-        exe.addModule("zilliam", zilliam_dep.module("zilliam"));
-
-        exe.addModule("graphics", graphics);
-        exe.addModule("geometry", geometry);
-        exe.addModule("numericals", numericals);
-        exe.addModule("common", common);
-        exe.addModule("parsing", parsing);
-        exe.addModule("gl", gl);
-        exe.addModule("math", math);
+        exe.addModule("ui", ui);
 
         exe.linkLibrary(b.dependency("glfw", .{
             .target = exe.target,

@@ -174,6 +174,29 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
             }
             return res;
         }
+
+        pub fn determinant(self: @This()) T {
+            if (width != height) @compileError("Non square matrix determinant");
+            if (width == 2) {
+                return self.columns[0][0] * self.columns[1][1] - self.columns[1][0] * self.columns[0][1];
+            }
+            var res: T = 0;
+            const Rec = Mat(T, width - 1, width - 1);
+            inline for (self.columns, 0..) |column, i| {
+                var arr: [width - 1][width - 1]T = undefined;
+                var idx: usize = 0;
+                inline for (self.columns, 0..) |loop_column, j| {
+                    if (i != j) {
+                        @memcpy(&arr[idx], loop_column[1..]);
+                        idx += 1;
+                    }
+                }
+                const mat: Rec = Rec.init(arr);
+                const sign = if (i % 2 == 0) 1 else -1;
+                res += sign * column[0] * mat.determinant();
+            }
+            return res;
+        }
     };
 }
 
@@ -262,10 +285,10 @@ pub fn main() !void {
 
     var b = Mat(i32, 3, 3).init(.{
         .{ 1, 2, 3 },
-        .{ 4, 5, 6 },
-        .{ 7, 8, 9 },
+        .{ 3, 2, 1 },
+        .{ 2, 1, 3 },
     });
-    std.debug.print("{any}\n", .{a.mul(Mat(i32, 3, 3), b)});
+    std.debug.print("{any}\n", .{a.mul(b)});
     std.debug.print("{any}\n", .{perspectiveMatrix(0.6, 1, 0.1, 2048)});
     std.debug.print("{d:.1}\n", .{a.dot(.{ 1, 2, 3 })});
 
@@ -280,4 +303,11 @@ pub fn main() !void {
 
     std.debug.print("{d:.4}\n", .{Vec(f32, 2).norm(.{ 1, 1 })});
     std.debug.print("{d:.4}\n", .{lookAtMatrix(.{ 0, 0, 0 }, center, up).columns});
+
+    var c = Mat(i32, 2, 2).init(.{
+        .{ 1, 2 },
+        .{ 3, 4 },
+    });
+    std.debug.print("{d:.4}\n", .{c.determinant()});
+    std.debug.print("{d:.4}\n", .{b.determinant()});
 }

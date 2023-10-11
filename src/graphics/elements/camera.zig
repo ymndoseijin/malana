@@ -3,10 +3,13 @@ const math = @import("math");
 const gl = @import("gl");
 const img = @import("img");
 const geometry = @import("geometry");
-const graphics = @import("graphics.zig");
+const graphics = @import("../graphics.zig");
 const common = @import("common");
 
 const BdfParse = @import("parsing").BdfParse;
+
+const Pga = geometry.Pga;
+const Point = Pga.Point;
 
 const Mesh = geometry.Mesh;
 const Vertex = geometry.Vertex;
@@ -37,9 +40,18 @@ pub const Camera = struct {
         const eye = Vec3{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) };
 
         const view_mat = math.lookAtMatrix(.{ 0, 0, 0 }, eye, self.up);
-        const translation_mat = Mat4.translation(-self.move);
+        //const translation_mat = Mat4.translation(-self.move);
 
-        self.transform_mat = self.perspective_mat.mul(view_mat.mul(translation_mat));
+        self.transform_mat = self.perspective_mat.mul(view_mat);
+    }
+
+    pub fn getRay(self: Camera) Pga.Line.Type {
+        const eye_x = self.eye[0];
+        const eye_y = self.eye[1];
+
+        const eye = Vec3{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) };
+
+        return Point.create(self.move).regressive(Point.create(self.move + eye));
     }
 
     pub fn linkDrawing(self: *Camera, drawing: anytype) !void {

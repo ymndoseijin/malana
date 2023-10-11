@@ -294,7 +294,7 @@ pub fn main() !void {
     defer ctx.deinit();
 
     var model = math.rotationX(f32, -TAU / 4.0);
-    surface.drawing.setUniformMat3("model", &model);
+    surface.drawing.setUniformMat3("model", model);
 
     var last_time: f32 = 0;
 

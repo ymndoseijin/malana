@@ -1,14 +1,19 @@
 const std = @import("std");
-const display = @import("display.zig");
 
-const math = @import("math");
-const gl = @import("gl");
-const common = @import("common");
-const numericals = @import("numericals");
-const geometry = @import("geometry");
-const graphics = @import("graphics");
+const ui = @import("ui");
+const graphics = ui.graphics;
+const Vec3 = ui.Vec3;
+const Pga = ui.geometry.Pga;
+const Point = Pga.Point;
+const Vertex = ui.Vertex;
+const common = ui.common;
 
-const Parsing = @import("parsing");
+const display = ui.display;
+
+const math = ui.math;
+const gl = ui.gl;
+
+const Parsing = ui.parsing;
 
 const BdfParse = Parsing.BdfParse;
 const ObjParse = graphics.ObjParse;
@@ -21,7 +26,7 @@ fn key_down(keys: []const bool, mods: i32, dt: f32) !void {
         state.main_win.alive = false;
     }
 
-    try state.cam.spatialMove(keys, mods, dt, &state.cam.move, graphics.Camera.DefaultSpatial);
+    try state.cam.spatialMove(keys, mods, dt, &state.cam.move, graphics.elems.Camera.DefaultSpatial);
 }
 
 pub fn main() !void {
@@ -42,7 +47,7 @@ pub fn main() !void {
     gl.lineWidth(2);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    var text = try graphics.Text.init(
+    var text = try graphics.elems.Text.init(
         try state.scene.new(.spatial),
         bdf,
         .{ 0, 0, 0 },

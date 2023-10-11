@@ -156,7 +156,7 @@ pub fn makeAxis() !void {
         &[_]Vec3{ .{ 1, 0, 0 }, .{ 1, 0, 0 } },
         try graphics.Shader.setupShader(@embedFile("shaders/line/vertex.glsl"), @embedFile("shaders/line/fragment.glsl")),
     );
-    line.drawing.setUniformFloat("fog", &planetarium.fog);
+    line.drawing.setUniformFloat("fog", planetarium.fog);
     try planetarium.cam.linkDrawing(line.drawing);
     try line.drawing.addUniformVec3("real_cam_pos", &planetarium.other_pos);
 
@@ -166,7 +166,7 @@ pub fn makeAxis() !void {
         &[_]Vec3{ .{ 0, 1, 0 }, .{ 0, 1, 0 } },
         try graphics.Shader.setupShader(@embedFile("shaders/line/vertex.glsl"), @embedFile("shaders/line/fragment.glsl")),
     );
-    line.drawing.setUniformFloat("fog", &planetarium.fog);
+    line.drawing.setUniformFloat("fog", planetarium.fog);
     try planetarium.cam.linkDrawing(line.drawing);
     try line.drawing.addUniformVec3("real_cam_pos", &planetarium.other_pos);
 
@@ -177,7 +177,7 @@ pub fn makeAxis() !void {
         try graphics.Shader.setupShader(@embedFile("shaders/line/vertex.glsl"), @embedFile("shaders/line/fragment.glsl")),
     );
     try planetarium.cam.linkDrawing(line.drawing);
-    line.drawing.setUniformFloat("fog", &planetarium.fog);
+    line.drawing.setUniformFloat("fog", planetarium.fog);
     try line.drawing.addUniformVec3("real_cam_pos", &planetarium.other_pos);
 }
 
@@ -195,7 +195,7 @@ pub fn makeGrid() !void {
         );
 
         try planetarium.cam.linkDrawing(line.drawing);
-        line.drawing.setUniformFloat("fog", &planetarium.fog);
+        line.drawing.setUniformFloat("fog", planetarium.fog);
         try line.drawing.addUniformVec3("real_cam_pos", &planetarium.other_pos);
 
         line = try Line.init(
@@ -206,7 +206,7 @@ pub fn makeGrid() !void {
         );
 
         try planetarium.cam.linkDrawing(line.drawing);
-        line.drawing.setUniformFloat("fog", &planetarium.fog);
+        line.drawing.setUniformFloat("fog", planetarium.fog);
         try line.drawing.addUniformVec3("real_cam_pos", &planetarium.other_pos);
     }
 }
@@ -434,7 +434,7 @@ pub fn main() !void {
         planetarium.time += dt * 0;
 
         var pos_m = Mat4.translation(-planetarium.other_pos);
-        camera_obj.drawing.setUniformMat4("model", &pos_m);
+        camera_obj.drawing.setUniformMat4("model", pos_m);
 
         if (down_num > 0) {
             try key_down(&current_keys, last_mods, dt);

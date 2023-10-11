@@ -133,7 +133,7 @@ pub fn makeAxis() !void {
         &[_]Vec3{ .{ 1, 0, 0 }, .{ 1, 0, 0 } },
         try graphics.Shader.setupShader(@embedFile("shaders/line/vertex.glsl"), @embedFile("shaders/line/fragment.glsl")),
     );
-    line.drawing.setUniformFloat("fog", &state.fog);
+    line.drawing.setUniformFloat("fog", state.fog);
     try state.cam.linkDrawing(line.drawing);
     try line.drawing.addUniformVec3("real_cam_pos", &state.cam_pos);
 
@@ -143,7 +143,7 @@ pub fn makeAxis() !void {
         &[_]Vec3{ .{ 0, 1, 0 }, .{ 0, 1, 0 } },
         try graphics.Shader.setupShader(@embedFile("shaders/line/vertex.glsl"), @embedFile("shaders/line/fragment.glsl")),
     );
-    line.drawing.setUniformFloat("fog", &state.fog);
+    line.drawing.setUniformFloat("fog", state.fog);
     try state.cam.linkDrawing(line.drawing);
     try line.drawing.addUniformVec3("real_cam_pos", &state.cam_pos);
 
@@ -155,7 +155,7 @@ pub fn makeAxis() !void {
     );
     try state.cam.linkDrawing(line.drawing);
     try line.drawing.addUniformVec3("real_cam_pos", &state.cam_pos);
-    line.drawing.setUniformFloat("fog", &state.fog);
+    line.drawing.setUniformFloat("fog", state.fog);
 }
 
 pub fn makeGrid() !void {

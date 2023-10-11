@@ -3,6 +3,7 @@ const math = @import("math");
 const gl = @import("gl");
 const numericals = @import("numericals");
 const img = @import("img");
+const Ui = @import("ui.zig").Ui;
 const geometry = @import("geometry");
 const graphics = @import("graphics");
 const common = @import("common");
@@ -19,9 +20,9 @@ const HalfEdge = geometry.HalfEdge;
 const Drawing = graphics.Drawing;
 const glfw = graphics.glfw;
 
-const Camera = graphics.Camera;
-const Cube = graphics.Cube;
-const Line = graphics.Line;
+const Camera = graphics.elems.Camera;
+const Cube = graphics.elems.Cube;
+const Line = graphics.elems.Line;
 const MeshBuilder = graphics.MeshBuilder;
 
 const Mat4 = math.Mat4;
@@ -36,6 +37,7 @@ const TAU = 6.28318530718;
 
 const DrawingList = union(enum) {
     line: *Drawing(graphics.LinePipeline),
+    flat: *Drawing(graphics.FlatPipeline),
     spatial: *Drawing(graphics.SpatialPipeline),
 };
 
@@ -49,6 +51,7 @@ pub const State = struct {
     main_win: *graphics.Window,
     scene: graphics.Scene(DrawingList),
     skybox_scene: graphics.Scene(DrawingList),
+    flat_scene: graphics.Scene(DrawingList),
 
     cam: Camera,
 
@@ -62,7 +65,24 @@ pub const State = struct {
     last_time: f32,
     dt: f32,
 
+    ui: Ui,
+    bdf: BdfParse,
+
     pub fn init() !*State {
+        var bdf = try BdfParse.init();
+        try bdf.parse("b12.bdf");
+
+        try graphics.initGraphics();
+        defer graphics.deinitGraphics();
+
+        gl.cullFace(gl.FRONT);
+        gl.enable(gl.BLEND);
+        gl.lineWidth(2);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+        _ = graphics.glfw.glfwWindowHint(graphics.glfw.GLFW_SAMPLES, 4);
+        gl.enable(gl.MULTISAMPLE);
+
         var state = try common.allocator.create(State);
 
         var main_win = try common.allocator.create(graphics.Window);
@@ -72,6 +92,10 @@ pub const State = struct {
 
         main_win.setKeyCallback(keyFunc);
         main_win.setFrameCallback(frameFunc);
+        main_win.setCharCallback(charFunc);
+        main_win.setScrollCallback(scrollFunc);
+        main_win.setCursorCallback(cursorFunc);
+        main_win.setMouseButtonCallback(mouseFunc);
 
         var cam = try Camera.init(0.6, 1, 0.1, 2048);
         cam.move = .{ 0, 0, 0 };
@@ -80,14 +104,37 @@ pub const State = struct {
         state.* = State{
             .main_win = main_win,
             .cam = cam,
+            .bdf = bdf,
             .time = 0,
             .dt = 1,
             .scene = try graphics.Scene(DrawingList).init(),
             .skybox_scene = try graphics.Scene(DrawingList).init(),
+            .flat_scene = try graphics.Scene(DrawingList).init(),
             .last_time = @as(f32, @floatCast(graphics.glfw.glfwGetTime())),
+            .ui = try Ui.init(common.allocator, main_win),
         };
 
         return state;
+    }
+
+    pub fn charFunc(ptr: *anyopaque, codepoint: u32) !void {
+        var state: *State = @ptrCast(@alignCast(ptr));
+        try state.ui.getChar(codepoint);
+    }
+
+    pub fn scrollFunc(ptr: *anyopaque, xoffset: f64, yoffset: f64) !void {
+        var state: *State = @ptrCast(@alignCast(ptr));
+        try state.ui.getScroll(xoffset, yoffset);
+    }
+
+    pub fn mouseFunc(ptr: *anyopaque, button: i32, action: i32, mods: i32) !void {
+        var state: *State = @ptrCast(@alignCast(ptr));
+        try state.ui.getMouse(button, action, mods);
+    }
+
+    pub fn cursorFunc(ptr: *anyopaque, xoffset: f64, yoffset: f64) !void {
+        var state: *State = @ptrCast(@alignCast(ptr));
+        try state.ui.getCursor(xoffset, yoffset);
     }
 
     pub fn updateEvents(state: *State) !void {
@@ -101,6 +148,7 @@ pub const State = struct {
         time = @as(f32, @floatCast(graphics.glfw.glfwGetTime()));
 
         state.dt = time - state.last_time;
+        state.time = time;
 
         if (state.down_num > 0) {
             try state.key_down(&state.current_keys, state.last_mods, state.dt);
@@ -118,9 +166,13 @@ pub const State = struct {
         try state.skybox_scene.draw(state.main_win.*);
 
         gl.enable(gl.DEPTH_TEST);
-        gl.enable(gl.CULL_FACE);
-        gl.cullFace(gl.BACK);
+        //gl.enable(gl.CULL_FACE);
+        //gl.cullFace(gl.BACK);
         try state.scene.draw(state.main_win.*);
+
+        gl.disable(gl.DEPTH_TEST);
+        gl.disable(gl.CULL_FACE);
+        try state.flat_scene.draw(state.main_win.*);
 
         graphics.glfw.glfwSwapBuffers(state.main_win.glfw_win);
     }
@@ -129,6 +181,8 @@ pub const State = struct {
         self.main_win.deinit();
         self.scene.deinit();
         self.skybox_scene.deinit();
+        self.flat_scene.deinit();
+        self.bdf.deinit();
         common.allocator.destroy(self);
     }
 
@@ -138,11 +192,14 @@ pub const State = struct {
         const w: f32 = @floatFromInt(width);
         const h: f32 = @floatFromInt(height);
         try state.cam.setParameters(0.6, w / h, 0.1, 2048);
+
+        try state.ui.getFrame(width, height);
     }
 
     fn keyFunc(ptr: *anyopaque, key: i32, scancode: i32, action: i32, mods: i32) !void {
-        _ = scancode;
         var state: *State = @ptrCast(@alignCast(ptr));
+
+        try state.ui.getKey(key, scancode, action, mods);
 
         if (action == glfw.GLFW_PRESS) {
             if (key == glfw.GLFW_KEY_C) {

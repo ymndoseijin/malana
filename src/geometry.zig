@@ -1,6 +1,11 @@
 const math = @import("math");
 const std = @import("std");
+
+const zilliam = @import("zilliam");
+
 const testing = std.testing;
+
+pub const Pga = zilliam.PGA(f32, 3);
 
 const Vec3 = math.Vec3;
 const Vec2 = math.Vec2;

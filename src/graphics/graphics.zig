@@ -11,12 +11,8 @@ const gl = @import("gl");
 const std = @import("std");
 const math = @import("math");
 
-pub const Camera = @import("camera.zig").Camera;
-pub const Text = @import("text.zig").Text;
-pub const Cube = @import("cube.zig").Cube;
-pub const Line = @import("line.zig").Line;
-pub const Axis = @import("axis.zig").makeAxis;
-pub const Grid = @import("grid.zig").makeGrid;
+pub const elems = @import("elements/elements.zig");
+
 pub const MeshBuilder = @import("meshbuilder.zig").MeshBuilder;
 pub const SpatialMesh = @import("spatialmesh.zig").SpatialMesh;
 pub const ObjParse = @import("obj.zig").ObjParse;
@@ -172,6 +168,13 @@ const RenderPipeline = struct {
     framebuffer: ?[]Framebuffer = null,
 };
 
+pub const FlatPipeline = RenderPipeline{
+    .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 } },
+    .render_type = .triangle,
+    .depth_test = true,
+    .cull_face = false,
+};
+
 pub const SpatialPipeline = RenderPipeline{
     .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
     .render_type = .triangle,
@@ -208,6 +211,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
         transform3d: math.Mat3,
 
         const Self = @This();
+        pub const Pipeline = pipeline;
 
         pub fn addUniformFloat(self: *Self, name: [:0]const u8, f: *f32) !void {
             try self.uniform1f_array.append(.{ .name = name, .value = f });
@@ -225,26 +229,26 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             try self.uniform3fv_array.append(.{ .name = name, .value = m });
         }
 
-        pub fn setUniformFloat(self: *Self, name: [:0]const u8, value: *f32) void {
+        pub fn setUniformFloat(self: *Self, name: [:0]const u8, value: f32) void {
             gl.useProgram(self.shader_program);
             const loc: i32 = gl.getUniformLocation(self.shader_program, name);
-            gl.uniform1f(loc, value.*);
+            gl.uniform1f(loc, value);
         }
 
-        pub fn setUniformVec3(self: *Self, name: [:0]const u8, value: *math.Vec3) void {
+        pub fn setUniformVec3(self: *Self, name: [:0]const u8, value: math.Vec3) void {
             gl.useProgram(self.shader_program);
             const loc: i32 = gl.getUniformLocation(self.shader_program, name);
             gl.uniform3f(loc, value[0], value[1], value[2]);
         }
 
-        pub fn setUniformMat3(self: *Self, name: [:0]const u8, value: *math.Mat3) void {
+        pub fn setUniformMat3(self: *Self, name: [:0]const u8, value: math.Mat3) void {
             gl.useProgram(self.shader_program);
             const loc: i32 = gl.getUniformLocation(self.shader_program, name);
 
             gl.uniformMatrix3fv(loc, 1, gl.FALSE, &value.columns[0][0]);
         }
 
-        pub fn setUniformMat4(self: *Self, name: [:0]const u8, value: *math.Mat4) void {
+        pub fn setUniformMat4(self: *Self, name: [:0]const u8, value: math.Mat4) void {
             gl.useProgram(self.shader_program);
             const loc: i32 = gl.getUniformLocation(self.shader_program, name);
             gl.uniformMatrix4fv(loc, 1, gl.FALSE, &value.columns[0][0]);
