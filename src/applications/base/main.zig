@@ -36,9 +36,6 @@ pub fn main() !void {
     defer bdf.deinit();
     try bdf.parse("b12.bdf");
 
-    try graphics.initGraphics();
-    defer graphics.deinitGraphics();
-
     state = try display.State.init();
     defer state.deinit();
 

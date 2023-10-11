@@ -7,24 +7,27 @@
 //
 // END OF NOTICE
 
+//! OpenGL binding.
+
 const std = @import("std");
 const root = @import("root");
 
-/// Static information about this source file and when/how it was generated.
+/// Static information about the OpenGL binding and when/how it was generated.
 pub const about = struct {
-    pub const api_name = "OpenGL 4.1 (Core Profile)";
+    pub const api_name = "OpenGL 4.6 (Core Profile)";
     pub const api_version_major = 4;
-    pub const api_version_minor = 1;
+    pub const api_version_minor = 6;
 
-    pub const generated_at = "2023-07-08T18:56:08Z";
+    pub const generated_at = "2023-10-11T21:33:22Z";
 
-    pub const generator_name = "zigglgen v0.4.1";
+    pub const generator_name = "zigglgen v0.5";
     pub const generator_url = "https://castholm.github.io/zigglgen/";
 };
 
-/// Makes the specified dispatch table current on the calling thread. This function must be called
-/// with a valid dispatch table before calling `extensionSupported()` or any OpenGL command
-/// functions on that same thread.
+/// Makes the specified dispatch table current on the calling thread.
+///
+/// This function must be called with a valid dispatch table before calling `extensionSupported` or
+/// issuing any OpenGL commands from that same thread.
 pub fn makeDispatchTableCurrent(dispatch_table: ?*const DispatchTable) void {
     DispatchTable.current = dispatch_table;
 }
@@ -57,6 +60,7 @@ pub const Sizeiptr = isize;
 pub const Clampf = f32;
 pub const Clampd = f64;
 pub const Sync = ?*opaque {};
+pub const DebugProc = ?*const fn (source: Enum, @"type": Enum, id: Uint, severity: Enum, length: Sizei, message: [*:0]const Char, userParam: ?*const anyopaque) callconv(.C) void;
 //#endregion Types
 
 //#region Constants
@@ -71,7 +75,12 @@ pub const TIMEOUT_IGNORED = 0xFFFFFFFFFFFFFFFF;
 pub const DEPTH_BUFFER_BIT = 0x100;
 pub const STENCIL_BUFFER_BIT = 0x400;
 pub const COLOR_BUFFER_BIT = 0x4000;
+pub const DYNAMIC_STORAGE_BIT = 0x100;
+pub const CLIENT_STORAGE_BIT = 0x200;
 pub const CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT = 0x1;
+pub const CONTEXT_FLAG_DEBUG_BIT = 0x2;
+pub const CONTEXT_FLAG_ROBUST_ACCESS_BIT = 0x4;
+pub const CONTEXT_FLAG_NO_ERROR_BIT = 0x8;
 pub const CONTEXT_CORE_PROFILE_BIT = 0x1;
 pub const CONTEXT_COMPATIBILITY_PROFILE_BIT = 0x2;
 pub const MAP_READ_BIT = 0x1;
@@ -80,12 +89,31 @@ pub const MAP_INVALIDATE_RANGE_BIT = 0x4;
 pub const MAP_INVALIDATE_BUFFER_BIT = 0x8;
 pub const MAP_FLUSH_EXPLICIT_BIT = 0x10;
 pub const MAP_UNSYNCHRONIZED_BIT = 0x20;
+pub const MAP_PERSISTENT_BIT = 0x40;
+pub const MAP_COHERENT_BIT = 0x80;
+pub const VERTEX_ATTRIB_ARRAY_BARRIER_BIT = 0x1;
+pub const ELEMENT_ARRAY_BARRIER_BIT = 0x2;
+pub const UNIFORM_BARRIER_BIT = 0x4;
+pub const TEXTURE_FETCH_BARRIER_BIT = 0x8;
+pub const SHADER_IMAGE_ACCESS_BARRIER_BIT = 0x20;
+pub const COMMAND_BARRIER_BIT = 0x40;
+pub const PIXEL_BUFFER_BARRIER_BIT = 0x80;
+pub const TEXTURE_UPDATE_BARRIER_BIT = 0x100;
+pub const BUFFER_UPDATE_BARRIER_BIT = 0x200;
+pub const FRAMEBUFFER_BARRIER_BIT = 0x400;
+pub const TRANSFORM_FEEDBACK_BARRIER_BIT = 0x800;
+pub const ATOMIC_COUNTER_BARRIER_BIT = 0x1000;
+pub const SHADER_STORAGE_BARRIER_BIT = 0x2000;
+pub const CLIENT_MAPPED_BUFFER_BARRIER_BIT = 0x4000;
+pub const QUERY_BUFFER_BARRIER_BIT = 0x8000;
+pub const ALL_BARRIER_BITS = 0xFFFFFFFF;
 pub const SYNC_FLUSH_COMMANDS_BIT = 0x1;
 pub const VERTEX_SHADER_BIT = 0x1;
 pub const FRAGMENT_SHADER_BIT = 0x2;
 pub const GEOMETRY_SHADER_BIT = 0x4;
 pub const TESS_CONTROL_SHADER_BIT = 0x8;
 pub const TESS_EVALUATION_SHADER_BIT = 0x10;
+pub const COMPUTE_SHADER_BIT = 0x20;
 pub const ALL_SHADER_BITS = 0xFFFFFFFF;
 pub const POINTS = 0x0;
 pub const LINES = 0x1;
@@ -129,8 +157,11 @@ pub const FRONT_AND_BACK = 0x408;
 pub const INVALID_ENUM = 0x500;
 pub const INVALID_VALUE = 0x501;
 pub const INVALID_OPERATION = 0x502;
+pub const STACK_OVERFLOW = 0x503;
+pub const STACK_UNDERFLOW = 0x504;
 pub const OUT_OF_MEMORY = 0x505;
 pub const INVALID_FRAMEBUFFER_OPERATION = 0x506;
+pub const CONTEXT_LOST = 0x507;
 pub const CW = 0x900;
 pub const CCW = 0x901;
 pub const POINT_SIZE = 0xB11;
@@ -202,6 +233,7 @@ pub const TEXTURE_WIDTH = 0x1000;
 pub const TEXTURE_HEIGHT = 0x1001;
 pub const TEXTURE_INTERNAL_FORMAT = 0x1003;
 pub const TEXTURE_BORDER_COLOR = 0x1004;
+pub const TEXTURE_TARGET = 0x1006;
 pub const DONT_CARE = 0x1100;
 pub const FASTEST = 0x1101;
 pub const NICEST = 0x1102;
@@ -327,6 +359,7 @@ pub const PROXY_TEXTURE_3D = 0x8070;
 pub const TEXTURE_DEPTH = 0x8071;
 pub const TEXTURE_WRAP_R = 0x8072;
 pub const MAX_3D_TEXTURE_SIZE = 0x8073;
+pub const VERTEX_ARRAY = 0x8074;
 pub const MULTISAMPLE = 0x809D;
 pub const SAMPLE_ALPHA_TO_COVERAGE = 0x809E;
 pub const SAMPLE_ALPHA_TO_ONE = 0x809F;
@@ -343,6 +376,8 @@ pub const BGR = 0x80E0;
 pub const BGRA = 0x80E1;
 pub const MAX_ELEMENTS_VERTICES = 0x80E8;
 pub const MAX_ELEMENTS_INDICES = 0x80E9;
+pub const PARAMETER_BUFFER = 0x80EE;
+pub const PARAMETER_BUFFER_BINDING = 0x80EF;
 pub const POINT_FADE_THRESHOLD_SIZE = 0x8128;
 pub const CLAMP_TO_BORDER = 0x812D;
 pub const CLAMP_TO_EDGE = 0x812F;
@@ -368,6 +403,9 @@ pub const MAJOR_VERSION = 0x821B;
 pub const MINOR_VERSION = 0x821C;
 pub const NUM_EXTENSIONS = 0x821D;
 pub const CONTEXT_FLAGS = 0x821E;
+pub const BUFFER_IMMUTABLE_STORAGE = 0x821F;
+pub const BUFFER_STORAGE_FLAGS = 0x8220;
+pub const PRIMITIVE_RESTART_FOR_PATCHES_SUPPORTED = 0x8221;
 pub const COMPRESSED_RED = 0x8225;
 pub const COMPRESSED_RG = 0x8226;
 pub const RG = 0x8227;
@@ -392,6 +430,27 @@ pub const RG16I = 0x8239;
 pub const RG16UI = 0x823A;
 pub const RG32I = 0x823B;
 pub const RG32UI = 0x823C;
+pub const DEBUG_OUTPUT_SYNCHRONOUS = 0x8242;
+pub const DEBUG_NEXT_LOGGED_MESSAGE_LENGTH = 0x8243;
+pub const DEBUG_CALLBACK_FUNCTION = 0x8244;
+pub const DEBUG_CALLBACK_USER_PARAM = 0x8245;
+pub const DEBUG_SOURCE_API = 0x8246;
+pub const DEBUG_SOURCE_WINDOW_SYSTEM = 0x8247;
+pub const DEBUG_SOURCE_SHADER_COMPILER = 0x8248;
+pub const DEBUG_SOURCE_THIRD_PARTY = 0x8249;
+pub const DEBUG_SOURCE_APPLICATION = 0x824A;
+pub const DEBUG_SOURCE_OTHER = 0x824B;
+pub const DEBUG_TYPE_ERROR = 0x824C;
+pub const DEBUG_TYPE_DEPRECATED_BEHAVIOR = 0x824D;
+pub const DEBUG_TYPE_UNDEFINED_BEHAVIOR = 0x824E;
+pub const DEBUG_TYPE_PORTABILITY = 0x824F;
+pub const DEBUG_TYPE_PERFORMANCE = 0x8250;
+pub const DEBUG_TYPE_OTHER = 0x8251;
+pub const LOSE_CONTEXT_ON_RESET = 0x8252;
+pub const GUILTY_CONTEXT_RESET = 0x8253;
+pub const INNOCENT_CONTEXT_RESET = 0x8254;
+pub const UNKNOWN_CONTEXT_RESET = 0x8255;
+pub const RESET_NOTIFICATION_STRATEGY = 0x8256;
 pub const PROGRAM_BINARY_RETRIEVABLE_HINT = 0x8257;
 pub const PROGRAM_SEPARABLE = 0x8258;
 pub const ACTIVE_PROGRAM = 0x8259;
@@ -402,6 +461,156 @@ pub const VIEWPORT_BOUNDS_RANGE = 0x825D;
 pub const LAYER_PROVOKING_VERTEX = 0x825E;
 pub const VIEWPORT_INDEX_PROVOKING_VERTEX = 0x825F;
 pub const UNDEFINED_VERTEX = 0x8260;
+pub const NO_RESET_NOTIFICATION = 0x8261;
+pub const MAX_COMPUTE_SHARED_MEMORY_SIZE = 0x8262;
+pub const MAX_COMPUTE_UNIFORM_COMPONENTS = 0x8263;
+pub const MAX_COMPUTE_ATOMIC_COUNTER_BUFFERS = 0x8264;
+pub const MAX_COMPUTE_ATOMIC_COUNTERS = 0x8265;
+pub const MAX_COMBINED_COMPUTE_UNIFORM_COMPONENTS = 0x8266;
+pub const COMPUTE_WORK_GROUP_SIZE = 0x8267;
+pub const DEBUG_TYPE_MARKER = 0x8268;
+pub const DEBUG_TYPE_PUSH_GROUP = 0x8269;
+pub const DEBUG_TYPE_POP_GROUP = 0x826A;
+pub const DEBUG_SEVERITY_NOTIFICATION = 0x826B;
+pub const MAX_DEBUG_GROUP_STACK_DEPTH = 0x826C;
+pub const DEBUG_GROUP_STACK_DEPTH = 0x826D;
+pub const MAX_UNIFORM_LOCATIONS = 0x826E;
+pub const INTERNALFORMAT_SUPPORTED = 0x826F;
+pub const INTERNALFORMAT_PREFERRED = 0x8270;
+pub const INTERNALFORMAT_RED_SIZE = 0x8271;
+pub const INTERNALFORMAT_GREEN_SIZE = 0x8272;
+pub const INTERNALFORMAT_BLUE_SIZE = 0x8273;
+pub const INTERNALFORMAT_ALPHA_SIZE = 0x8274;
+pub const INTERNALFORMAT_DEPTH_SIZE = 0x8275;
+pub const INTERNALFORMAT_STENCIL_SIZE = 0x8276;
+pub const INTERNALFORMAT_SHARED_SIZE = 0x8277;
+pub const INTERNALFORMAT_RED_TYPE = 0x8278;
+pub const INTERNALFORMAT_GREEN_TYPE = 0x8279;
+pub const INTERNALFORMAT_BLUE_TYPE = 0x827A;
+pub const INTERNALFORMAT_ALPHA_TYPE = 0x827B;
+pub const INTERNALFORMAT_DEPTH_TYPE = 0x827C;
+pub const INTERNALFORMAT_STENCIL_TYPE = 0x827D;
+pub const MAX_WIDTH = 0x827E;
+pub const MAX_HEIGHT = 0x827F;
+pub const MAX_DEPTH = 0x8280;
+pub const MAX_LAYERS = 0x8281;
+pub const MAX_COMBINED_DIMENSIONS = 0x8282;
+pub const COLOR_COMPONENTS = 0x8283;
+pub const DEPTH_COMPONENTS = 0x8284;
+pub const STENCIL_COMPONENTS = 0x8285;
+pub const COLOR_RENDERABLE = 0x8286;
+pub const DEPTH_RENDERABLE = 0x8287;
+pub const STENCIL_RENDERABLE = 0x8288;
+pub const FRAMEBUFFER_RENDERABLE = 0x8289;
+pub const FRAMEBUFFER_RENDERABLE_LAYERED = 0x828A;
+pub const FRAMEBUFFER_BLEND = 0x828B;
+pub const READ_PIXELS = 0x828C;
+pub const READ_PIXELS_FORMAT = 0x828D;
+pub const READ_PIXELS_TYPE = 0x828E;
+pub const TEXTURE_IMAGE_FORMAT = 0x828F;
+pub const TEXTURE_IMAGE_TYPE = 0x8290;
+pub const GET_TEXTURE_IMAGE_FORMAT = 0x8291;
+pub const GET_TEXTURE_IMAGE_TYPE = 0x8292;
+pub const MIPMAP = 0x8293;
+pub const MANUAL_GENERATE_MIPMAP = 0x8294;
+pub const AUTO_GENERATE_MIPMAP = 0x8295;
+pub const COLOR_ENCODING = 0x8296;
+pub const SRGB_READ = 0x8297;
+pub const SRGB_WRITE = 0x8298;
+pub const FILTER = 0x829A;
+pub const VERTEX_TEXTURE = 0x829B;
+pub const TESS_CONTROL_TEXTURE = 0x829C;
+pub const TESS_EVALUATION_TEXTURE = 0x829D;
+pub const GEOMETRY_TEXTURE = 0x829E;
+pub const FRAGMENT_TEXTURE = 0x829F;
+pub const COMPUTE_TEXTURE = 0x82A0;
+pub const TEXTURE_SHADOW = 0x82A1;
+pub const TEXTURE_GATHER = 0x82A2;
+pub const TEXTURE_GATHER_SHADOW = 0x82A3;
+pub const SHADER_IMAGE_LOAD = 0x82A4;
+pub const SHADER_IMAGE_STORE = 0x82A5;
+pub const SHADER_IMAGE_ATOMIC = 0x82A6;
+pub const IMAGE_TEXEL_SIZE = 0x82A7;
+pub const IMAGE_COMPATIBILITY_CLASS = 0x82A8;
+pub const IMAGE_PIXEL_FORMAT = 0x82A9;
+pub const IMAGE_PIXEL_TYPE = 0x82AA;
+pub const SIMULTANEOUS_TEXTURE_AND_DEPTH_TEST = 0x82AC;
+pub const SIMULTANEOUS_TEXTURE_AND_STENCIL_TEST = 0x82AD;
+pub const SIMULTANEOUS_TEXTURE_AND_DEPTH_WRITE = 0x82AE;
+pub const SIMULTANEOUS_TEXTURE_AND_STENCIL_WRITE = 0x82AF;
+pub const TEXTURE_COMPRESSED_BLOCK_WIDTH = 0x82B1;
+pub const TEXTURE_COMPRESSED_BLOCK_HEIGHT = 0x82B2;
+pub const TEXTURE_COMPRESSED_BLOCK_SIZE = 0x82B3;
+pub const CLEAR_BUFFER = 0x82B4;
+pub const TEXTURE_VIEW = 0x82B5;
+pub const VIEW_COMPATIBILITY_CLASS = 0x82B6;
+pub const FULL_SUPPORT = 0x82B7;
+pub const CAVEAT_SUPPORT = 0x82B8;
+pub const IMAGE_CLASS_4_X_32 = 0x82B9;
+pub const IMAGE_CLASS_2_X_32 = 0x82BA;
+pub const IMAGE_CLASS_1_X_32 = 0x82BB;
+pub const IMAGE_CLASS_4_X_16 = 0x82BC;
+pub const IMAGE_CLASS_2_X_16 = 0x82BD;
+pub const IMAGE_CLASS_1_X_16 = 0x82BE;
+pub const IMAGE_CLASS_4_X_8 = 0x82BF;
+pub const IMAGE_CLASS_2_X_8 = 0x82C0;
+pub const IMAGE_CLASS_1_X_8 = 0x82C1;
+pub const IMAGE_CLASS_11_11_10 = 0x82C2;
+pub const IMAGE_CLASS_10_10_10_2 = 0x82C3;
+pub const VIEW_CLASS_128_BITS = 0x82C4;
+pub const VIEW_CLASS_96_BITS = 0x82C5;
+pub const VIEW_CLASS_64_BITS = 0x82C6;
+pub const VIEW_CLASS_48_BITS = 0x82C7;
+pub const VIEW_CLASS_32_BITS = 0x82C8;
+pub const VIEW_CLASS_24_BITS = 0x82C9;
+pub const VIEW_CLASS_16_BITS = 0x82CA;
+pub const VIEW_CLASS_8_BITS = 0x82CB;
+pub const VIEW_CLASS_S3TC_DXT1_RGB = 0x82CC;
+pub const VIEW_CLASS_S3TC_DXT1_RGBA = 0x82CD;
+pub const VIEW_CLASS_S3TC_DXT3_RGBA = 0x82CE;
+pub const VIEW_CLASS_S3TC_DXT5_RGBA = 0x82CF;
+pub const VIEW_CLASS_RGTC1_RED = 0x82D0;
+pub const VIEW_CLASS_RGTC2_RG = 0x82D1;
+pub const VIEW_CLASS_BPTC_UNORM = 0x82D2;
+pub const VIEW_CLASS_BPTC_FLOAT = 0x82D3;
+pub const VERTEX_ATTRIB_BINDING = 0x82D4;
+pub const VERTEX_ATTRIB_RELATIVE_OFFSET = 0x82D5;
+pub const VERTEX_BINDING_DIVISOR = 0x82D6;
+pub const VERTEX_BINDING_OFFSET = 0x82D7;
+pub const VERTEX_BINDING_STRIDE = 0x82D8;
+pub const MAX_VERTEX_ATTRIB_RELATIVE_OFFSET = 0x82D9;
+pub const MAX_VERTEX_ATTRIB_BINDINGS = 0x82DA;
+pub const TEXTURE_VIEW_MIN_LEVEL = 0x82DB;
+pub const TEXTURE_VIEW_NUM_LEVELS = 0x82DC;
+pub const TEXTURE_VIEW_MIN_LAYER = 0x82DD;
+pub const TEXTURE_VIEW_NUM_LAYERS = 0x82DE;
+pub const TEXTURE_IMMUTABLE_LEVELS = 0x82DF;
+pub const BUFFER = 0x82E0;
+pub const SHADER = 0x82E1;
+pub const PROGRAM = 0x82E2;
+pub const QUERY = 0x82E3;
+pub const PROGRAM_PIPELINE = 0x82E4;
+pub const MAX_VERTEX_ATTRIB_STRIDE = 0x82E5;
+pub const SAMPLER = 0x82E6;
+pub const MAX_LABEL_LENGTH = 0x82E8;
+pub const NUM_SHADING_LANGUAGE_VERSIONS = 0x82E9;
+pub const QUERY_TARGET = 0x82EA;
+pub const TRANSFORM_FEEDBACK_OVERFLOW = 0x82EC;
+pub const TRANSFORM_FEEDBACK_STREAM_OVERFLOW = 0x82ED;
+pub const VERTICES_SUBMITTED = 0x82EE;
+pub const PRIMITIVES_SUBMITTED = 0x82EF;
+pub const VERTEX_SHADER_INVOCATIONS = 0x82F0;
+pub const TESS_CONTROL_SHADER_PATCHES = 0x82F1;
+pub const TESS_EVALUATION_SHADER_INVOCATIONS = 0x82F2;
+pub const GEOMETRY_SHADER_PRIMITIVES_EMITTED = 0x82F3;
+pub const FRAGMENT_SHADER_INVOCATIONS = 0x82F4;
+pub const COMPUTE_SHADER_INVOCATIONS = 0x82F5;
+pub const CLIPPING_INPUT_PRIMITIVES = 0x82F6;
+pub const CLIPPING_OUTPUT_PRIMITIVES = 0x82F7;
+pub const MAX_CULL_DISTANCES = 0x82F9;
+pub const MAX_COMBINED_CLIP_AND_CULL_DISTANCES = 0x82FA;
+pub const CONTEXT_RELEASE_BEHAVIOR = 0x82FB;
+pub const CONTEXT_RELEASE_BEHAVIOR_FLUSH = 0x82FC;
 pub const UNSIGNED_BYTE_2_3_3_REV = 0x8362;
 pub const UNSIGNED_SHORT_5_6_5 = 0x8363;
 pub const UNSIGNED_SHORT_5_6_5_REV = 0x8364;
@@ -457,6 +666,8 @@ pub const MAX_RECTANGLE_TEXTURE_SIZE = 0x84F8;
 pub const DEPTH_STENCIL = 0x84F9;
 pub const UNSIGNED_INT_24_8 = 0x84FA;
 pub const MAX_TEXTURE_LOD_BIAS = 0x84FD;
+pub const TEXTURE_MAX_ANISOTROPY = 0x84FE;
+pub const MAX_TEXTURE_MAX_ANISOTROPY = 0x84FF;
 pub const TEXTURE_LOD_BIAS = 0x8501;
 pub const INCR_WRAP = 0x8507;
 pub const DECR_WRAP = 0x8508;
@@ -486,6 +697,8 @@ pub const TEXTURE_COMPRESSED = 0x86A1;
 pub const NUM_COMPRESSED_TEXTURE_FORMATS = 0x86A2;
 pub const COMPRESSED_TEXTURE_FORMATS = 0x86A3;
 pub const PROGRAM_BINARY_LENGTH = 0x8741;
+pub const MIRROR_CLAMP_TO_EDGE = 0x8743;
+pub const VERTEX_ATTRIB_ARRAY_LONG = 0x874E;
 pub const BUFFER_SIZE = 0x8764;
 pub const BUFFER_USAGE = 0x8765;
 pub const NUM_PROGRAM_BINARY_FORMATS = 0x87FE;
@@ -672,6 +885,7 @@ pub const TEXTURE_BINDING_1D_ARRAY = 0x8C1C;
 pub const TEXTURE_BINDING_2D_ARRAY = 0x8C1D;
 pub const MAX_GEOMETRY_TEXTURE_IMAGE_UNITS = 0x8C29;
 pub const TEXTURE_BUFFER = 0x8C2A;
+pub const TEXTURE_BUFFER_BINDING = 0x8C2A;
 pub const MAX_TEXTURE_BUFFER_SIZE = 0x8C2B;
 pub const TEXTURE_BINDING_BUFFER = 0x8C2C;
 pub const TEXTURE_BUFFER_DATA_STORE_BINDING = 0x8C2D;
@@ -783,6 +997,9 @@ pub const RENDERBUFFER_STENCIL_SIZE = 0x8D55;
 pub const FRAMEBUFFER_INCOMPLETE_MULTISAMPLE = 0x8D56;
 pub const MAX_SAMPLES = 0x8D57;
 pub const RGB565 = 0x8D62;
+pub const PRIMITIVE_RESTART_FIXED_INDEX = 0x8D69;
+pub const ANY_SAMPLES_PASSED_CONSERVATIVE = 0x8D6A;
+pub const MAX_ELEMENT_INDEX = 0x8D6B;
 pub const RGBA32UI = 0x8D70;
 pub const RGB32UI = 0x8D71;
 pub const RGBA16UI = 0x8D76;
@@ -860,10 +1077,17 @@ pub const QUERY_WAIT = 0x8E13;
 pub const QUERY_NO_WAIT = 0x8E14;
 pub const QUERY_BY_REGION_WAIT = 0x8E15;
 pub const QUERY_BY_REGION_NO_WAIT = 0x8E16;
+pub const QUERY_WAIT_INVERTED = 0x8E17;
+pub const QUERY_NO_WAIT_INVERTED = 0x8E18;
+pub const QUERY_BY_REGION_WAIT_INVERTED = 0x8E19;
+pub const QUERY_BY_REGION_NO_WAIT_INVERTED = 0x8E1A;
+pub const POLYGON_OFFSET_CLAMP = 0x8E1B;
 pub const MAX_COMBINED_TESS_CONTROL_UNIFORM_COMPONENTS = 0x8E1E;
 pub const MAX_COMBINED_TESS_EVALUATION_UNIFORM_COMPONENTS = 0x8E1F;
 pub const TRANSFORM_FEEDBACK = 0x8E22;
 pub const TRANSFORM_FEEDBACK_BUFFER_PAUSED = 0x8E23;
+pub const TRANSFORM_FEEDBACK_PAUSED = 0x8E23;
+pub const TRANSFORM_FEEDBACK_ACTIVE = 0x8E24;
 pub const TRANSFORM_FEEDBACK_BUFFER_ACTIVE = 0x8E24;
 pub const TRANSFORM_FEEDBACK_BINDING = 0x8E25;
 pub const TIMESTAMP = 0x8E28;
@@ -918,8 +1142,22 @@ pub const TESS_EVALUATION_SHADER = 0x8E87;
 pub const TESS_CONTROL_SHADER = 0x8E88;
 pub const MAX_TESS_CONTROL_UNIFORM_BLOCKS = 0x8E89;
 pub const MAX_TESS_EVALUATION_UNIFORM_BLOCKS = 0x8E8A;
+pub const COMPRESSED_RGBA_BPTC_UNORM = 0x8E8C;
+pub const COMPRESSED_SRGB_ALPHA_BPTC_UNORM = 0x8E8D;
+pub const COMPRESSED_RGB_BPTC_SIGNED_FLOAT = 0x8E8E;
+pub const COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT = 0x8E8F;
 pub const COPY_READ_BUFFER = 0x8F36;
+pub const COPY_READ_BUFFER_BINDING = 0x8F36;
 pub const COPY_WRITE_BUFFER = 0x8F37;
+pub const COPY_WRITE_BUFFER_BINDING = 0x8F37;
+pub const MAX_IMAGE_UNITS = 0x8F38;
+pub const MAX_COMBINED_IMAGE_UNITS_AND_FRAGMENT_OUTPUTS = 0x8F39;
+pub const MAX_COMBINED_SHADER_OUTPUT_RESOURCES = 0x8F39;
+pub const IMAGE_BINDING_NAME = 0x8F3A;
+pub const IMAGE_BINDING_LEVEL = 0x8F3B;
+pub const IMAGE_BINDING_LAYERED = 0x8F3C;
+pub const IMAGE_BINDING_LAYER = 0x8F3D;
+pub const IMAGE_BINDING_ACCESS = 0x8F3E;
 pub const DRAW_INDIRECT_BUFFER = 0x8F3F;
 pub const DRAW_INDIRECT_BUFFER_BINDING = 0x8F43;
 pub const DOUBLE_MAT2 = 0x8F46;
@@ -931,6 +1169,7 @@ pub const DOUBLE_MAT3x2 = 0x8F4B;
 pub const DOUBLE_MAT3x4 = 0x8F4C;
 pub const DOUBLE_MAT4x2 = 0x8F4D;
 pub const DOUBLE_MAT4x3 = 0x8F4E;
+pub const VERTEX_BINDING_BUFFER = 0x8F4F;
 pub const R8_SNORM = 0x8F94;
 pub const RG8_SNORM = 0x8F95;
 pub const RGB8_SNORM = 0x8F96;
@@ -952,7 +1191,72 @@ pub const SAMPLER_CUBE_MAP_ARRAY = 0x900C;
 pub const SAMPLER_CUBE_MAP_ARRAY_SHADOW = 0x900D;
 pub const INT_SAMPLER_CUBE_MAP_ARRAY = 0x900E;
 pub const UNSIGNED_INT_SAMPLER_CUBE_MAP_ARRAY = 0x900F;
+pub const IMAGE_1D = 0x904C;
+pub const IMAGE_2D = 0x904D;
+pub const IMAGE_3D = 0x904E;
+pub const IMAGE_2D_RECT = 0x904F;
+pub const IMAGE_CUBE = 0x9050;
+pub const IMAGE_BUFFER = 0x9051;
+pub const IMAGE_1D_ARRAY = 0x9052;
+pub const IMAGE_2D_ARRAY = 0x9053;
+pub const IMAGE_CUBE_MAP_ARRAY = 0x9054;
+pub const IMAGE_2D_MULTISAMPLE = 0x9055;
+pub const IMAGE_2D_MULTISAMPLE_ARRAY = 0x9056;
+pub const INT_IMAGE_1D = 0x9057;
+pub const INT_IMAGE_2D = 0x9058;
+pub const INT_IMAGE_3D = 0x9059;
+pub const INT_IMAGE_2D_RECT = 0x905A;
+pub const INT_IMAGE_CUBE = 0x905B;
+pub const INT_IMAGE_BUFFER = 0x905C;
+pub const INT_IMAGE_1D_ARRAY = 0x905D;
+pub const INT_IMAGE_2D_ARRAY = 0x905E;
+pub const INT_IMAGE_CUBE_MAP_ARRAY = 0x905F;
+pub const INT_IMAGE_2D_MULTISAMPLE = 0x9060;
+pub const INT_IMAGE_2D_MULTISAMPLE_ARRAY = 0x9061;
+pub const UNSIGNED_INT_IMAGE_1D = 0x9062;
+pub const UNSIGNED_INT_IMAGE_2D = 0x9063;
+pub const UNSIGNED_INT_IMAGE_3D = 0x9064;
+pub const UNSIGNED_INT_IMAGE_2D_RECT = 0x9065;
+pub const UNSIGNED_INT_IMAGE_CUBE = 0x9066;
+pub const UNSIGNED_INT_IMAGE_BUFFER = 0x9067;
+pub const UNSIGNED_INT_IMAGE_1D_ARRAY = 0x9068;
+pub const UNSIGNED_INT_IMAGE_2D_ARRAY = 0x9069;
+pub const UNSIGNED_INT_IMAGE_CUBE_MAP_ARRAY = 0x906A;
+pub const UNSIGNED_INT_IMAGE_2D_MULTISAMPLE = 0x906B;
+pub const UNSIGNED_INT_IMAGE_2D_MULTISAMPLE_ARRAY = 0x906C;
+pub const MAX_IMAGE_SAMPLES = 0x906D;
+pub const IMAGE_BINDING_FORMAT = 0x906E;
 pub const RGB10_A2UI = 0x906F;
+pub const MIN_MAP_BUFFER_ALIGNMENT = 0x90BC;
+pub const IMAGE_FORMAT_COMPATIBILITY_TYPE = 0x90C7;
+pub const IMAGE_FORMAT_COMPATIBILITY_BY_SIZE = 0x90C8;
+pub const IMAGE_FORMAT_COMPATIBILITY_BY_CLASS = 0x90C9;
+pub const MAX_VERTEX_IMAGE_UNIFORMS = 0x90CA;
+pub const MAX_TESS_CONTROL_IMAGE_UNIFORMS = 0x90CB;
+pub const MAX_TESS_EVALUATION_IMAGE_UNIFORMS = 0x90CC;
+pub const MAX_GEOMETRY_IMAGE_UNIFORMS = 0x90CD;
+pub const MAX_FRAGMENT_IMAGE_UNIFORMS = 0x90CE;
+pub const MAX_COMBINED_IMAGE_UNIFORMS = 0x90CF;
+pub const SHADER_STORAGE_BUFFER = 0x90D2;
+pub const SHADER_STORAGE_BUFFER_BINDING = 0x90D3;
+pub const SHADER_STORAGE_BUFFER_START = 0x90D4;
+pub const SHADER_STORAGE_BUFFER_SIZE = 0x90D5;
+pub const MAX_VERTEX_SHADER_STORAGE_BLOCKS = 0x90D6;
+pub const MAX_GEOMETRY_SHADER_STORAGE_BLOCKS = 0x90D7;
+pub const MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS = 0x90D8;
+pub const MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS = 0x90D9;
+pub const MAX_FRAGMENT_SHADER_STORAGE_BLOCKS = 0x90DA;
+pub const MAX_COMPUTE_SHADER_STORAGE_BLOCKS = 0x90DB;
+pub const MAX_COMBINED_SHADER_STORAGE_BLOCKS = 0x90DC;
+pub const MAX_SHADER_STORAGE_BUFFER_BINDINGS = 0x90DD;
+pub const MAX_SHADER_STORAGE_BLOCK_SIZE = 0x90DE;
+pub const SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT = 0x90DF;
+pub const DEPTH_STENCIL_TEXTURE_MODE = 0x90EA;
+pub const MAX_COMPUTE_WORK_GROUP_INVOCATIONS = 0x90EB;
+pub const UNIFORM_BLOCK_REFERENCED_BY_COMPUTE_SHADER = 0x90EC;
+pub const ATOMIC_COUNTER_BUFFER_REFERENCED_BY_COMPUTE_SHADER = 0x90ED;
+pub const DISPATCH_INDIRECT_BUFFER = 0x90EE;
+pub const DISPATCH_INDIRECT_BUFFER_BINDING = 0x90EF;
 pub const TEXTURE_2D_MULTISAMPLE = 0x9100;
 pub const PROXY_TEXTURE_2D_MULTISAMPLE = 0x9101;
 pub const TEXTURE_2D_MULTISAMPLE_ARRAY = 0x9102;
@@ -991,1442 +1295,2115 @@ pub const MAX_GEOMETRY_INPUT_COMPONENTS = 0x9123;
 pub const MAX_GEOMETRY_OUTPUT_COMPONENTS = 0x9124;
 pub const MAX_FRAGMENT_INPUT_COMPONENTS = 0x9125;
 pub const CONTEXT_PROFILE_MASK = 0x9126;
+pub const UNPACK_COMPRESSED_BLOCK_WIDTH = 0x9127;
+pub const UNPACK_COMPRESSED_BLOCK_HEIGHT = 0x9128;
+pub const UNPACK_COMPRESSED_BLOCK_DEPTH = 0x9129;
+pub const UNPACK_COMPRESSED_BLOCK_SIZE = 0x912A;
+pub const PACK_COMPRESSED_BLOCK_WIDTH = 0x912B;
+pub const PACK_COMPRESSED_BLOCK_HEIGHT = 0x912C;
+pub const PACK_COMPRESSED_BLOCK_DEPTH = 0x912D;
+pub const PACK_COMPRESSED_BLOCK_SIZE = 0x912E;
+pub const TEXTURE_IMMUTABLE_FORMAT = 0x912F;
+pub const MAX_DEBUG_MESSAGE_LENGTH = 0x9143;
+pub const MAX_DEBUG_LOGGED_MESSAGES = 0x9144;
+pub const DEBUG_LOGGED_MESSAGES = 0x9145;
+pub const DEBUG_SEVERITY_HIGH = 0x9146;
+pub const DEBUG_SEVERITY_MEDIUM = 0x9147;
+pub const DEBUG_SEVERITY_LOW = 0x9148;
+pub const QUERY_BUFFER = 0x9192;
+pub const QUERY_BUFFER_BINDING = 0x9193;
+pub const QUERY_RESULT_NO_WAIT = 0x9194;
+pub const TEXTURE_BUFFER_OFFSET = 0x919D;
+pub const TEXTURE_BUFFER_SIZE = 0x919E;
+pub const TEXTURE_BUFFER_OFFSET_ALIGNMENT = 0x919F;
+pub const COMPUTE_SHADER = 0x91B9;
+pub const MAX_COMPUTE_UNIFORM_BLOCKS = 0x91BB;
+pub const MAX_COMPUTE_TEXTURE_IMAGE_UNITS = 0x91BC;
+pub const MAX_COMPUTE_IMAGE_UNIFORMS = 0x91BD;
+pub const MAX_COMPUTE_WORK_GROUP_COUNT = 0x91BE;
+pub const MAX_COMPUTE_WORK_GROUP_SIZE = 0x91BF;
+pub const COMPRESSED_R11_EAC = 0x9270;
+pub const COMPRESSED_SIGNED_R11_EAC = 0x9271;
+pub const COMPRESSED_RG11_EAC = 0x9272;
+pub const COMPRESSED_SIGNED_RG11_EAC = 0x9273;
+pub const COMPRESSED_RGB8_ETC2 = 0x9274;
+pub const COMPRESSED_SRGB8_ETC2 = 0x9275;
+pub const COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2 = 0x9276;
+pub const COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2 = 0x9277;
+pub const COMPRESSED_RGBA8_ETC2_EAC = 0x9278;
+pub const COMPRESSED_SRGB8_ALPHA8_ETC2_EAC = 0x9279;
+pub const ATOMIC_COUNTER_BUFFER = 0x92C0;
+pub const ATOMIC_COUNTER_BUFFER_BINDING = 0x92C1;
+pub const ATOMIC_COUNTER_BUFFER_START = 0x92C2;
+pub const ATOMIC_COUNTER_BUFFER_SIZE = 0x92C3;
+pub const ATOMIC_COUNTER_BUFFER_DATA_SIZE = 0x92C4;
+pub const ATOMIC_COUNTER_BUFFER_ACTIVE_ATOMIC_COUNTERS = 0x92C5;
+pub const ATOMIC_COUNTER_BUFFER_ACTIVE_ATOMIC_COUNTER_INDICES = 0x92C6;
+pub const ATOMIC_COUNTER_BUFFER_REFERENCED_BY_VERTEX_SHADER = 0x92C7;
+pub const ATOMIC_COUNTER_BUFFER_REFERENCED_BY_TESS_CONTROL_SHADER = 0x92C8;
+pub const ATOMIC_COUNTER_BUFFER_REFERENCED_BY_TESS_EVALUATION_SHADER = 0x92C9;
+pub const ATOMIC_COUNTER_BUFFER_REFERENCED_BY_GEOMETRY_SHADER = 0x92CA;
+pub const ATOMIC_COUNTER_BUFFER_REFERENCED_BY_FRAGMENT_SHADER = 0x92CB;
+pub const MAX_VERTEX_ATOMIC_COUNTER_BUFFERS = 0x92CC;
+pub const MAX_TESS_CONTROL_ATOMIC_COUNTER_BUFFERS = 0x92CD;
+pub const MAX_TESS_EVALUATION_ATOMIC_COUNTER_BUFFERS = 0x92CE;
+pub const MAX_GEOMETRY_ATOMIC_COUNTER_BUFFERS = 0x92CF;
+pub const MAX_FRAGMENT_ATOMIC_COUNTER_BUFFERS = 0x92D0;
+pub const MAX_COMBINED_ATOMIC_COUNTER_BUFFERS = 0x92D1;
+pub const MAX_VERTEX_ATOMIC_COUNTERS = 0x92D2;
+pub const MAX_TESS_CONTROL_ATOMIC_COUNTERS = 0x92D3;
+pub const MAX_TESS_EVALUATION_ATOMIC_COUNTERS = 0x92D4;
+pub const MAX_GEOMETRY_ATOMIC_COUNTERS = 0x92D5;
+pub const MAX_FRAGMENT_ATOMIC_COUNTERS = 0x92D6;
+pub const MAX_COMBINED_ATOMIC_COUNTERS = 0x92D7;
+pub const MAX_ATOMIC_COUNTER_BUFFER_SIZE = 0x92D8;
+pub const ACTIVE_ATOMIC_COUNTER_BUFFERS = 0x92D9;
+pub const UNIFORM_ATOMIC_COUNTER_BUFFER_INDEX = 0x92DA;
+pub const UNSIGNED_INT_ATOMIC_COUNTER = 0x92DB;
+pub const MAX_ATOMIC_COUNTER_BUFFER_BINDINGS = 0x92DC;
+pub const DEBUG_OUTPUT = 0x92E0;
+pub const UNIFORM = 0x92E1;
+pub const UNIFORM_BLOCK = 0x92E2;
+pub const PROGRAM_INPUT = 0x92E3;
+pub const PROGRAM_OUTPUT = 0x92E4;
+pub const BUFFER_VARIABLE = 0x92E5;
+pub const SHADER_STORAGE_BLOCK = 0x92E6;
+pub const IS_PER_PATCH = 0x92E7;
+pub const VERTEX_SUBROUTINE = 0x92E8;
+pub const TESS_CONTROL_SUBROUTINE = 0x92E9;
+pub const TESS_EVALUATION_SUBROUTINE = 0x92EA;
+pub const GEOMETRY_SUBROUTINE = 0x92EB;
+pub const FRAGMENT_SUBROUTINE = 0x92EC;
+pub const COMPUTE_SUBROUTINE = 0x92ED;
+pub const VERTEX_SUBROUTINE_UNIFORM = 0x92EE;
+pub const TESS_CONTROL_SUBROUTINE_UNIFORM = 0x92EF;
+pub const TESS_EVALUATION_SUBROUTINE_UNIFORM = 0x92F0;
+pub const GEOMETRY_SUBROUTINE_UNIFORM = 0x92F1;
+pub const FRAGMENT_SUBROUTINE_UNIFORM = 0x92F2;
+pub const COMPUTE_SUBROUTINE_UNIFORM = 0x92F3;
+pub const TRANSFORM_FEEDBACK_VARYING = 0x92F4;
+pub const ACTIVE_RESOURCES = 0x92F5;
+pub const MAX_NAME_LENGTH = 0x92F6;
+pub const MAX_NUM_ACTIVE_VARIABLES = 0x92F7;
+pub const MAX_NUM_COMPATIBLE_SUBROUTINES = 0x92F8;
+pub const NAME_LENGTH = 0x92F9;
+pub const TYPE = 0x92FA;
+pub const ARRAY_SIZE = 0x92FB;
+pub const OFFSET = 0x92FC;
+pub const BLOCK_INDEX = 0x92FD;
+pub const ARRAY_STRIDE = 0x92FE;
+pub const MATRIX_STRIDE = 0x92FF;
+pub const IS_ROW_MAJOR = 0x9300;
+pub const ATOMIC_COUNTER_BUFFER_INDEX = 0x9301;
+pub const BUFFER_BINDING = 0x9302;
+pub const BUFFER_DATA_SIZE = 0x9303;
+pub const NUM_ACTIVE_VARIABLES = 0x9304;
+pub const ACTIVE_VARIABLES = 0x9305;
+pub const REFERENCED_BY_VERTEX_SHADER = 0x9306;
+pub const REFERENCED_BY_TESS_CONTROL_SHADER = 0x9307;
+pub const REFERENCED_BY_TESS_EVALUATION_SHADER = 0x9308;
+pub const REFERENCED_BY_GEOMETRY_SHADER = 0x9309;
+pub const REFERENCED_BY_FRAGMENT_SHADER = 0x930A;
+pub const REFERENCED_BY_COMPUTE_SHADER = 0x930B;
+pub const TOP_LEVEL_ARRAY_SIZE = 0x930C;
+pub const TOP_LEVEL_ARRAY_STRIDE = 0x930D;
+pub const LOCATION = 0x930E;
+pub const LOCATION_INDEX = 0x930F;
+pub const FRAMEBUFFER_DEFAULT_WIDTH = 0x9310;
+pub const FRAMEBUFFER_DEFAULT_HEIGHT = 0x9311;
+pub const FRAMEBUFFER_DEFAULT_LAYERS = 0x9312;
+pub const FRAMEBUFFER_DEFAULT_SAMPLES = 0x9313;
+pub const FRAMEBUFFER_DEFAULT_FIXED_SAMPLE_LOCATIONS = 0x9314;
+pub const MAX_FRAMEBUFFER_WIDTH = 0x9315;
+pub const MAX_FRAMEBUFFER_HEIGHT = 0x9316;
+pub const MAX_FRAMEBUFFER_LAYERS = 0x9317;
+pub const MAX_FRAMEBUFFER_SAMPLES = 0x9318;
+pub const LOCATION_COMPONENT = 0x934A;
+pub const TRANSFORM_FEEDBACK_BUFFER_INDEX = 0x934B;
+pub const TRANSFORM_FEEDBACK_BUFFER_STRIDE = 0x934C;
+pub const CLIP_ORIGIN = 0x935C;
+pub const CLIP_DEPTH_MODE = 0x935D;
+pub const NEGATIVE_ONE_TO_ONE = 0x935E;
+pub const ZERO_TO_ONE = 0x935F;
+pub const CLEAR_TEXTURE = 0x9365;
+pub const NUM_SAMPLE_COUNTS = 0x9380;
+pub const SHADER_BINARY_FORMAT_SPIR_V = 0x9551;
+pub const SPIR_V_BINARY = 0x9552;
+pub const SPIR_V_EXTENSIONS = 0x9553;
+pub const NUM_SPIR_V_EXTENSIONS = 0x9554;
 //#endregion Constants
 
 //#region Commands
 pub fn activeShaderProgram(pipeline: Uint, program: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glActiveShaderProgram", .{ pipeline, program });
+    return issueCommand("glActiveShaderProgram", .{ pipeline, program });
 }
 pub fn activeTexture(texture: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glActiveTexture", .{texture});
+    return issueCommand("glActiveTexture", .{texture});
 }
 pub fn attachShader(program: Uint, shader: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glAttachShader", .{ program, shader });
+    return issueCommand("glAttachShader", .{ program, shader });
 }
 pub fn beginConditionalRender(id: Uint, mode: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBeginConditionalRender", .{ id, mode });
+    return issueCommand("glBeginConditionalRender", .{ id, mode });
 }
 pub fn beginQuery(target: Enum, id: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBeginQuery", .{ target, id });
+    return issueCommand("glBeginQuery", .{ target, id });
 }
 pub fn beginQueryIndexed(target: Enum, index: Uint, id: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBeginQueryIndexed", .{ target, index, id });
+    return issueCommand("glBeginQueryIndexed", .{ target, index, id });
 }
 pub fn beginTransformFeedback(primitiveMode: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBeginTransformFeedback", .{primitiveMode});
+    return issueCommand("glBeginTransformFeedback", .{primitiveMode});
 }
 pub fn bindAttribLocation(program: Uint, index: Uint, name: [*c]const Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBindAttribLocation", .{ program, index, name });
+    return issueCommand("glBindAttribLocation", .{ program, index, name });
 }
 pub fn bindBuffer(target: Enum, buffer: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBindBuffer", .{ target, buffer });
+    return issueCommand("glBindBuffer", .{ target, buffer });
 }
 pub fn bindBufferBase(target: Enum, index: Uint, buffer: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBindBufferBase", .{ target, index, buffer });
+    return issueCommand("glBindBufferBase", .{ target, index, buffer });
 }
 pub fn bindBufferRange(target: Enum, index: Uint, buffer: Uint, offset: Intptr, size: Sizeiptr) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBindBufferRange", .{ target, index, buffer, offset, size });
+    return issueCommand("glBindBufferRange", .{ target, index, buffer, offset, size });
+}
+pub fn bindBuffersBase(target: Enum, first: Uint, count: Sizei, buffers: [*c]const Uint) callconv(.C) void {
+    return issueCommand("glBindBuffersBase", .{ target, first, count, buffers });
+}
+pub fn bindBuffersRange(target: Enum, first: Uint, count: Sizei, buffers: [*c]const Uint, offsets: [*c]const Intptr, sizes: [*c]const Sizeiptr) callconv(.C) void {
+    return issueCommand("glBindBuffersRange", .{ target, first, count, buffers, offsets, sizes });
 }
 pub fn bindFragDataLocation(program: Uint, color: Uint, name: [*c]const Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBindFragDataLocation", .{ program, color, name });
+    return issueCommand("glBindFragDataLocation", .{ program, color, name });
 }
 pub fn bindFragDataLocationIndexed(program: Uint, colorNumber: Uint, index: Uint, name: [*c]const Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBindFragDataLocationIndexed", .{ program, colorNumber, index, name });
+    return issueCommand("glBindFragDataLocationIndexed", .{ program, colorNumber, index, name });
 }
 pub fn bindFramebuffer(target: Enum, framebuffer: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBindFramebuffer", .{ target, framebuffer });
+    return issueCommand("glBindFramebuffer", .{ target, framebuffer });
+}
+pub fn bindImageTexture(unit: Uint, texture: Uint, level: Int, layered: Boolean, layer: Int, access: Enum, format: Enum) callconv(.C) void {
+    return issueCommand("glBindImageTexture", .{ unit, texture, level, layered, layer, access, format });
+}
+pub fn bindImageTextures(first: Uint, count: Sizei, textures: [*c]const Uint) callconv(.C) void {
+    return issueCommand("glBindImageTextures", .{ first, count, textures });
 }
 pub fn bindProgramPipeline(pipeline: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBindProgramPipeline", .{pipeline});
+    return issueCommand("glBindProgramPipeline", .{pipeline});
 }
 pub fn bindRenderbuffer(target: Enum, renderbuffer: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBindRenderbuffer", .{ target, renderbuffer });
+    return issueCommand("glBindRenderbuffer", .{ target, renderbuffer });
 }
 pub fn bindSampler(unit: Uint, sampler: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBindSampler", .{ unit, sampler });
+    return issueCommand("glBindSampler", .{ unit, sampler });
+}
+pub fn bindSamplers(first: Uint, count: Sizei, samplers: [*c]const Uint) callconv(.C) void {
+    return issueCommand("glBindSamplers", .{ first, count, samplers });
 }
 pub fn bindTexture(target: Enum, texture: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBindTexture", .{ target, texture });
+    return issueCommand("glBindTexture", .{ target, texture });
+}
+pub fn bindTextureUnit(unit: Uint, texture: Uint) callconv(.C) void {
+    return issueCommand("glBindTextureUnit", .{ unit, texture });
+}
+pub fn bindTextures(first: Uint, count: Sizei, textures: [*c]const Uint) callconv(.C) void {
+    return issueCommand("glBindTextures", .{ first, count, textures });
 }
 pub fn bindTransformFeedback(target: Enum, id: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBindTransformFeedback", .{ target, id });
+    return issueCommand("glBindTransformFeedback", .{ target, id });
 }
 pub fn bindVertexArray(array: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBindVertexArray", .{array});
+    return issueCommand("glBindVertexArray", .{array});
+}
+pub fn bindVertexBuffer(bindingindex: Uint, buffer: Uint, offset: Intptr, stride: Sizei) callconv(.C) void {
+    return issueCommand("glBindVertexBuffer", .{ bindingindex, buffer, offset, stride });
+}
+pub fn bindVertexBuffers(first: Uint, count: Sizei, buffers: [*c]const Uint, offsets: [*c]const Intptr, strides: [*c]const Sizei) callconv(.C) void {
+    return issueCommand("glBindVertexBuffers", .{ first, count, buffers, offsets, strides });
 }
 pub fn blendColor(red: Float, green: Float, blue: Float, alpha: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBlendColor", .{ red, green, blue, alpha });
+    return issueCommand("glBlendColor", .{ red, green, blue, alpha });
 }
 pub fn blendEquation(mode: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBlendEquation", .{mode});
+    return issueCommand("glBlendEquation", .{mode});
 }
 pub fn blendEquationSeparate(modeRGB: Enum, modeAlpha: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBlendEquationSeparate", .{ modeRGB, modeAlpha });
+    return issueCommand("glBlendEquationSeparate", .{ modeRGB, modeAlpha });
 }
 pub fn blendEquationSeparatei(buf: Uint, modeRGB: Enum, modeAlpha: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBlendEquationSeparatei", .{ buf, modeRGB, modeAlpha });
+    return issueCommand("glBlendEquationSeparatei", .{ buf, modeRGB, modeAlpha });
 }
 pub fn blendEquationi(buf: Uint, mode: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBlendEquationi", .{ buf, mode });
+    return issueCommand("glBlendEquationi", .{ buf, mode });
 }
 pub fn blendFunc(sfactor: Enum, dfactor: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBlendFunc", .{ sfactor, dfactor });
+    return issueCommand("glBlendFunc", .{ sfactor, dfactor });
 }
 pub fn blendFuncSeparate(sfactorRGB: Enum, dfactorRGB: Enum, sfactorAlpha: Enum, dfactorAlpha: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBlendFuncSeparate", .{ sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha });
+    return issueCommand("glBlendFuncSeparate", .{ sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha });
 }
 pub fn blendFuncSeparatei(buf: Uint, srcRGB: Enum, dstRGB: Enum, srcAlpha: Enum, dstAlpha: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBlendFuncSeparatei", .{ buf, srcRGB, dstRGB, srcAlpha, dstAlpha });
+    return issueCommand("glBlendFuncSeparatei", .{ buf, srcRGB, dstRGB, srcAlpha, dstAlpha });
 }
 pub fn blendFunci(buf: Uint, src: Enum, dst: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBlendFunci", .{ buf, src, dst });
+    return issueCommand("glBlendFunci", .{ buf, src, dst });
 }
 pub fn blitFramebuffer(srcX0: Int, srcY0: Int, srcX1: Int, srcY1: Int, dstX0: Int, dstY0: Int, dstX1: Int, dstY1: Int, mask: Bitfield, filter: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBlitFramebuffer", .{ srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter });
+    return issueCommand("glBlitFramebuffer", .{ srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter });
+}
+pub fn blitNamedFramebuffer(readFramebuffer: Uint, drawFramebuffer: Uint, srcX0: Int, srcY0: Int, srcX1: Int, srcY1: Int, dstX0: Int, dstY0: Int, dstX1: Int, dstY1: Int, mask: Bitfield, filter: Enum) callconv(.C) void {
+    return issueCommand("glBlitNamedFramebuffer", .{ readFramebuffer, drawFramebuffer, srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter });
 }
 pub fn bufferData(target: Enum, size: Sizeiptr, data: ?*const anyopaque, usage: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBufferData", .{ target, size, data, usage });
+    return issueCommand("glBufferData", .{ target, size, data, usage });
+}
+pub fn bufferStorage(target: Enum, size: Sizeiptr, data: ?*const anyopaque, flags: Bitfield) callconv(.C) void {
+    return issueCommand("glBufferStorage", .{ target, size, data, flags });
 }
 pub fn bufferSubData(target: Enum, offset: Intptr, size: Sizeiptr, data: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glBufferSubData", .{ target, offset, size, data });
+    return issueCommand("glBufferSubData", .{ target, offset, size, data });
 }
 pub fn checkFramebufferStatus(target: Enum) callconv(.C) Enum {
-    return DispatchTable.current.?.invokeIntercepted("glCheckFramebufferStatus", .{target});
+    return issueCommand("glCheckFramebufferStatus", .{target});
+}
+pub fn checkNamedFramebufferStatus(framebuffer: Uint, target: Enum) callconv(.C) Enum {
+    return issueCommand("glCheckNamedFramebufferStatus", .{ framebuffer, target });
 }
 pub fn clampColor(target: Enum, clamp: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glClampColor", .{ target, clamp });
+    return issueCommand("glClampColor", .{ target, clamp });
 }
 pub fn clear(mask: Bitfield) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glClear", .{mask});
+    return issueCommand("glClear", .{mask});
+}
+pub fn clearBufferData(target: Enum, internalformat: Enum, format: Enum, @"type": Enum, data: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glClearBufferData", .{ target, internalformat, format, @"type", data });
+}
+pub fn clearBufferSubData(target: Enum, internalformat: Enum, offset: Intptr, size: Sizeiptr, format: Enum, @"type": Enum, data: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glClearBufferSubData", .{ target, internalformat, offset, size, format, @"type", data });
 }
 pub fn clearBufferfi(buffer: Enum, drawbuffer: Int, depth: Float, stencil: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glClearBufferfi", .{ buffer, drawbuffer, depth, stencil });
+    return issueCommand("glClearBufferfi", .{ buffer, drawbuffer, depth, stencil });
 }
 pub fn clearBufferfv(buffer: Enum, drawbuffer: Int, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glClearBufferfv", .{ buffer, drawbuffer, value });
+    return issueCommand("glClearBufferfv", .{ buffer, drawbuffer, value });
 }
 pub fn clearBufferiv(buffer: Enum, drawbuffer: Int, value: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glClearBufferiv", .{ buffer, drawbuffer, value });
+    return issueCommand("glClearBufferiv", .{ buffer, drawbuffer, value });
 }
 pub fn clearBufferuiv(buffer: Enum, drawbuffer: Int, value: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glClearBufferuiv", .{ buffer, drawbuffer, value });
+    return issueCommand("glClearBufferuiv", .{ buffer, drawbuffer, value });
 }
 pub fn clearColor(red: Float, green: Float, blue: Float, alpha: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glClearColor", .{ red, green, blue, alpha });
+    return issueCommand("glClearColor", .{ red, green, blue, alpha });
 }
 pub fn clearDepth(depth: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glClearDepth", .{depth});
+    return issueCommand("glClearDepth", .{depth});
 }
 pub fn clearDepthf(d: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glClearDepthf", .{d});
+    return issueCommand("glClearDepthf", .{d});
+}
+pub fn clearNamedBufferData(buffer: Uint, internalformat: Enum, format: Enum, @"type": Enum, data: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glClearNamedBufferData", .{ buffer, internalformat, format, @"type", data });
+}
+pub fn clearNamedBufferSubData(buffer: Uint, internalformat: Enum, offset: Intptr, size: Sizeiptr, format: Enum, @"type": Enum, data: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glClearNamedBufferSubData", .{ buffer, internalformat, offset, size, format, @"type", data });
+}
+pub fn clearNamedFramebufferfi(framebuffer: Uint, buffer: Enum, drawbuffer: Int, depth: Float, stencil: Int) callconv(.C) void {
+    return issueCommand("glClearNamedFramebufferfi", .{ framebuffer, buffer, drawbuffer, depth, stencil });
+}
+pub fn clearNamedFramebufferfv(framebuffer: Uint, buffer: Enum, drawbuffer: Int, value: [*c]const Float) callconv(.C) void {
+    return issueCommand("glClearNamedFramebufferfv", .{ framebuffer, buffer, drawbuffer, value });
+}
+pub fn clearNamedFramebufferiv(framebuffer: Uint, buffer: Enum, drawbuffer: Int, value: [*c]const Int) callconv(.C) void {
+    return issueCommand("glClearNamedFramebufferiv", .{ framebuffer, buffer, drawbuffer, value });
+}
+pub fn clearNamedFramebufferuiv(framebuffer: Uint, buffer: Enum, drawbuffer: Int, value: [*c]const Uint) callconv(.C) void {
+    return issueCommand("glClearNamedFramebufferuiv", .{ framebuffer, buffer, drawbuffer, value });
 }
 pub fn clearStencil(s: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glClearStencil", .{s});
+    return issueCommand("glClearStencil", .{s});
+}
+pub fn clearTexImage(texture: Uint, level: Int, format: Enum, @"type": Enum, data: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glClearTexImage", .{ texture, level, format, @"type", data });
+}
+pub fn clearTexSubImage(texture: Uint, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, width: Sizei, height: Sizei, depth: Sizei, format: Enum, @"type": Enum, data: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glClearTexSubImage", .{ texture, level, xoffset, yoffset, zoffset, width, height, depth, format, @"type", data });
 }
 pub fn clientWaitSync(sync: Sync, flags: Bitfield, timeout: Uint64) callconv(.C) Enum {
-    return DispatchTable.current.?.invokeIntercepted("glClientWaitSync", .{ sync, flags, timeout });
+    return issueCommand("glClientWaitSync", .{ sync, flags, timeout });
+}
+pub fn clipControl(origin: Enum, depth: Enum) callconv(.C) void {
+    return issueCommand("glClipControl", .{ origin, depth });
 }
 pub fn colorMask(red: Boolean, green: Boolean, blue: Boolean, alpha: Boolean) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glColorMask", .{ red, green, blue, alpha });
+    return issueCommand("glColorMask", .{ red, green, blue, alpha });
 }
 pub fn colorMaski(index: Uint, r: Boolean, g: Boolean, b: Boolean, a: Boolean) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glColorMaski", .{ index, r, g, b, a });
+    return issueCommand("glColorMaski", .{ index, r, g, b, a });
 }
 pub fn compileShader(shader: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCompileShader", .{shader});
+    return issueCommand("glCompileShader", .{shader});
 }
 pub fn compressedTexImage1D(target: Enum, level: Int, internalformat: Enum, width: Sizei, border: Int, imageSize: Sizei, data: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCompressedTexImage1D", .{ target, level, internalformat, width, border, imageSize, data });
+    return issueCommand("glCompressedTexImage1D", .{ target, level, internalformat, width, border, imageSize, data });
 }
 pub fn compressedTexImage2D(target: Enum, level: Int, internalformat: Enum, width: Sizei, height: Sizei, border: Int, imageSize: Sizei, data: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCompressedTexImage2D", .{ target, level, internalformat, width, height, border, imageSize, data });
+    return issueCommand("glCompressedTexImage2D", .{ target, level, internalformat, width, height, border, imageSize, data });
 }
 pub fn compressedTexImage3D(target: Enum, level: Int, internalformat: Enum, width: Sizei, height: Sizei, depth: Sizei, border: Int, imageSize: Sizei, data: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCompressedTexImage3D", .{ target, level, internalformat, width, height, depth, border, imageSize, data });
+    return issueCommand("glCompressedTexImage3D", .{ target, level, internalformat, width, height, depth, border, imageSize, data });
 }
 pub fn compressedTexSubImage1D(target: Enum, level: Int, xoffset: Int, width: Sizei, format: Enum, imageSize: Sizei, data: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCompressedTexSubImage1D", .{ target, level, xoffset, width, format, imageSize, data });
+    return issueCommand("glCompressedTexSubImage1D", .{ target, level, xoffset, width, format, imageSize, data });
 }
 pub fn compressedTexSubImage2D(target: Enum, level: Int, xoffset: Int, yoffset: Int, width: Sizei, height: Sizei, format: Enum, imageSize: Sizei, data: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCompressedTexSubImage2D", .{ target, level, xoffset, yoffset, width, height, format, imageSize, data });
+    return issueCommand("glCompressedTexSubImage2D", .{ target, level, xoffset, yoffset, width, height, format, imageSize, data });
 }
 pub fn compressedTexSubImage3D(target: Enum, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, width: Sizei, height: Sizei, depth: Sizei, format: Enum, imageSize: Sizei, data: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCompressedTexSubImage3D", .{ target, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, data });
+    return issueCommand("glCompressedTexSubImage3D", .{ target, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, data });
+}
+pub fn compressedTextureSubImage1D(texture: Uint, level: Int, xoffset: Int, width: Sizei, format: Enum, imageSize: Sizei, data: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glCompressedTextureSubImage1D", .{ texture, level, xoffset, width, format, imageSize, data });
+}
+pub fn compressedTextureSubImage2D(texture: Uint, level: Int, xoffset: Int, yoffset: Int, width: Sizei, height: Sizei, format: Enum, imageSize: Sizei, data: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glCompressedTextureSubImage2D", .{ texture, level, xoffset, yoffset, width, height, format, imageSize, data });
+}
+pub fn compressedTextureSubImage3D(texture: Uint, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, width: Sizei, height: Sizei, depth: Sizei, format: Enum, imageSize: Sizei, data: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glCompressedTextureSubImage3D", .{ texture, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, data });
 }
 pub fn copyBufferSubData(readTarget: Enum, writeTarget: Enum, readOffset: Intptr, writeOffset: Intptr, size: Sizeiptr) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCopyBufferSubData", .{ readTarget, writeTarget, readOffset, writeOffset, size });
+    return issueCommand("glCopyBufferSubData", .{ readTarget, writeTarget, readOffset, writeOffset, size });
+}
+pub fn copyImageSubData(srcName: Uint, srcTarget: Enum, srcLevel: Int, srcX: Int, srcY: Int, srcZ: Int, dstName: Uint, dstTarget: Enum, dstLevel: Int, dstX: Int, dstY: Int, dstZ: Int, srcWidth: Sizei, srcHeight: Sizei, srcDepth: Sizei) callconv(.C) void {
+    return issueCommand("glCopyImageSubData", .{ srcName, srcTarget, srcLevel, srcX, srcY, srcZ, dstName, dstTarget, dstLevel, dstX, dstY, dstZ, srcWidth, srcHeight, srcDepth });
+}
+pub fn copyNamedBufferSubData(readBuffer_: Uint, writeBuffer: Uint, readOffset: Intptr, writeOffset: Intptr, size: Sizeiptr) callconv(.C) void {
+    return issueCommand("glCopyNamedBufferSubData", .{ readBuffer_, writeBuffer, readOffset, writeOffset, size });
 }
 pub fn copyTexImage1D(target: Enum, level: Int, internalformat: Enum, x: Int, y: Int, width: Sizei, border: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCopyTexImage1D", .{ target, level, internalformat, x, y, width, border });
+    return issueCommand("glCopyTexImage1D", .{ target, level, internalformat, x, y, width, border });
 }
 pub fn copyTexImage2D(target: Enum, level: Int, internalformat: Enum, x: Int, y: Int, width: Sizei, height: Sizei, border: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCopyTexImage2D", .{ target, level, internalformat, x, y, width, height, border });
+    return issueCommand("glCopyTexImage2D", .{ target, level, internalformat, x, y, width, height, border });
 }
 pub fn copyTexSubImage1D(target: Enum, level: Int, xoffset: Int, x: Int, y: Int, width: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCopyTexSubImage1D", .{ target, level, xoffset, x, y, width });
+    return issueCommand("glCopyTexSubImage1D", .{ target, level, xoffset, x, y, width });
 }
 pub fn copyTexSubImage2D(target: Enum, level: Int, xoffset: Int, yoffset: Int, x: Int, y: Int, width: Sizei, height: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCopyTexSubImage2D", .{ target, level, xoffset, yoffset, x, y, width, height });
+    return issueCommand("glCopyTexSubImage2D", .{ target, level, xoffset, yoffset, x, y, width, height });
 }
 pub fn copyTexSubImage3D(target: Enum, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, x: Int, y: Int, width: Sizei, height: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCopyTexSubImage3D", .{ target, level, xoffset, yoffset, zoffset, x, y, width, height });
+    return issueCommand("glCopyTexSubImage3D", .{ target, level, xoffset, yoffset, zoffset, x, y, width, height });
+}
+pub fn copyTextureSubImage1D(texture: Uint, level: Int, xoffset: Int, x: Int, y: Int, width: Sizei) callconv(.C) void {
+    return issueCommand("glCopyTextureSubImage1D", .{ texture, level, xoffset, x, y, width });
+}
+pub fn copyTextureSubImage2D(texture: Uint, level: Int, xoffset: Int, yoffset: Int, x: Int, y: Int, width: Sizei, height: Sizei) callconv(.C) void {
+    return issueCommand("glCopyTextureSubImage2D", .{ texture, level, xoffset, yoffset, x, y, width, height });
+}
+pub fn copyTextureSubImage3D(texture: Uint, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, x: Int, y: Int, width: Sizei, height: Sizei) callconv(.C) void {
+    return issueCommand("glCopyTextureSubImage3D", .{ texture, level, xoffset, yoffset, zoffset, x, y, width, height });
+}
+pub fn createBuffers(n: Sizei, buffers: [*c]Uint) callconv(.C) void {
+    return issueCommand("glCreateBuffers", .{ n, buffers });
+}
+pub fn createFramebuffers(n: Sizei, framebuffers: [*c]Uint) callconv(.C) void {
+    return issueCommand("glCreateFramebuffers", .{ n, framebuffers });
 }
 pub fn createProgram() callconv(.C) Uint {
-    return DispatchTable.current.?.invokeIntercepted("glCreateProgram", .{});
+    return issueCommand("glCreateProgram", .{});
+}
+pub fn createProgramPipelines(n: Sizei, pipelines: [*c]Uint) callconv(.C) void {
+    return issueCommand("glCreateProgramPipelines", .{ n, pipelines });
+}
+pub fn createQueries(target: Enum, n: Sizei, ids: [*c]Uint) callconv(.C) void {
+    return issueCommand("glCreateQueries", .{ target, n, ids });
+}
+pub fn createRenderbuffers(n: Sizei, renderbuffers: [*c]Uint) callconv(.C) void {
+    return issueCommand("glCreateRenderbuffers", .{ n, renderbuffers });
+}
+pub fn createSamplers(n: Sizei, samplers: [*c]Uint) callconv(.C) void {
+    return issueCommand("glCreateSamplers", .{ n, samplers });
 }
 pub fn createShader(@"type": Enum) callconv(.C) Uint {
-    return DispatchTable.current.?.invokeIntercepted("glCreateShader", .{@"type"});
+    return issueCommand("glCreateShader", .{@"type"});
 }
 pub fn createShaderProgramv(@"type": Enum, count: Sizei, strings: [*c]const [*c]const Char) callconv(.C) Uint {
-    return DispatchTable.current.?.invokeIntercepted("glCreateShaderProgramv", .{ @"type", count, strings });
+    return issueCommand("glCreateShaderProgramv", .{ @"type", count, strings });
+}
+pub fn createTextures(target: Enum, n: Sizei, textures: [*c]Uint) callconv(.C) void {
+    return issueCommand("glCreateTextures", .{ target, n, textures });
+}
+pub fn createTransformFeedbacks(n: Sizei, ids: [*c]Uint) callconv(.C) void {
+    return issueCommand("glCreateTransformFeedbacks", .{ n, ids });
+}
+pub fn createVertexArrays(n: Sizei, arrays: [*c]Uint) callconv(.C) void {
+    return issueCommand("glCreateVertexArrays", .{ n, arrays });
 }
 pub fn cullFace(mode: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glCullFace", .{mode});
+    return issueCommand("glCullFace", .{mode});
+}
+pub fn debugMessageCallback(callback: DebugProc, userParam: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glDebugMessageCallback", .{ callback, userParam });
+}
+pub fn debugMessageControl(source: Enum, @"type": Enum, severity: Enum, count: Sizei, ids: [*c]const Uint, enabled: Boolean) callconv(.C) void {
+    return issueCommand("glDebugMessageControl", .{ source, @"type", severity, count, ids, enabled });
+}
+pub fn debugMessageInsert(source: Enum, @"type": Enum, id: Uint, severity: Enum, length: Sizei, buf: [*c]const Char) callconv(.C) void {
+    return issueCommand("glDebugMessageInsert", .{ source, @"type", id, severity, length, buf });
 }
 pub fn deleteBuffers(n: Sizei, buffers: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDeleteBuffers", .{ n, buffers });
+    return issueCommand("glDeleteBuffers", .{ n, buffers });
 }
 pub fn deleteFramebuffers(n: Sizei, framebuffers: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDeleteFramebuffers", .{ n, framebuffers });
+    return issueCommand("glDeleteFramebuffers", .{ n, framebuffers });
 }
 pub fn deleteProgram(program: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDeleteProgram", .{program});
+    return issueCommand("glDeleteProgram", .{program});
 }
 pub fn deleteProgramPipelines(n: Sizei, pipelines: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDeleteProgramPipelines", .{ n, pipelines });
+    return issueCommand("glDeleteProgramPipelines", .{ n, pipelines });
 }
 pub fn deleteQueries(n: Sizei, ids: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDeleteQueries", .{ n, ids });
+    return issueCommand("glDeleteQueries", .{ n, ids });
 }
 pub fn deleteRenderbuffers(n: Sizei, renderbuffers: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDeleteRenderbuffers", .{ n, renderbuffers });
+    return issueCommand("glDeleteRenderbuffers", .{ n, renderbuffers });
 }
 pub fn deleteSamplers(count: Sizei, samplers: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDeleteSamplers", .{ count, samplers });
+    return issueCommand("glDeleteSamplers", .{ count, samplers });
 }
 pub fn deleteShader(shader: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDeleteShader", .{shader});
+    return issueCommand("glDeleteShader", .{shader});
 }
 pub fn deleteSync(sync: Sync) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDeleteSync", .{sync});
+    return issueCommand("glDeleteSync", .{sync});
 }
 pub fn deleteTextures(n: Sizei, textures: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDeleteTextures", .{ n, textures });
+    return issueCommand("glDeleteTextures", .{ n, textures });
 }
 pub fn deleteTransformFeedbacks(n: Sizei, ids: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDeleteTransformFeedbacks", .{ n, ids });
+    return issueCommand("glDeleteTransformFeedbacks", .{ n, ids });
 }
 pub fn deleteVertexArrays(n: Sizei, arrays: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDeleteVertexArrays", .{ n, arrays });
+    return issueCommand("glDeleteVertexArrays", .{ n, arrays });
 }
 pub fn depthFunc(func: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDepthFunc", .{func});
+    return issueCommand("glDepthFunc", .{func});
 }
 pub fn depthMask(flag: Boolean) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDepthMask", .{flag});
+    return issueCommand("glDepthMask", .{flag});
 }
 pub fn depthRange(n: Double, f: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDepthRange", .{ n, f });
+    return issueCommand("glDepthRange", .{ n, f });
 }
 pub fn depthRangeArrayv(first: Uint, count: Sizei, v: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDepthRangeArrayv", .{ first, count, v });
+    return issueCommand("glDepthRangeArrayv", .{ first, count, v });
 }
 pub fn depthRangeIndexed(index: Uint, n: Double, f: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDepthRangeIndexed", .{ index, n, f });
+    return issueCommand("glDepthRangeIndexed", .{ index, n, f });
 }
 pub fn depthRangef(n: Float, f: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDepthRangef", .{ n, f });
+    return issueCommand("glDepthRangef", .{ n, f });
 }
 pub fn detachShader(program: Uint, shader: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDetachShader", .{ program, shader });
+    return issueCommand("glDetachShader", .{ program, shader });
 }
 pub fn disable(cap: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDisable", .{cap});
+    return issueCommand("glDisable", .{cap});
+}
+pub fn disableVertexArrayAttrib(vaobj: Uint, index: Uint) callconv(.C) void {
+    return issueCommand("glDisableVertexArrayAttrib", .{ vaobj, index });
 }
 pub fn disableVertexAttribArray(index: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDisableVertexAttribArray", .{index});
+    return issueCommand("glDisableVertexAttribArray", .{index});
 }
 pub fn disablei(target: Enum, index: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDisablei", .{ target, index });
+    return issueCommand("glDisablei", .{ target, index });
+}
+pub fn dispatchCompute(num_groups_x: Uint, num_groups_y: Uint, num_groups_z: Uint) callconv(.C) void {
+    return issueCommand("glDispatchCompute", .{ num_groups_x, num_groups_y, num_groups_z });
+}
+pub fn dispatchComputeIndirect(indirect: Intptr) callconv(.C) void {
+    return issueCommand("glDispatchComputeIndirect", .{indirect});
 }
 pub fn drawArrays(mode: Enum, first: Int, count: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawArrays", .{ mode, first, count });
+    return issueCommand("glDrawArrays", .{ mode, first, count });
 }
 pub fn drawArraysIndirect(mode: Enum, indirect: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawArraysIndirect", .{ mode, indirect });
+    return issueCommand("glDrawArraysIndirect", .{ mode, indirect });
 }
 pub fn drawArraysInstanced(mode: Enum, first: Int, count: Sizei, instancecount: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawArraysInstanced", .{ mode, first, count, instancecount });
+    return issueCommand("glDrawArraysInstanced", .{ mode, first, count, instancecount });
+}
+pub fn drawArraysInstancedBaseInstance(mode: Enum, first: Int, count: Sizei, instancecount: Sizei, baseinstance: Uint) callconv(.C) void {
+    return issueCommand("glDrawArraysInstancedBaseInstance", .{ mode, first, count, instancecount, baseinstance });
 }
 pub fn drawBuffer(buf: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawBuffer", .{buf});
+    return issueCommand("glDrawBuffer", .{buf});
 }
 pub fn drawBuffers(n: Sizei, bufs: [*c]const Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawBuffers", .{ n, bufs });
+    return issueCommand("glDrawBuffers", .{ n, bufs });
 }
 pub fn drawElements(mode: Enum, count: Sizei, @"type": Enum, indices: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawElements", .{ mode, count, @"type", indices });
+    return issueCommand("glDrawElements", .{ mode, count, @"type", indices });
 }
 pub fn drawElementsBaseVertex(mode: Enum, count: Sizei, @"type": Enum, indices: ?*const anyopaque, basevertex: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawElementsBaseVertex", .{ mode, count, @"type", indices, basevertex });
+    return issueCommand("glDrawElementsBaseVertex", .{ mode, count, @"type", indices, basevertex });
 }
 pub fn drawElementsIndirect(mode: Enum, @"type": Enum, indirect: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawElementsIndirect", .{ mode, @"type", indirect });
+    return issueCommand("glDrawElementsIndirect", .{ mode, @"type", indirect });
 }
 pub fn drawElementsInstanced(mode: Enum, count: Sizei, @"type": Enum, indices: ?*const anyopaque, instancecount: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawElementsInstanced", .{ mode, count, @"type", indices, instancecount });
+    return issueCommand("glDrawElementsInstanced", .{ mode, count, @"type", indices, instancecount });
+}
+pub fn drawElementsInstancedBaseInstance(mode: Enum, count: Sizei, @"type": Enum, indices: ?*const anyopaque, instancecount: Sizei, baseinstance: Uint) callconv(.C) void {
+    return issueCommand("glDrawElementsInstancedBaseInstance", .{ mode, count, @"type", indices, instancecount, baseinstance });
 }
 pub fn drawElementsInstancedBaseVertex(mode: Enum, count: Sizei, @"type": Enum, indices: ?*const anyopaque, instancecount: Sizei, basevertex: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawElementsInstancedBaseVertex", .{ mode, count, @"type", indices, instancecount, basevertex });
+    return issueCommand("glDrawElementsInstancedBaseVertex", .{ mode, count, @"type", indices, instancecount, basevertex });
+}
+pub fn drawElementsInstancedBaseVertexBaseInstance(mode: Enum, count: Sizei, @"type": Enum, indices: ?*const anyopaque, instancecount: Sizei, basevertex: Int, baseinstance: Uint) callconv(.C) void {
+    return issueCommand("glDrawElementsInstancedBaseVertexBaseInstance", .{ mode, count, @"type", indices, instancecount, basevertex, baseinstance });
 }
 pub fn drawRangeElements(mode: Enum, start: Uint, end: Uint, count: Sizei, @"type": Enum, indices: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawRangeElements", .{ mode, start, end, count, @"type", indices });
+    return issueCommand("glDrawRangeElements", .{ mode, start, end, count, @"type", indices });
 }
 pub fn drawRangeElementsBaseVertex(mode: Enum, start: Uint, end: Uint, count: Sizei, @"type": Enum, indices: ?*const anyopaque, basevertex: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawRangeElementsBaseVertex", .{ mode, start, end, count, @"type", indices, basevertex });
+    return issueCommand("glDrawRangeElementsBaseVertex", .{ mode, start, end, count, @"type", indices, basevertex });
 }
 pub fn drawTransformFeedback(mode: Enum, id: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawTransformFeedback", .{ mode, id });
+    return issueCommand("glDrawTransformFeedback", .{ mode, id });
+}
+pub fn drawTransformFeedbackInstanced(mode: Enum, id: Uint, instancecount: Sizei) callconv(.C) void {
+    return issueCommand("glDrawTransformFeedbackInstanced", .{ mode, id, instancecount });
 }
 pub fn drawTransformFeedbackStream(mode: Enum, id: Uint, stream: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glDrawTransformFeedbackStream", .{ mode, id, stream });
+    return issueCommand("glDrawTransformFeedbackStream", .{ mode, id, stream });
+}
+pub fn drawTransformFeedbackStreamInstanced(mode: Enum, id: Uint, stream: Uint, instancecount: Sizei) callconv(.C) void {
+    return issueCommand("glDrawTransformFeedbackStreamInstanced", .{ mode, id, stream, instancecount });
 }
 pub fn enable(cap: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glEnable", .{cap});
+    return issueCommand("glEnable", .{cap});
+}
+pub fn enableVertexArrayAttrib(vaobj: Uint, index: Uint) callconv(.C) void {
+    return issueCommand("glEnableVertexArrayAttrib", .{ vaobj, index });
 }
 pub fn enableVertexAttribArray(index: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glEnableVertexAttribArray", .{index});
+    return issueCommand("glEnableVertexAttribArray", .{index});
 }
 pub fn enablei(target: Enum, index: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glEnablei", .{ target, index });
+    return issueCommand("glEnablei", .{ target, index });
 }
 pub fn endConditionalRender() callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glEndConditionalRender", .{});
+    return issueCommand("glEndConditionalRender", .{});
 }
 pub fn endQuery(target: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glEndQuery", .{target});
+    return issueCommand("glEndQuery", .{target});
 }
 pub fn endQueryIndexed(target: Enum, index: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glEndQueryIndexed", .{ target, index });
+    return issueCommand("glEndQueryIndexed", .{ target, index });
 }
 pub fn endTransformFeedback() callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glEndTransformFeedback", .{});
+    return issueCommand("glEndTransformFeedback", .{});
 }
 pub fn fenceSync(condition: Enum, flags: Bitfield) callconv(.C) Sync {
-    return DispatchTable.current.?.invokeIntercepted("glFenceSync", .{ condition, flags });
+    return issueCommand("glFenceSync", .{ condition, flags });
 }
 pub fn finish() callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glFinish", .{});
+    return issueCommand("glFinish", .{});
 }
 pub fn flush() callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glFlush", .{});
+    return issueCommand("glFlush", .{});
 }
 pub fn flushMappedBufferRange(target: Enum, offset: Intptr, length: Sizeiptr) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glFlushMappedBufferRange", .{ target, offset, length });
+    return issueCommand("glFlushMappedBufferRange", .{ target, offset, length });
+}
+pub fn flushMappedNamedBufferRange(buffer: Uint, offset: Intptr, length: Sizeiptr) callconv(.C) void {
+    return issueCommand("glFlushMappedNamedBufferRange", .{ buffer, offset, length });
+}
+pub fn framebufferParameteri(target: Enum, pname: Enum, param: Int) callconv(.C) void {
+    return issueCommand("glFramebufferParameteri", .{ target, pname, param });
 }
 pub fn framebufferRenderbuffer(target: Enum, attachment: Enum, renderbuffertarget: Enum, renderbuffer: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glFramebufferRenderbuffer", .{ target, attachment, renderbuffertarget, renderbuffer });
+    return issueCommand("glFramebufferRenderbuffer", .{ target, attachment, renderbuffertarget, renderbuffer });
 }
 pub fn framebufferTexture(target: Enum, attachment: Enum, texture: Uint, level: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glFramebufferTexture", .{ target, attachment, texture, level });
+    return issueCommand("glFramebufferTexture", .{ target, attachment, texture, level });
 }
 pub fn framebufferTexture1D(target: Enum, attachment: Enum, textarget: Enum, texture: Uint, level: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glFramebufferTexture1D", .{ target, attachment, textarget, texture, level });
+    return issueCommand("glFramebufferTexture1D", .{ target, attachment, textarget, texture, level });
 }
 pub fn framebufferTexture2D(target: Enum, attachment: Enum, textarget: Enum, texture: Uint, level: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glFramebufferTexture2D", .{ target, attachment, textarget, texture, level });
+    return issueCommand("glFramebufferTexture2D", .{ target, attachment, textarget, texture, level });
 }
 pub fn framebufferTexture3D(target: Enum, attachment: Enum, textarget: Enum, texture: Uint, level: Int, zoffset: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glFramebufferTexture3D", .{ target, attachment, textarget, texture, level, zoffset });
+    return issueCommand("glFramebufferTexture3D", .{ target, attachment, textarget, texture, level, zoffset });
 }
 pub fn framebufferTextureLayer(target: Enum, attachment: Enum, texture: Uint, level: Int, layer: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glFramebufferTextureLayer", .{ target, attachment, texture, level, layer });
+    return issueCommand("glFramebufferTextureLayer", .{ target, attachment, texture, level, layer });
 }
 pub fn frontFace(mode: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glFrontFace", .{mode});
+    return issueCommand("glFrontFace", .{mode});
 }
 pub fn genBuffers(n: Sizei, buffers: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGenBuffers", .{ n, buffers });
+    return issueCommand("glGenBuffers", .{ n, buffers });
 }
 pub fn genFramebuffers(n: Sizei, framebuffers: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGenFramebuffers", .{ n, framebuffers });
+    return issueCommand("glGenFramebuffers", .{ n, framebuffers });
 }
 pub fn genProgramPipelines(n: Sizei, pipelines: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGenProgramPipelines", .{ n, pipelines });
+    return issueCommand("glGenProgramPipelines", .{ n, pipelines });
 }
 pub fn genQueries(n: Sizei, ids: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGenQueries", .{ n, ids });
+    return issueCommand("glGenQueries", .{ n, ids });
 }
 pub fn genRenderbuffers(n: Sizei, renderbuffers: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGenRenderbuffers", .{ n, renderbuffers });
+    return issueCommand("glGenRenderbuffers", .{ n, renderbuffers });
 }
 pub fn genSamplers(count: Sizei, samplers: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGenSamplers", .{ count, samplers });
+    return issueCommand("glGenSamplers", .{ count, samplers });
 }
 pub fn genTextures(n: Sizei, textures: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGenTextures", .{ n, textures });
+    return issueCommand("glGenTextures", .{ n, textures });
 }
 pub fn genTransformFeedbacks(n: Sizei, ids: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGenTransformFeedbacks", .{ n, ids });
+    return issueCommand("glGenTransformFeedbacks", .{ n, ids });
 }
 pub fn genVertexArrays(n: Sizei, arrays: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGenVertexArrays", .{ n, arrays });
+    return issueCommand("glGenVertexArrays", .{ n, arrays });
 }
 pub fn generateMipmap(target: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGenerateMipmap", .{target});
+    return issueCommand("glGenerateMipmap", .{target});
+}
+pub fn generateTextureMipmap(texture: Uint) callconv(.C) void {
+    return issueCommand("glGenerateTextureMipmap", .{texture});
+}
+pub fn getActiveAtomicCounterBufferiv(program: Uint, bufferIndex: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetActiveAtomicCounterBufferiv", .{ program, bufferIndex, pname, params });
 }
 pub fn getActiveAttrib(program: Uint, index: Uint, bufSize: Sizei, length: [*c]Sizei, size: [*c]Int, @"type": [*c]Enum, name: [*c]Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetActiveAttrib", .{ program, index, bufSize, length, size, @"type", name });
+    return issueCommand("glGetActiveAttrib", .{ program, index, bufSize, length, size, @"type", name });
 }
 pub fn getActiveSubroutineName(program: Uint, shadertype: Enum, index: Uint, bufSize: Sizei, length: [*c]Sizei, name: [*c]Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetActiveSubroutineName", .{ program, shadertype, index, bufSize, length, name });
+    return issueCommand("glGetActiveSubroutineName", .{ program, shadertype, index, bufSize, length, name });
 }
 pub fn getActiveSubroutineUniformName(program: Uint, shadertype: Enum, index: Uint, bufSize: Sizei, length: [*c]Sizei, name: [*c]Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetActiveSubroutineUniformName", .{ program, shadertype, index, bufSize, length, name });
+    return issueCommand("glGetActiveSubroutineUniformName", .{ program, shadertype, index, bufSize, length, name });
 }
 pub fn getActiveSubroutineUniformiv(program: Uint, shadertype: Enum, index: Uint, pname: Enum, values: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetActiveSubroutineUniformiv", .{ program, shadertype, index, pname, values });
+    return issueCommand("glGetActiveSubroutineUniformiv", .{ program, shadertype, index, pname, values });
 }
 pub fn getActiveUniform(program: Uint, index: Uint, bufSize: Sizei, length: [*c]Sizei, size: [*c]Int, @"type": [*c]Enum, name: [*c]Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetActiveUniform", .{ program, index, bufSize, length, size, @"type", name });
+    return issueCommand("glGetActiveUniform", .{ program, index, bufSize, length, size, @"type", name });
 }
 pub fn getActiveUniformBlockName(program: Uint, uniformBlockIndex: Uint, bufSize: Sizei, length: [*c]Sizei, uniformBlockName: [*c]Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetActiveUniformBlockName", .{ program, uniformBlockIndex, bufSize, length, uniformBlockName });
+    return issueCommand("glGetActiveUniformBlockName", .{ program, uniformBlockIndex, bufSize, length, uniformBlockName });
 }
 pub fn getActiveUniformBlockiv(program: Uint, uniformBlockIndex: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetActiveUniformBlockiv", .{ program, uniformBlockIndex, pname, params });
+    return issueCommand("glGetActiveUniformBlockiv", .{ program, uniformBlockIndex, pname, params });
 }
 pub fn getActiveUniformName(program: Uint, uniformIndex: Uint, bufSize: Sizei, length: [*c]Sizei, uniformName: [*c]Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetActiveUniformName", .{ program, uniformIndex, bufSize, length, uniformName });
+    return issueCommand("glGetActiveUniformName", .{ program, uniformIndex, bufSize, length, uniformName });
 }
 pub fn getActiveUniformsiv(program: Uint, uniformCount: Sizei, uniformIndices: [*c]const Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetActiveUniformsiv", .{ program, uniformCount, uniformIndices, pname, params });
+    return issueCommand("glGetActiveUniformsiv", .{ program, uniformCount, uniformIndices, pname, params });
 }
 pub fn getAttachedShaders(program: Uint, maxCount: Sizei, count: [*c]Sizei, shaders: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetAttachedShaders", .{ program, maxCount, count, shaders });
+    return issueCommand("glGetAttachedShaders", .{ program, maxCount, count, shaders });
 }
 pub fn getAttribLocation(program: Uint, name: [*c]const Char) callconv(.C) Int {
-    return DispatchTable.current.?.invokeIntercepted("glGetAttribLocation", .{ program, name });
+    return issueCommand("glGetAttribLocation", .{ program, name });
 }
 pub fn getBooleani_v(target: Enum, index: Uint, data: [*c]Boolean) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetBooleani_v", .{ target, index, data });
+    return issueCommand("glGetBooleani_v", .{ target, index, data });
 }
 pub fn getBooleanv(pname: Enum, data: [*c]Boolean) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetBooleanv", .{ pname, data });
+    return issueCommand("glGetBooleanv", .{ pname, data });
 }
 pub fn getBufferParameteri64v(target: Enum, pname: Enum, params: [*c]Int64) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetBufferParameteri64v", .{ target, pname, params });
+    return issueCommand("glGetBufferParameteri64v", .{ target, pname, params });
 }
 pub fn getBufferParameteriv(target: Enum, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetBufferParameteriv", .{ target, pname, params });
+    return issueCommand("glGetBufferParameteriv", .{ target, pname, params });
 }
 pub fn getBufferPointerv(target: Enum, pname: Enum, params: [*c]?*anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetBufferPointerv", .{ target, pname, params });
+    return issueCommand("glGetBufferPointerv", .{ target, pname, params });
 }
 pub fn getBufferSubData(target: Enum, offset: Intptr, size: Sizeiptr, data: ?*anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetBufferSubData", .{ target, offset, size, data });
+    return issueCommand("glGetBufferSubData", .{ target, offset, size, data });
 }
 pub fn getCompressedTexImage(target: Enum, level: Int, img: ?*anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetCompressedTexImage", .{ target, level, img });
+    return issueCommand("glGetCompressedTexImage", .{ target, level, img });
+}
+pub fn getCompressedTextureImage(texture: Uint, level: Int, bufSize: Sizei, pixels: ?*anyopaque) callconv(.C) void {
+    return issueCommand("glGetCompressedTextureImage", .{ texture, level, bufSize, pixels });
+}
+pub fn getCompressedTextureSubImage(texture: Uint, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, width: Sizei, height: Sizei, depth: Sizei, bufSize: Sizei, pixels: ?*anyopaque) callconv(.C) void {
+    return issueCommand("glGetCompressedTextureSubImage", .{ texture, level, xoffset, yoffset, zoffset, width, height, depth, bufSize, pixels });
+}
+pub fn getDebugMessageLog(count: Uint, bufSize: Sizei, sources: [*c]Enum, types: [*c]Enum, ids: [*c]Uint, severities: [*c]Enum, lengths: [*c]Sizei, messageLog: [*c]Char) callconv(.C) Uint {
+    return issueCommand("glGetDebugMessageLog", .{ count, bufSize, sources, types, ids, severities, lengths, messageLog });
 }
 pub fn getDoublei_v(target: Enum, index: Uint, data: [*c]Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetDoublei_v", .{ target, index, data });
+    return issueCommand("glGetDoublei_v", .{ target, index, data });
 }
 pub fn getDoublev(pname: Enum, data: [*c]Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetDoublev", .{ pname, data });
+    return issueCommand("glGetDoublev", .{ pname, data });
 }
 pub fn getError() callconv(.C) Enum {
-    return DispatchTable.current.?.invokeIntercepted("glGetError", .{});
+    return issueCommand("glGetError", .{});
 }
 pub fn getFloati_v(target: Enum, index: Uint, data: [*c]Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetFloati_v", .{ target, index, data });
+    return issueCommand("glGetFloati_v", .{ target, index, data });
 }
 pub fn getFloatv(pname: Enum, data: [*c]Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetFloatv", .{ pname, data });
+    return issueCommand("glGetFloatv", .{ pname, data });
 }
 pub fn getFragDataIndex(program: Uint, name: [*c]const Char) callconv(.C) Int {
-    return DispatchTable.current.?.invokeIntercepted("glGetFragDataIndex", .{ program, name });
+    return issueCommand("glGetFragDataIndex", .{ program, name });
 }
 pub fn getFragDataLocation(program: Uint, name: [*c]const Char) callconv(.C) Int {
-    return DispatchTable.current.?.invokeIntercepted("glGetFragDataLocation", .{ program, name });
+    return issueCommand("glGetFragDataLocation", .{ program, name });
 }
 pub fn getFramebufferAttachmentParameteriv(target: Enum, attachment: Enum, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetFramebufferAttachmentParameteriv", .{ target, attachment, pname, params });
+    return issueCommand("glGetFramebufferAttachmentParameteriv", .{ target, attachment, pname, params });
+}
+pub fn getFramebufferParameteriv(target: Enum, pname: Enum, params: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetFramebufferParameteriv", .{ target, pname, params });
+}
+pub fn getGraphicsResetStatus() callconv(.C) Enum {
+    return issueCommand("glGetGraphicsResetStatus", .{});
 }
 pub fn getInteger64i_v(target: Enum, index: Uint, data: [*c]Int64) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetInteger64i_v", .{ target, index, data });
+    return issueCommand("glGetInteger64i_v", .{ target, index, data });
 }
 pub fn getInteger64v(pname: Enum, data: [*c]Int64) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetInteger64v", .{ pname, data });
+    return issueCommand("glGetInteger64v", .{ pname, data });
 }
 pub fn getIntegeri_v(target: Enum, index: Uint, data: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetIntegeri_v", .{ target, index, data });
+    return issueCommand("glGetIntegeri_v", .{ target, index, data });
 }
 pub fn getIntegerv(pname: Enum, data: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetIntegerv", .{ pname, data });
+    return issueCommand("glGetIntegerv", .{ pname, data });
+}
+pub fn getInternalformati64v(target: Enum, internalformat: Enum, pname: Enum, count: Sizei, params: [*c]Int64) callconv(.C) void {
+    return issueCommand("glGetInternalformati64v", .{ target, internalformat, pname, count, params });
+}
+pub fn getInternalformativ(target: Enum, internalformat: Enum, pname: Enum, count: Sizei, params: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetInternalformativ", .{ target, internalformat, pname, count, params });
 }
 pub fn getMultisamplefv(pname: Enum, index: Uint, val: [*c]Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetMultisamplefv", .{ pname, index, val });
+    return issueCommand("glGetMultisamplefv", .{ pname, index, val });
+}
+pub fn getNamedBufferParameteri64v(buffer: Uint, pname: Enum, params: [*c]Int64) callconv(.C) void {
+    return issueCommand("glGetNamedBufferParameteri64v", .{ buffer, pname, params });
+}
+pub fn getNamedBufferParameteriv(buffer: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetNamedBufferParameteriv", .{ buffer, pname, params });
+}
+pub fn getNamedBufferPointerv(buffer: Uint, pname: Enum, params: [*c]?*anyopaque) callconv(.C) void {
+    return issueCommand("glGetNamedBufferPointerv", .{ buffer, pname, params });
+}
+pub fn getNamedBufferSubData(buffer: Uint, offset: Intptr, size: Sizeiptr, data: ?*anyopaque) callconv(.C) void {
+    return issueCommand("glGetNamedBufferSubData", .{ buffer, offset, size, data });
+}
+pub fn getNamedFramebufferAttachmentParameteriv(framebuffer: Uint, attachment: Enum, pname: Enum, params: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetNamedFramebufferAttachmentParameteriv", .{ framebuffer, attachment, pname, params });
+}
+pub fn getNamedFramebufferParameteriv(framebuffer: Uint, pname: Enum, param: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetNamedFramebufferParameteriv", .{ framebuffer, pname, param });
+}
+pub fn getNamedRenderbufferParameteriv(renderbuffer: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetNamedRenderbufferParameteriv", .{ renderbuffer, pname, params });
+}
+pub fn getObjectLabel(identifier: Enum, name: Uint, bufSize: Sizei, length: [*c]Sizei, label: [*c]Char) callconv(.C) void {
+    return issueCommand("glGetObjectLabel", .{ identifier, name, bufSize, length, label });
+}
+pub fn getObjectPtrLabel(ptr: ?*const anyopaque, bufSize: Sizei, length: [*c]Sizei, label: [*c]Char) callconv(.C) void {
+    return issueCommand("glGetObjectPtrLabel", .{ ptr, bufSize, length, label });
+}
+pub fn getPointerv(pname: Enum, params: [*c]?*anyopaque) callconv(.C) void {
+    return issueCommand("glGetPointerv", .{ pname, params });
 }
 pub fn getProgramBinary(program: Uint, bufSize: Sizei, length: [*c]Sizei, binaryFormat: [*c]Enum, binary: ?*anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetProgramBinary", .{ program, bufSize, length, binaryFormat, binary });
+    return issueCommand("glGetProgramBinary", .{ program, bufSize, length, binaryFormat, binary });
 }
 pub fn getProgramInfoLog(program: Uint, bufSize: Sizei, length: [*c]Sizei, infoLog: [*c]Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetProgramInfoLog", .{ program, bufSize, length, infoLog });
+    return issueCommand("glGetProgramInfoLog", .{ program, bufSize, length, infoLog });
+}
+pub fn getProgramInterfaceiv(program: Uint, programInterface: Enum, pname: Enum, params: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetProgramInterfaceiv", .{ program, programInterface, pname, params });
 }
 pub fn getProgramPipelineInfoLog(pipeline: Uint, bufSize: Sizei, length: [*c]Sizei, infoLog: [*c]Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetProgramPipelineInfoLog", .{ pipeline, bufSize, length, infoLog });
+    return issueCommand("glGetProgramPipelineInfoLog", .{ pipeline, bufSize, length, infoLog });
 }
 pub fn getProgramPipelineiv(pipeline: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetProgramPipelineiv", .{ pipeline, pname, params });
+    return issueCommand("glGetProgramPipelineiv", .{ pipeline, pname, params });
+}
+pub fn getProgramResourceIndex(program: Uint, programInterface: Enum, name: [*c]const Char) callconv(.C) Uint {
+    return issueCommand("glGetProgramResourceIndex", .{ program, programInterface, name });
+}
+pub fn getProgramResourceLocation(program: Uint, programInterface: Enum, name: [*c]const Char) callconv(.C) Int {
+    return issueCommand("glGetProgramResourceLocation", .{ program, programInterface, name });
+}
+pub fn getProgramResourceLocationIndex(program: Uint, programInterface: Enum, name: [*c]const Char) callconv(.C) Int {
+    return issueCommand("glGetProgramResourceLocationIndex", .{ program, programInterface, name });
+}
+pub fn getProgramResourceName(program: Uint, programInterface: Enum, index: Uint, bufSize: Sizei, length: [*c]Sizei, name: [*c]Char) callconv(.C) void {
+    return issueCommand("glGetProgramResourceName", .{ program, programInterface, index, bufSize, length, name });
+}
+pub fn getProgramResourceiv(program: Uint, programInterface: Enum, index: Uint, propCount: Sizei, props: [*c]const Enum, count: Sizei, length: [*c]Sizei, params: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetProgramResourceiv", .{ program, programInterface, index, propCount, props, count, length, params });
 }
 pub fn getProgramStageiv(program: Uint, shadertype: Enum, pname: Enum, values: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetProgramStageiv", .{ program, shadertype, pname, values });
+    return issueCommand("glGetProgramStageiv", .{ program, shadertype, pname, values });
 }
 pub fn getProgramiv(program: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetProgramiv", .{ program, pname, params });
+    return issueCommand("glGetProgramiv", .{ program, pname, params });
+}
+pub fn getQueryBufferObjecti64v(id: Uint, buffer: Uint, pname: Enum, offset: Intptr) callconv(.C) void {
+    return issueCommand("glGetQueryBufferObjecti64v", .{ id, buffer, pname, offset });
+}
+pub fn getQueryBufferObjectiv(id: Uint, buffer: Uint, pname: Enum, offset: Intptr) callconv(.C) void {
+    return issueCommand("glGetQueryBufferObjectiv", .{ id, buffer, pname, offset });
+}
+pub fn getQueryBufferObjectui64v(id: Uint, buffer: Uint, pname: Enum, offset: Intptr) callconv(.C) void {
+    return issueCommand("glGetQueryBufferObjectui64v", .{ id, buffer, pname, offset });
+}
+pub fn getQueryBufferObjectuiv(id: Uint, buffer: Uint, pname: Enum, offset: Intptr) callconv(.C) void {
+    return issueCommand("glGetQueryBufferObjectuiv", .{ id, buffer, pname, offset });
 }
 pub fn getQueryIndexediv(target: Enum, index: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetQueryIndexediv", .{ target, index, pname, params });
+    return issueCommand("glGetQueryIndexediv", .{ target, index, pname, params });
 }
 pub fn getQueryObjecti64v(id: Uint, pname: Enum, params: [*c]Int64) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetQueryObjecti64v", .{ id, pname, params });
+    return issueCommand("glGetQueryObjecti64v", .{ id, pname, params });
 }
 pub fn getQueryObjectiv(id: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetQueryObjectiv", .{ id, pname, params });
+    return issueCommand("glGetQueryObjectiv", .{ id, pname, params });
 }
 pub fn getQueryObjectui64v(id: Uint, pname: Enum, params: [*c]Uint64) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetQueryObjectui64v", .{ id, pname, params });
+    return issueCommand("glGetQueryObjectui64v", .{ id, pname, params });
 }
 pub fn getQueryObjectuiv(id: Uint, pname: Enum, params: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetQueryObjectuiv", .{ id, pname, params });
+    return issueCommand("glGetQueryObjectuiv", .{ id, pname, params });
 }
 pub fn getQueryiv(target: Enum, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetQueryiv", .{ target, pname, params });
+    return issueCommand("glGetQueryiv", .{ target, pname, params });
 }
 pub fn getRenderbufferParameteriv(target: Enum, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetRenderbufferParameteriv", .{ target, pname, params });
+    return issueCommand("glGetRenderbufferParameteriv", .{ target, pname, params });
 }
 pub fn getSamplerParameterIiv(sampler: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetSamplerParameterIiv", .{ sampler, pname, params });
+    return issueCommand("glGetSamplerParameterIiv", .{ sampler, pname, params });
 }
 pub fn getSamplerParameterIuiv(sampler: Uint, pname: Enum, params: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetSamplerParameterIuiv", .{ sampler, pname, params });
+    return issueCommand("glGetSamplerParameterIuiv", .{ sampler, pname, params });
 }
 pub fn getSamplerParameterfv(sampler: Uint, pname: Enum, params: [*c]Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetSamplerParameterfv", .{ sampler, pname, params });
+    return issueCommand("glGetSamplerParameterfv", .{ sampler, pname, params });
 }
 pub fn getSamplerParameteriv(sampler: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetSamplerParameteriv", .{ sampler, pname, params });
+    return issueCommand("glGetSamplerParameteriv", .{ sampler, pname, params });
 }
 pub fn getShaderInfoLog(shader: Uint, bufSize: Sizei, length: [*c]Sizei, infoLog: [*c]Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetShaderInfoLog", .{ shader, bufSize, length, infoLog });
+    return issueCommand("glGetShaderInfoLog", .{ shader, bufSize, length, infoLog });
 }
 pub fn getShaderPrecisionFormat(shadertype: Enum, precisiontype: Enum, range: [*c]Int, precision: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetShaderPrecisionFormat", .{ shadertype, precisiontype, range, precision });
+    return issueCommand("glGetShaderPrecisionFormat", .{ shadertype, precisiontype, range, precision });
 }
 pub fn getShaderSource(shader: Uint, bufSize: Sizei, length: [*c]Sizei, source: [*c]Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetShaderSource", .{ shader, bufSize, length, source });
+    return issueCommand("glGetShaderSource", .{ shader, bufSize, length, source });
 }
 pub fn getShaderiv(shader: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetShaderiv", .{ shader, pname, params });
+    return issueCommand("glGetShaderiv", .{ shader, pname, params });
 }
 pub fn getString(name: Enum) callconv(.C) [*c]const Ubyte {
-    return DispatchTable.current.?.invokeIntercepted("glGetString", .{name});
+    return issueCommand("glGetString", .{name});
 }
 pub fn getStringi(name: Enum, index: Uint) callconv(.C) [*c]const Ubyte {
-    return DispatchTable.current.?.invokeIntercepted("glGetStringi", .{ name, index });
+    return issueCommand("glGetStringi", .{ name, index });
 }
 pub fn getSubroutineIndex(program: Uint, shadertype: Enum, name: [*c]const Char) callconv(.C) Uint {
-    return DispatchTable.current.?.invokeIntercepted("glGetSubroutineIndex", .{ program, shadertype, name });
+    return issueCommand("glGetSubroutineIndex", .{ program, shadertype, name });
 }
 pub fn getSubroutineUniformLocation(program: Uint, shadertype: Enum, name: [*c]const Char) callconv(.C) Int {
-    return DispatchTable.current.?.invokeIntercepted("glGetSubroutineUniformLocation", .{ program, shadertype, name });
+    return issueCommand("glGetSubroutineUniformLocation", .{ program, shadertype, name });
 }
 pub fn getSynciv(sync: Sync, pname: Enum, count: Sizei, length: [*c]Sizei, values: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetSynciv", .{ sync, pname, count, length, values });
+    return issueCommand("glGetSynciv", .{ sync, pname, count, length, values });
 }
 pub fn getTexImage(target: Enum, level: Int, format: Enum, @"type": Enum, pixels: ?*anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetTexImage", .{ target, level, format, @"type", pixels });
+    return issueCommand("glGetTexImage", .{ target, level, format, @"type", pixels });
 }
 pub fn getTexLevelParameterfv(target: Enum, level: Int, pname: Enum, params: [*c]Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetTexLevelParameterfv", .{ target, level, pname, params });
+    return issueCommand("glGetTexLevelParameterfv", .{ target, level, pname, params });
 }
 pub fn getTexLevelParameteriv(target: Enum, level: Int, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetTexLevelParameteriv", .{ target, level, pname, params });
+    return issueCommand("glGetTexLevelParameteriv", .{ target, level, pname, params });
 }
 pub fn getTexParameterIiv(target: Enum, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetTexParameterIiv", .{ target, pname, params });
+    return issueCommand("glGetTexParameterIiv", .{ target, pname, params });
 }
 pub fn getTexParameterIuiv(target: Enum, pname: Enum, params: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetTexParameterIuiv", .{ target, pname, params });
+    return issueCommand("glGetTexParameterIuiv", .{ target, pname, params });
 }
 pub fn getTexParameterfv(target: Enum, pname: Enum, params: [*c]Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetTexParameterfv", .{ target, pname, params });
+    return issueCommand("glGetTexParameterfv", .{ target, pname, params });
 }
 pub fn getTexParameteriv(target: Enum, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetTexParameteriv", .{ target, pname, params });
+    return issueCommand("glGetTexParameteriv", .{ target, pname, params });
+}
+pub fn getTextureImage(texture: Uint, level: Int, format: Enum, @"type": Enum, bufSize: Sizei, pixels: ?*anyopaque) callconv(.C) void {
+    return issueCommand("glGetTextureImage", .{ texture, level, format, @"type", bufSize, pixels });
+}
+pub fn getTextureLevelParameterfv(texture: Uint, level: Int, pname: Enum, params: [*c]Float) callconv(.C) void {
+    return issueCommand("glGetTextureLevelParameterfv", .{ texture, level, pname, params });
+}
+pub fn getTextureLevelParameteriv(texture: Uint, level: Int, pname: Enum, params: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetTextureLevelParameteriv", .{ texture, level, pname, params });
+}
+pub fn getTextureParameterIiv(texture: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetTextureParameterIiv", .{ texture, pname, params });
+}
+pub fn getTextureParameterIuiv(texture: Uint, pname: Enum, params: [*c]Uint) callconv(.C) void {
+    return issueCommand("glGetTextureParameterIuiv", .{ texture, pname, params });
+}
+pub fn getTextureParameterfv(texture: Uint, pname: Enum, params: [*c]Float) callconv(.C) void {
+    return issueCommand("glGetTextureParameterfv", .{ texture, pname, params });
+}
+pub fn getTextureParameteriv(texture: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetTextureParameteriv", .{ texture, pname, params });
+}
+pub fn getTextureSubImage(texture: Uint, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, width: Sizei, height: Sizei, depth: Sizei, format: Enum, @"type": Enum, bufSize: Sizei, pixels: ?*anyopaque) callconv(.C) void {
+    return issueCommand("glGetTextureSubImage", .{ texture, level, xoffset, yoffset, zoffset, width, height, depth, format, @"type", bufSize, pixels });
 }
 pub fn getTransformFeedbackVarying(program: Uint, index: Uint, bufSize: Sizei, length: [*c]Sizei, size: [*c]Sizei, @"type": [*c]Enum, name: [*c]Char) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetTransformFeedbackVarying", .{ program, index, bufSize, length, size, @"type", name });
+    return issueCommand("glGetTransformFeedbackVarying", .{ program, index, bufSize, length, size, @"type", name });
+}
+pub fn getTransformFeedbacki64_v(xfb: Uint, pname: Enum, index: Uint, param: [*c]Int64) callconv(.C) void {
+    return issueCommand("glGetTransformFeedbacki64_v", .{ xfb, pname, index, param });
+}
+pub fn getTransformFeedbacki_v(xfb: Uint, pname: Enum, index: Uint, param: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetTransformFeedbacki_v", .{ xfb, pname, index, param });
+}
+pub fn getTransformFeedbackiv(xfb: Uint, pname: Enum, param: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetTransformFeedbackiv", .{ xfb, pname, param });
 }
 pub fn getUniformBlockIndex(program: Uint, uniformBlockName: [*c]const Char) callconv(.C) Uint {
-    return DispatchTable.current.?.invokeIntercepted("glGetUniformBlockIndex", .{ program, uniformBlockName });
+    return issueCommand("glGetUniformBlockIndex", .{ program, uniformBlockName });
 }
 pub fn getUniformIndices(program: Uint, uniformCount: Sizei, uniformNames: [*c]const [*c]const Char, uniformIndices: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetUniformIndices", .{ program, uniformCount, uniformNames, uniformIndices });
+    return issueCommand("glGetUniformIndices", .{ program, uniformCount, uniformNames, uniformIndices });
 }
 pub fn getUniformLocation(program: Uint, name: [*c]const Char) callconv(.C) Int {
-    return DispatchTable.current.?.invokeIntercepted("glGetUniformLocation", .{ program, name });
+    return issueCommand("glGetUniformLocation", .{ program, name });
 }
 pub fn getUniformSubroutineuiv(shadertype: Enum, location: Int, params: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetUniformSubroutineuiv", .{ shadertype, location, params });
+    return issueCommand("glGetUniformSubroutineuiv", .{ shadertype, location, params });
 }
 pub fn getUniformdv(program: Uint, location: Int, params: [*c]Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetUniformdv", .{ program, location, params });
+    return issueCommand("glGetUniformdv", .{ program, location, params });
 }
 pub fn getUniformfv(program: Uint, location: Int, params: [*c]Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetUniformfv", .{ program, location, params });
+    return issueCommand("glGetUniformfv", .{ program, location, params });
 }
 pub fn getUniformiv(program: Uint, location: Int, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetUniformiv", .{ program, location, params });
+    return issueCommand("glGetUniformiv", .{ program, location, params });
 }
 pub fn getUniformuiv(program: Uint, location: Int, params: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetUniformuiv", .{ program, location, params });
+    return issueCommand("glGetUniformuiv", .{ program, location, params });
+}
+pub fn getVertexArrayIndexed64iv(vaobj: Uint, index: Uint, pname: Enum, param: [*c]Int64) callconv(.C) void {
+    return issueCommand("glGetVertexArrayIndexed64iv", .{ vaobj, index, pname, param });
+}
+pub fn getVertexArrayIndexediv(vaobj: Uint, index: Uint, pname: Enum, param: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetVertexArrayIndexediv", .{ vaobj, index, pname, param });
+}
+pub fn getVertexArrayiv(vaobj: Uint, pname: Enum, param: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetVertexArrayiv", .{ vaobj, pname, param });
 }
 pub fn getVertexAttribIiv(index: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetVertexAttribIiv", .{ index, pname, params });
+    return issueCommand("glGetVertexAttribIiv", .{ index, pname, params });
 }
 pub fn getVertexAttribIuiv(index: Uint, pname: Enum, params: [*c]Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetVertexAttribIuiv", .{ index, pname, params });
+    return issueCommand("glGetVertexAttribIuiv", .{ index, pname, params });
 }
 pub fn getVertexAttribLdv(index: Uint, pname: Enum, params: [*c]Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetVertexAttribLdv", .{ index, pname, params });
+    return issueCommand("glGetVertexAttribLdv", .{ index, pname, params });
 }
 pub fn getVertexAttribPointerv(index: Uint, pname: Enum, pointer: [*c]?*anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetVertexAttribPointerv", .{ index, pname, pointer });
+    return issueCommand("glGetVertexAttribPointerv", .{ index, pname, pointer });
 }
 pub fn getVertexAttribdv(index: Uint, pname: Enum, params: [*c]Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetVertexAttribdv", .{ index, pname, params });
+    return issueCommand("glGetVertexAttribdv", .{ index, pname, params });
 }
 pub fn getVertexAttribfv(index: Uint, pname: Enum, params: [*c]Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetVertexAttribfv", .{ index, pname, params });
+    return issueCommand("glGetVertexAttribfv", .{ index, pname, params });
 }
 pub fn getVertexAttribiv(index: Uint, pname: Enum, params: [*c]Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glGetVertexAttribiv", .{ index, pname, params });
+    return issueCommand("glGetVertexAttribiv", .{ index, pname, params });
+}
+pub fn getnCompressedTexImage(target: Enum, lod: Int, bufSize: Sizei, pixels: ?*anyopaque) callconv(.C) void {
+    return issueCommand("glGetnCompressedTexImage", .{ target, lod, bufSize, pixels });
+}
+pub fn getnTexImage(target: Enum, level: Int, format: Enum, @"type": Enum, bufSize: Sizei, pixels: ?*anyopaque) callconv(.C) void {
+    return issueCommand("glGetnTexImage", .{ target, level, format, @"type", bufSize, pixels });
+}
+pub fn getnUniformdv(program: Uint, location: Int, bufSize: Sizei, params: [*c]Double) callconv(.C) void {
+    return issueCommand("glGetnUniformdv", .{ program, location, bufSize, params });
+}
+pub fn getnUniformfv(program: Uint, location: Int, bufSize: Sizei, params: [*c]Float) callconv(.C) void {
+    return issueCommand("glGetnUniformfv", .{ program, location, bufSize, params });
+}
+pub fn getnUniformiv(program: Uint, location: Int, bufSize: Sizei, params: [*c]Int) callconv(.C) void {
+    return issueCommand("glGetnUniformiv", .{ program, location, bufSize, params });
+}
+pub fn getnUniformuiv(program: Uint, location: Int, bufSize: Sizei, params: [*c]Uint) callconv(.C) void {
+    return issueCommand("glGetnUniformuiv", .{ program, location, bufSize, params });
 }
 pub fn hint(target: Enum, mode: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glHint", .{ target, mode });
+    return issueCommand("glHint", .{ target, mode });
+}
+pub fn invalidateBufferData(buffer: Uint) callconv(.C) void {
+    return issueCommand("glInvalidateBufferData", .{buffer});
+}
+pub fn invalidateBufferSubData(buffer: Uint, offset: Intptr, length: Sizeiptr) callconv(.C) void {
+    return issueCommand("glInvalidateBufferSubData", .{ buffer, offset, length });
+}
+pub fn invalidateFramebuffer(target: Enum, numAttachments: Sizei, attachments: [*c]const Enum) callconv(.C) void {
+    return issueCommand("glInvalidateFramebuffer", .{ target, numAttachments, attachments });
+}
+pub fn invalidateNamedFramebufferData(framebuffer: Uint, numAttachments: Sizei, attachments: [*c]const Enum) callconv(.C) void {
+    return issueCommand("glInvalidateNamedFramebufferData", .{ framebuffer, numAttachments, attachments });
+}
+pub fn invalidateNamedFramebufferSubData(framebuffer: Uint, numAttachments: Sizei, attachments: [*c]const Enum, x: Int, y: Int, width: Sizei, height: Sizei) callconv(.C) void {
+    return issueCommand("glInvalidateNamedFramebufferSubData", .{ framebuffer, numAttachments, attachments, x, y, width, height });
+}
+pub fn invalidateSubFramebuffer(target: Enum, numAttachments: Sizei, attachments: [*c]const Enum, x: Int, y: Int, width: Sizei, height: Sizei) callconv(.C) void {
+    return issueCommand("glInvalidateSubFramebuffer", .{ target, numAttachments, attachments, x, y, width, height });
+}
+pub fn invalidateTexImage(texture: Uint, level: Int) callconv(.C) void {
+    return issueCommand("glInvalidateTexImage", .{ texture, level });
+}
+pub fn invalidateTexSubImage(texture: Uint, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, width: Sizei, height: Sizei, depth: Sizei) callconv(.C) void {
+    return issueCommand("glInvalidateTexSubImage", .{ texture, level, xoffset, yoffset, zoffset, width, height, depth });
 }
 pub fn isBuffer(buffer: Uint) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsBuffer", .{buffer});
+    return issueCommand("glIsBuffer", .{buffer});
 }
 pub fn isEnabled(cap: Enum) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsEnabled", .{cap});
+    return issueCommand("glIsEnabled", .{cap});
 }
 pub fn isEnabledi(target: Enum, index: Uint) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsEnabledi", .{ target, index });
+    return issueCommand("glIsEnabledi", .{ target, index });
 }
 pub fn isFramebuffer(framebuffer: Uint) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsFramebuffer", .{framebuffer});
+    return issueCommand("glIsFramebuffer", .{framebuffer});
 }
 pub fn isProgram(program: Uint) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsProgram", .{program});
+    return issueCommand("glIsProgram", .{program});
 }
 pub fn isProgramPipeline(pipeline: Uint) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsProgramPipeline", .{pipeline});
+    return issueCommand("glIsProgramPipeline", .{pipeline});
 }
 pub fn isQuery(id: Uint) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsQuery", .{id});
+    return issueCommand("glIsQuery", .{id});
 }
 pub fn isRenderbuffer(renderbuffer: Uint) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsRenderbuffer", .{renderbuffer});
+    return issueCommand("glIsRenderbuffer", .{renderbuffer});
 }
 pub fn isSampler(sampler: Uint) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsSampler", .{sampler});
+    return issueCommand("glIsSampler", .{sampler});
 }
 pub fn isShader(shader: Uint) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsShader", .{shader});
+    return issueCommand("glIsShader", .{shader});
 }
 pub fn isSync(sync: Sync) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsSync", .{sync});
+    return issueCommand("glIsSync", .{sync});
 }
 pub fn isTexture(texture: Uint) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsTexture", .{texture});
+    return issueCommand("glIsTexture", .{texture});
 }
 pub fn isTransformFeedback(id: Uint) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsTransformFeedback", .{id});
+    return issueCommand("glIsTransformFeedback", .{id});
 }
 pub fn isVertexArray(array: Uint) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glIsVertexArray", .{array});
+    return issueCommand("glIsVertexArray", .{array});
 }
 pub fn lineWidth(width: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glLineWidth", .{width});
+    return issueCommand("glLineWidth", .{width});
 }
 pub fn linkProgram(program: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glLinkProgram", .{program});
+    return issueCommand("glLinkProgram", .{program});
 }
 pub fn logicOp(opcode: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glLogicOp", .{opcode});
+    return issueCommand("glLogicOp", .{opcode});
 }
 pub fn mapBuffer(target: Enum, access: Enum) callconv(.C) ?*anyopaque {
-    return DispatchTable.current.?.invokeIntercepted("glMapBuffer", .{ target, access });
+    return issueCommand("glMapBuffer", .{ target, access });
 }
 pub fn mapBufferRange(target: Enum, offset: Intptr, length: Sizeiptr, access: Bitfield) callconv(.C) ?*anyopaque {
-    return DispatchTable.current.?.invokeIntercepted("glMapBufferRange", .{ target, offset, length, access });
+    return issueCommand("glMapBufferRange", .{ target, offset, length, access });
+}
+pub fn mapNamedBuffer(buffer: Uint, access: Enum) callconv(.C) ?*anyopaque {
+    return issueCommand("glMapNamedBuffer", .{ buffer, access });
+}
+pub fn mapNamedBufferRange(buffer: Uint, offset: Intptr, length: Sizeiptr, access: Bitfield) callconv(.C) ?*anyopaque {
+    return issueCommand("glMapNamedBufferRange", .{ buffer, offset, length, access });
+}
+pub fn memoryBarrier(barriers: Bitfield) callconv(.C) void {
+    return issueCommand("glMemoryBarrier", .{barriers});
+}
+pub fn memoryBarrierByRegion(barriers: Bitfield) callconv(.C) void {
+    return issueCommand("glMemoryBarrierByRegion", .{barriers});
 }
 pub fn minSampleShading(value: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glMinSampleShading", .{value});
+    return issueCommand("glMinSampleShading", .{value});
 }
 pub fn multiDrawArrays(mode: Enum, first: [*c]const Int, count: [*c]const Sizei, drawcount: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glMultiDrawArrays", .{ mode, first, count, drawcount });
+    return issueCommand("glMultiDrawArrays", .{ mode, first, count, drawcount });
+}
+pub fn multiDrawArraysIndirect(mode: Enum, indirect: ?*const anyopaque, drawcount: Sizei, stride: Sizei) callconv(.C) void {
+    return issueCommand("glMultiDrawArraysIndirect", .{ mode, indirect, drawcount, stride });
+}
+pub fn multiDrawArraysIndirectCount(mode: Enum, indirect: ?*const anyopaque, drawcount: Intptr, maxdrawcount: Sizei, stride: Sizei) callconv(.C) void {
+    return issueCommand("glMultiDrawArraysIndirectCount", .{ mode, indirect, drawcount, maxdrawcount, stride });
 }
 pub fn multiDrawElements(mode: Enum, count: [*c]const Sizei, @"type": Enum, indices: [*c]const ?*const anyopaque, drawcount: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glMultiDrawElements", .{ mode, count, @"type", indices, drawcount });
+    return issueCommand("glMultiDrawElements", .{ mode, count, @"type", indices, drawcount });
 }
 pub fn multiDrawElementsBaseVertex(mode: Enum, count: [*c]const Sizei, @"type": Enum, indices: [*c]const ?*const anyopaque, drawcount: Sizei, basevertex: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glMultiDrawElementsBaseVertex", .{ mode, count, @"type", indices, drawcount, basevertex });
+    return issueCommand("glMultiDrawElementsBaseVertex", .{ mode, count, @"type", indices, drawcount, basevertex });
+}
+pub fn multiDrawElementsIndirect(mode: Enum, @"type": Enum, indirect: ?*const anyopaque, drawcount: Sizei, stride: Sizei) callconv(.C) void {
+    return issueCommand("glMultiDrawElementsIndirect", .{ mode, @"type", indirect, drawcount, stride });
+}
+pub fn multiDrawElementsIndirectCount(mode: Enum, @"type": Enum, indirect: ?*const anyopaque, drawcount: Intptr, maxdrawcount: Sizei, stride: Sizei) callconv(.C) void {
+    return issueCommand("glMultiDrawElementsIndirectCount", .{ mode, @"type", indirect, drawcount, maxdrawcount, stride });
+}
+pub fn namedBufferData(buffer: Uint, size: Sizeiptr, data: ?*const anyopaque, usage: Enum) callconv(.C) void {
+    return issueCommand("glNamedBufferData", .{ buffer, size, data, usage });
+}
+pub fn namedBufferStorage(buffer: Uint, size: Sizeiptr, data: ?*const anyopaque, flags: Bitfield) callconv(.C) void {
+    return issueCommand("glNamedBufferStorage", .{ buffer, size, data, flags });
+}
+pub fn namedBufferSubData(buffer: Uint, offset: Intptr, size: Sizeiptr, data: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glNamedBufferSubData", .{ buffer, offset, size, data });
+}
+pub fn namedFramebufferDrawBuffer(framebuffer: Uint, buf: Enum) callconv(.C) void {
+    return issueCommand("glNamedFramebufferDrawBuffer", .{ framebuffer, buf });
+}
+pub fn namedFramebufferDrawBuffers(framebuffer: Uint, n: Sizei, bufs: [*c]const Enum) callconv(.C) void {
+    return issueCommand("glNamedFramebufferDrawBuffers", .{ framebuffer, n, bufs });
+}
+pub fn namedFramebufferParameteri(framebuffer: Uint, pname: Enum, param: Int) callconv(.C) void {
+    return issueCommand("glNamedFramebufferParameteri", .{ framebuffer, pname, param });
+}
+pub fn namedFramebufferReadBuffer(framebuffer: Uint, src: Enum) callconv(.C) void {
+    return issueCommand("glNamedFramebufferReadBuffer", .{ framebuffer, src });
+}
+pub fn namedFramebufferRenderbuffer(framebuffer: Uint, attachment: Enum, renderbuffertarget: Enum, renderbuffer: Uint) callconv(.C) void {
+    return issueCommand("glNamedFramebufferRenderbuffer", .{ framebuffer, attachment, renderbuffertarget, renderbuffer });
+}
+pub fn namedFramebufferTexture(framebuffer: Uint, attachment: Enum, texture: Uint, level: Int) callconv(.C) void {
+    return issueCommand("glNamedFramebufferTexture", .{ framebuffer, attachment, texture, level });
+}
+pub fn namedFramebufferTextureLayer(framebuffer: Uint, attachment: Enum, texture: Uint, level: Int, layer: Int) callconv(.C) void {
+    return issueCommand("glNamedFramebufferTextureLayer", .{ framebuffer, attachment, texture, level, layer });
+}
+pub fn namedRenderbufferStorage(renderbuffer: Uint, internalformat: Enum, width: Sizei, height: Sizei) callconv(.C) void {
+    return issueCommand("glNamedRenderbufferStorage", .{ renderbuffer, internalformat, width, height });
+}
+pub fn namedRenderbufferStorageMultisample(renderbuffer: Uint, samples: Sizei, internalformat: Enum, width: Sizei, height: Sizei) callconv(.C) void {
+    return issueCommand("glNamedRenderbufferStorageMultisample", .{ renderbuffer, samples, internalformat, width, height });
+}
+pub fn objectLabel(identifier: Enum, name: Uint, length: Sizei, label: [*c]const Char) callconv(.C) void {
+    return issueCommand("glObjectLabel", .{ identifier, name, length, label });
+}
+pub fn objectPtrLabel(ptr: ?*const anyopaque, length: Sizei, label: [*c]const Char) callconv(.C) void {
+    return issueCommand("glObjectPtrLabel", .{ ptr, length, label });
 }
 pub fn patchParameterfv(pname: Enum, values: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glPatchParameterfv", .{ pname, values });
+    return issueCommand("glPatchParameterfv", .{ pname, values });
 }
 pub fn patchParameteri(pname: Enum, value: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glPatchParameteri", .{ pname, value });
+    return issueCommand("glPatchParameteri", .{ pname, value });
 }
 pub fn pauseTransformFeedback() callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glPauseTransformFeedback", .{});
+    return issueCommand("glPauseTransformFeedback", .{});
 }
 pub fn pixelStoref(pname: Enum, param: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glPixelStoref", .{ pname, param });
+    return issueCommand("glPixelStoref", .{ pname, param });
 }
 pub fn pixelStorei(pname: Enum, param: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glPixelStorei", .{ pname, param });
+    return issueCommand("glPixelStorei", .{ pname, param });
 }
 pub fn pointParameterf(pname: Enum, param: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glPointParameterf", .{ pname, param });
+    return issueCommand("glPointParameterf", .{ pname, param });
 }
 pub fn pointParameterfv(pname: Enum, params: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glPointParameterfv", .{ pname, params });
+    return issueCommand("glPointParameterfv", .{ pname, params });
 }
 pub fn pointParameteri(pname: Enum, param: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glPointParameteri", .{ pname, param });
+    return issueCommand("glPointParameteri", .{ pname, param });
 }
 pub fn pointParameteriv(pname: Enum, params: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glPointParameteriv", .{ pname, params });
+    return issueCommand("glPointParameteriv", .{ pname, params });
 }
 pub fn pointSize(size: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glPointSize", .{size});
+    return issueCommand("glPointSize", .{size});
 }
 pub fn polygonMode(face: Enum, mode: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glPolygonMode", .{ face, mode });
+    return issueCommand("glPolygonMode", .{ face, mode });
 }
 pub fn polygonOffset(factor: Float, units: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glPolygonOffset", .{ factor, units });
+    return issueCommand("glPolygonOffset", .{ factor, units });
+}
+pub fn polygonOffsetClamp(factor: Float, units: Float, clamp: Float) callconv(.C) void {
+    return issueCommand("glPolygonOffsetClamp", .{ factor, units, clamp });
+}
+pub fn popDebugGroup() callconv(.C) void {
+    return issueCommand("glPopDebugGroup", .{});
 }
 pub fn primitiveRestartIndex(index: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glPrimitiveRestartIndex", .{index});
+    return issueCommand("glPrimitiveRestartIndex", .{index});
 }
 pub fn programBinary(program: Uint, binaryFormat: Enum, binary: ?*const anyopaque, length: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramBinary", .{ program, binaryFormat, binary, length });
+    return issueCommand("glProgramBinary", .{ program, binaryFormat, binary, length });
 }
 pub fn programParameteri(program: Uint, pname: Enum, value: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramParameteri", .{ program, pname, value });
+    return issueCommand("glProgramParameteri", .{ program, pname, value });
 }
 pub fn programUniform1d(program: Uint, location: Int, v0: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform1d", .{ program, location, v0 });
+    return issueCommand("glProgramUniform1d", .{ program, location, v0 });
 }
 pub fn programUniform1dv(program: Uint, location: Int, count: Sizei, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform1dv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform1dv", .{ program, location, count, value });
 }
 pub fn programUniform1f(program: Uint, location: Int, v0: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform1f", .{ program, location, v0 });
+    return issueCommand("glProgramUniform1f", .{ program, location, v0 });
 }
 pub fn programUniform1fv(program: Uint, location: Int, count: Sizei, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform1fv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform1fv", .{ program, location, count, value });
 }
 pub fn programUniform1i(program: Uint, location: Int, v0: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform1i", .{ program, location, v0 });
+    return issueCommand("glProgramUniform1i", .{ program, location, v0 });
 }
 pub fn programUniform1iv(program: Uint, location: Int, count: Sizei, value: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform1iv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform1iv", .{ program, location, count, value });
 }
 pub fn programUniform1ui(program: Uint, location: Int, v0: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform1ui", .{ program, location, v0 });
+    return issueCommand("glProgramUniform1ui", .{ program, location, v0 });
 }
 pub fn programUniform1uiv(program: Uint, location: Int, count: Sizei, value: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform1uiv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform1uiv", .{ program, location, count, value });
 }
 pub fn programUniform2d(program: Uint, location: Int, v0: Double, v1: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform2d", .{ program, location, v0, v1 });
+    return issueCommand("glProgramUniform2d", .{ program, location, v0, v1 });
 }
 pub fn programUniform2dv(program: Uint, location: Int, count: Sizei, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform2dv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform2dv", .{ program, location, count, value });
 }
 pub fn programUniform2f(program: Uint, location: Int, v0: Float, v1: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform2f", .{ program, location, v0, v1 });
+    return issueCommand("glProgramUniform2f", .{ program, location, v0, v1 });
 }
 pub fn programUniform2fv(program: Uint, location: Int, count: Sizei, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform2fv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform2fv", .{ program, location, count, value });
 }
 pub fn programUniform2i(program: Uint, location: Int, v0: Int, v1: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform2i", .{ program, location, v0, v1 });
+    return issueCommand("glProgramUniform2i", .{ program, location, v0, v1 });
 }
 pub fn programUniform2iv(program: Uint, location: Int, count: Sizei, value: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform2iv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform2iv", .{ program, location, count, value });
 }
 pub fn programUniform2ui(program: Uint, location: Int, v0: Uint, v1: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform2ui", .{ program, location, v0, v1 });
+    return issueCommand("glProgramUniform2ui", .{ program, location, v0, v1 });
 }
 pub fn programUniform2uiv(program: Uint, location: Int, count: Sizei, value: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform2uiv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform2uiv", .{ program, location, count, value });
 }
 pub fn programUniform3d(program: Uint, location: Int, v0: Double, v1: Double, v2: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform3d", .{ program, location, v0, v1, v2 });
+    return issueCommand("glProgramUniform3d", .{ program, location, v0, v1, v2 });
 }
 pub fn programUniform3dv(program: Uint, location: Int, count: Sizei, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform3dv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform3dv", .{ program, location, count, value });
 }
 pub fn programUniform3f(program: Uint, location: Int, v0: Float, v1: Float, v2: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform3f", .{ program, location, v0, v1, v2 });
+    return issueCommand("glProgramUniform3f", .{ program, location, v0, v1, v2 });
 }
 pub fn programUniform3fv(program: Uint, location: Int, count: Sizei, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform3fv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform3fv", .{ program, location, count, value });
 }
 pub fn programUniform3i(program: Uint, location: Int, v0: Int, v1: Int, v2: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform3i", .{ program, location, v0, v1, v2 });
+    return issueCommand("glProgramUniform3i", .{ program, location, v0, v1, v2 });
 }
 pub fn programUniform3iv(program: Uint, location: Int, count: Sizei, value: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform3iv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform3iv", .{ program, location, count, value });
 }
 pub fn programUniform3ui(program: Uint, location: Int, v0: Uint, v1: Uint, v2: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform3ui", .{ program, location, v0, v1, v2 });
+    return issueCommand("glProgramUniform3ui", .{ program, location, v0, v1, v2 });
 }
 pub fn programUniform3uiv(program: Uint, location: Int, count: Sizei, value: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform3uiv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform3uiv", .{ program, location, count, value });
 }
 pub fn programUniform4d(program: Uint, location: Int, v0: Double, v1: Double, v2: Double, v3: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform4d", .{ program, location, v0, v1, v2, v3 });
+    return issueCommand("glProgramUniform4d", .{ program, location, v0, v1, v2, v3 });
 }
 pub fn programUniform4dv(program: Uint, location: Int, count: Sizei, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform4dv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform4dv", .{ program, location, count, value });
 }
 pub fn programUniform4f(program: Uint, location: Int, v0: Float, v1: Float, v2: Float, v3: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform4f", .{ program, location, v0, v1, v2, v3 });
+    return issueCommand("glProgramUniform4f", .{ program, location, v0, v1, v2, v3 });
 }
 pub fn programUniform4fv(program: Uint, location: Int, count: Sizei, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform4fv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform4fv", .{ program, location, count, value });
 }
 pub fn programUniform4i(program: Uint, location: Int, v0: Int, v1: Int, v2: Int, v3: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform4i", .{ program, location, v0, v1, v2, v3 });
+    return issueCommand("glProgramUniform4i", .{ program, location, v0, v1, v2, v3 });
 }
 pub fn programUniform4iv(program: Uint, location: Int, count: Sizei, value: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform4iv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform4iv", .{ program, location, count, value });
 }
 pub fn programUniform4ui(program: Uint, location: Int, v0: Uint, v1: Uint, v2: Uint, v3: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform4ui", .{ program, location, v0, v1, v2, v3 });
+    return issueCommand("glProgramUniform4ui", .{ program, location, v0, v1, v2, v3 });
 }
 pub fn programUniform4uiv(program: Uint, location: Int, count: Sizei, value: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniform4uiv", .{ program, location, count, value });
+    return issueCommand("glProgramUniform4uiv", .{ program, location, count, value });
 }
 pub fn programUniformMatrix2dv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix2dv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix2dv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix2fv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix2fv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix2fv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix2x3dv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix2x3dv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix2x3dv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix2x3fv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix2x3fv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix2x3fv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix2x4dv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix2x4dv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix2x4dv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix2x4fv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix2x4fv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix2x4fv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix3dv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix3dv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix3dv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix3fv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix3fv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix3fv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix3x2dv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix3x2dv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix3x2dv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix3x2fv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix3x2fv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix3x2fv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix3x4dv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix3x4dv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix3x4dv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix3x4fv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix3x4fv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix3x4fv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix4dv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix4dv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix4dv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix4fv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix4fv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix4fv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix4x2dv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix4x2dv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix4x2dv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix4x2fv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix4x2fv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix4x2fv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix4x3dv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix4x3dv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix4x3dv", .{ program, location, count, transpose, value });
 }
 pub fn programUniformMatrix4x3fv(program: Uint, location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProgramUniformMatrix4x3fv", .{ program, location, count, transpose, value });
+    return issueCommand("glProgramUniformMatrix4x3fv", .{ program, location, count, transpose, value });
 }
 pub fn provokingVertex(mode: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glProvokingVertex", .{mode});
+    return issueCommand("glProvokingVertex", .{mode});
+}
+pub fn pushDebugGroup(source: Enum, id: Uint, length: Sizei, message: [*c]const Char) callconv(.C) void {
+    return issueCommand("glPushDebugGroup", .{ source, id, length, message });
 }
 pub fn queryCounter(id: Uint, target: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glQueryCounter", .{ id, target });
+    return issueCommand("glQueryCounter", .{ id, target });
 }
 pub fn readBuffer(src: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glReadBuffer", .{src});
+    return issueCommand("glReadBuffer", .{src});
 }
 pub fn readPixels(x: Int, y: Int, width: Sizei, height: Sizei, format: Enum, @"type": Enum, pixels: ?*anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glReadPixels", .{ x, y, width, height, format, @"type", pixels });
+    return issueCommand("glReadPixels", .{ x, y, width, height, format, @"type", pixels });
+}
+pub fn readnPixels(x: Int, y: Int, width: Sizei, height: Sizei, format: Enum, @"type": Enum, bufSize: Sizei, data: ?*anyopaque) callconv(.C) void {
+    return issueCommand("glReadnPixels", .{ x, y, width, height, format, @"type", bufSize, data });
 }
 pub fn releaseShaderCompiler() callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glReleaseShaderCompiler", .{});
+    return issueCommand("glReleaseShaderCompiler", .{});
 }
 pub fn renderbufferStorage(target: Enum, internalformat: Enum, width: Sizei, height: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glRenderbufferStorage", .{ target, internalformat, width, height });
+    return issueCommand("glRenderbufferStorage", .{ target, internalformat, width, height });
 }
 pub fn renderbufferStorageMultisample(target: Enum, samples: Sizei, internalformat: Enum, width: Sizei, height: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glRenderbufferStorageMultisample", .{ target, samples, internalformat, width, height });
+    return issueCommand("glRenderbufferStorageMultisample", .{ target, samples, internalformat, width, height });
 }
 pub fn resumeTransformFeedback() callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glResumeTransformFeedback", .{});
+    return issueCommand("glResumeTransformFeedback", .{});
 }
 pub fn sampleCoverage(value: Float, invert: Boolean) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glSampleCoverage", .{ value, invert });
+    return issueCommand("glSampleCoverage", .{ value, invert });
 }
 pub fn sampleMaski(maskNumber: Uint, mask: Bitfield) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glSampleMaski", .{ maskNumber, mask });
+    return issueCommand("glSampleMaski", .{ maskNumber, mask });
 }
 pub fn samplerParameterIiv(sampler: Uint, pname: Enum, param: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glSamplerParameterIiv", .{ sampler, pname, param });
+    return issueCommand("glSamplerParameterIiv", .{ sampler, pname, param });
 }
 pub fn samplerParameterIuiv(sampler: Uint, pname: Enum, param: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glSamplerParameterIuiv", .{ sampler, pname, param });
+    return issueCommand("glSamplerParameterIuiv", .{ sampler, pname, param });
 }
 pub fn samplerParameterf(sampler: Uint, pname: Enum, param: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glSamplerParameterf", .{ sampler, pname, param });
+    return issueCommand("glSamplerParameterf", .{ sampler, pname, param });
 }
 pub fn samplerParameterfv(sampler: Uint, pname: Enum, param: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glSamplerParameterfv", .{ sampler, pname, param });
+    return issueCommand("glSamplerParameterfv", .{ sampler, pname, param });
 }
 pub fn samplerParameteri(sampler: Uint, pname: Enum, param: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glSamplerParameteri", .{ sampler, pname, param });
+    return issueCommand("glSamplerParameteri", .{ sampler, pname, param });
 }
 pub fn samplerParameteriv(sampler: Uint, pname: Enum, param: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glSamplerParameteriv", .{ sampler, pname, param });
+    return issueCommand("glSamplerParameteriv", .{ sampler, pname, param });
 }
 pub fn scissor(x: Int, y: Int, width: Sizei, height: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glScissor", .{ x, y, width, height });
+    return issueCommand("glScissor", .{ x, y, width, height });
 }
 pub fn scissorArrayv(first: Uint, count: Sizei, v: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glScissorArrayv", .{ first, count, v });
+    return issueCommand("glScissorArrayv", .{ first, count, v });
 }
 pub fn scissorIndexed(index: Uint, left: Int, bottom: Int, width: Sizei, height: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glScissorIndexed", .{ index, left, bottom, width, height });
+    return issueCommand("glScissorIndexed", .{ index, left, bottom, width, height });
 }
 pub fn scissorIndexedv(index: Uint, v: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glScissorIndexedv", .{ index, v });
+    return issueCommand("glScissorIndexedv", .{ index, v });
 }
 pub fn shaderBinary(count: Sizei, shaders: [*c]const Uint, binaryFormat: Enum, binary: ?*const anyopaque, length: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glShaderBinary", .{ count, shaders, binaryFormat, binary, length });
+    return issueCommand("glShaderBinary", .{ count, shaders, binaryFormat, binary, length });
 }
 pub fn shaderSource(shader: Uint, count: Sizei, string: [*c]const [*c]const Char, length: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glShaderSource", .{ shader, count, string, length });
+    return issueCommand("glShaderSource", .{ shader, count, string, length });
+}
+pub fn shaderStorageBlockBinding(program: Uint, storageBlockIndex: Uint, storageBlockBinding: Uint) callconv(.C) void {
+    return issueCommand("glShaderStorageBlockBinding", .{ program, storageBlockIndex, storageBlockBinding });
+}
+pub fn specializeShader(shader: Uint, pEntryPoint: [*c]const Char, numSpecializationConstants: Uint, pConstantIndex: [*c]const Uint, pConstantValue: [*c]const Uint) callconv(.C) void {
+    return issueCommand("glSpecializeShader", .{ shader, pEntryPoint, numSpecializationConstants, pConstantIndex, pConstantValue });
 }
 pub fn stencilFunc(func: Enum, ref: Int, mask: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glStencilFunc", .{ func, ref, mask });
+    return issueCommand("glStencilFunc", .{ func, ref, mask });
 }
 pub fn stencilFuncSeparate(face: Enum, func: Enum, ref: Int, mask: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glStencilFuncSeparate", .{ face, func, ref, mask });
+    return issueCommand("glStencilFuncSeparate", .{ face, func, ref, mask });
 }
 pub fn stencilMask(mask: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glStencilMask", .{mask});
+    return issueCommand("glStencilMask", .{mask});
 }
 pub fn stencilMaskSeparate(face: Enum, mask: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glStencilMaskSeparate", .{ face, mask });
+    return issueCommand("glStencilMaskSeparate", .{ face, mask });
 }
 pub fn stencilOp(fail: Enum, zfail: Enum, zpass: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glStencilOp", .{ fail, zfail, zpass });
+    return issueCommand("glStencilOp", .{ fail, zfail, zpass });
 }
 pub fn stencilOpSeparate(face: Enum, sfail: Enum, dpfail: Enum, dppass: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glStencilOpSeparate", .{ face, sfail, dpfail, dppass });
+    return issueCommand("glStencilOpSeparate", .{ face, sfail, dpfail, dppass });
 }
 pub fn texBuffer(target: Enum, internalformat: Enum, buffer: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexBuffer", .{ target, internalformat, buffer });
+    return issueCommand("glTexBuffer", .{ target, internalformat, buffer });
+}
+pub fn texBufferRange(target: Enum, internalformat: Enum, buffer: Uint, offset: Intptr, size: Sizeiptr) callconv(.C) void {
+    return issueCommand("glTexBufferRange", .{ target, internalformat, buffer, offset, size });
 }
 pub fn texImage1D(target: Enum, level: Int, internalformat: Int, width: Sizei, border: Int, format: Enum, @"type": Enum, pixels: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexImage1D", .{ target, level, internalformat, width, border, format, @"type", pixels });
+    return issueCommand("glTexImage1D", .{ target, level, internalformat, width, border, format, @"type", pixels });
 }
 pub fn texImage2D(target: Enum, level: Int, internalformat: Int, width: Sizei, height: Sizei, border: Int, format: Enum, @"type": Enum, pixels: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexImage2D", .{ target, level, internalformat, width, height, border, format, @"type", pixels });
+    return issueCommand("glTexImage2D", .{ target, level, internalformat, width, height, border, format, @"type", pixels });
 }
 pub fn texImage2DMultisample(target: Enum, samples: Sizei, internalformat: Enum, width: Sizei, height: Sizei, fixedsamplelocations: Boolean) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexImage2DMultisample", .{ target, samples, internalformat, width, height, fixedsamplelocations });
+    return issueCommand("glTexImage2DMultisample", .{ target, samples, internalformat, width, height, fixedsamplelocations });
 }
 pub fn texImage3D(target: Enum, level: Int, internalformat: Int, width: Sizei, height: Sizei, depth: Sizei, border: Int, format: Enum, @"type": Enum, pixels: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexImage3D", .{ target, level, internalformat, width, height, depth, border, format, @"type", pixels });
+    return issueCommand("glTexImage3D", .{ target, level, internalformat, width, height, depth, border, format, @"type", pixels });
 }
 pub fn texImage3DMultisample(target: Enum, samples: Sizei, internalformat: Enum, width: Sizei, height: Sizei, depth: Sizei, fixedsamplelocations: Boolean) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexImage3DMultisample", .{ target, samples, internalformat, width, height, depth, fixedsamplelocations });
+    return issueCommand("glTexImage3DMultisample", .{ target, samples, internalformat, width, height, depth, fixedsamplelocations });
 }
 pub fn texParameterIiv(target: Enum, pname: Enum, params: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexParameterIiv", .{ target, pname, params });
+    return issueCommand("glTexParameterIiv", .{ target, pname, params });
 }
 pub fn texParameterIuiv(target: Enum, pname: Enum, params: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexParameterIuiv", .{ target, pname, params });
+    return issueCommand("glTexParameterIuiv", .{ target, pname, params });
 }
 pub fn texParameterf(target: Enum, pname: Enum, param: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexParameterf", .{ target, pname, param });
+    return issueCommand("glTexParameterf", .{ target, pname, param });
 }
 pub fn texParameterfv(target: Enum, pname: Enum, params: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexParameterfv", .{ target, pname, params });
+    return issueCommand("glTexParameterfv", .{ target, pname, params });
 }
 pub fn texParameteri(target: Enum, pname: Enum, param: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexParameteri", .{ target, pname, param });
+    return issueCommand("glTexParameteri", .{ target, pname, param });
 }
 pub fn texParameteriv(target: Enum, pname: Enum, params: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexParameteriv", .{ target, pname, params });
+    return issueCommand("glTexParameteriv", .{ target, pname, params });
+}
+pub fn texStorage1D(target: Enum, levels: Sizei, internalformat: Enum, width: Sizei) callconv(.C) void {
+    return issueCommand("glTexStorage1D", .{ target, levels, internalformat, width });
+}
+pub fn texStorage2D(target: Enum, levels: Sizei, internalformat: Enum, width: Sizei, height: Sizei) callconv(.C) void {
+    return issueCommand("glTexStorage2D", .{ target, levels, internalformat, width, height });
+}
+pub fn texStorage2DMultisample(target: Enum, samples: Sizei, internalformat: Enum, width: Sizei, height: Sizei, fixedsamplelocations: Boolean) callconv(.C) void {
+    return issueCommand("glTexStorage2DMultisample", .{ target, samples, internalformat, width, height, fixedsamplelocations });
+}
+pub fn texStorage3D(target: Enum, levels: Sizei, internalformat: Enum, width: Sizei, height: Sizei, depth: Sizei) callconv(.C) void {
+    return issueCommand("glTexStorage3D", .{ target, levels, internalformat, width, height, depth });
+}
+pub fn texStorage3DMultisample(target: Enum, samples: Sizei, internalformat: Enum, width: Sizei, height: Sizei, depth: Sizei, fixedsamplelocations: Boolean) callconv(.C) void {
+    return issueCommand("glTexStorage3DMultisample", .{ target, samples, internalformat, width, height, depth, fixedsamplelocations });
 }
 pub fn texSubImage1D(target: Enum, level: Int, xoffset: Int, width: Sizei, format: Enum, @"type": Enum, pixels: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexSubImage1D", .{ target, level, xoffset, width, format, @"type", pixels });
+    return issueCommand("glTexSubImage1D", .{ target, level, xoffset, width, format, @"type", pixels });
 }
 pub fn texSubImage2D(target: Enum, level: Int, xoffset: Int, yoffset: Int, width: Sizei, height: Sizei, format: Enum, @"type": Enum, pixels: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexSubImage2D", .{ target, level, xoffset, yoffset, width, height, format, @"type", pixels });
+    return issueCommand("glTexSubImage2D", .{ target, level, xoffset, yoffset, width, height, format, @"type", pixels });
 }
 pub fn texSubImage3D(target: Enum, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, width: Sizei, height: Sizei, depth: Sizei, format: Enum, @"type": Enum, pixels: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTexSubImage3D", .{ target, level, xoffset, yoffset, zoffset, width, height, depth, format, @"type", pixels });
+    return issueCommand("glTexSubImage3D", .{ target, level, xoffset, yoffset, zoffset, width, height, depth, format, @"type", pixels });
+}
+pub fn textureBarrier() callconv(.C) void {
+    return issueCommand("glTextureBarrier", .{});
+}
+pub fn textureBuffer(texture: Uint, internalformat: Enum, buffer: Uint) callconv(.C) void {
+    return issueCommand("glTextureBuffer", .{ texture, internalformat, buffer });
+}
+pub fn textureBufferRange(texture: Uint, internalformat: Enum, buffer: Uint, offset: Intptr, size: Sizeiptr) callconv(.C) void {
+    return issueCommand("glTextureBufferRange", .{ texture, internalformat, buffer, offset, size });
+}
+pub fn textureParameterIiv(texture: Uint, pname: Enum, params: [*c]const Int) callconv(.C) void {
+    return issueCommand("glTextureParameterIiv", .{ texture, pname, params });
+}
+pub fn textureParameterIuiv(texture: Uint, pname: Enum, params: [*c]const Uint) callconv(.C) void {
+    return issueCommand("glTextureParameterIuiv", .{ texture, pname, params });
+}
+pub fn textureParameterf(texture: Uint, pname: Enum, param: Float) callconv(.C) void {
+    return issueCommand("glTextureParameterf", .{ texture, pname, param });
+}
+pub fn textureParameterfv(texture: Uint, pname: Enum, param: [*c]const Float) callconv(.C) void {
+    return issueCommand("glTextureParameterfv", .{ texture, pname, param });
+}
+pub fn textureParameteri(texture: Uint, pname: Enum, param: Int) callconv(.C) void {
+    return issueCommand("glTextureParameteri", .{ texture, pname, param });
+}
+pub fn textureParameteriv(texture: Uint, pname: Enum, param: [*c]const Int) callconv(.C) void {
+    return issueCommand("glTextureParameteriv", .{ texture, pname, param });
+}
+pub fn textureStorage1D(texture: Uint, levels: Sizei, internalformat: Enum, width: Sizei) callconv(.C) void {
+    return issueCommand("glTextureStorage1D", .{ texture, levels, internalformat, width });
+}
+pub fn textureStorage2D(texture: Uint, levels: Sizei, internalformat: Enum, width: Sizei, height: Sizei) callconv(.C) void {
+    return issueCommand("glTextureStorage2D", .{ texture, levels, internalformat, width, height });
+}
+pub fn textureStorage2DMultisample(texture: Uint, samples: Sizei, internalformat: Enum, width: Sizei, height: Sizei, fixedsamplelocations: Boolean) callconv(.C) void {
+    return issueCommand("glTextureStorage2DMultisample", .{ texture, samples, internalformat, width, height, fixedsamplelocations });
+}
+pub fn textureStorage3D(texture: Uint, levels: Sizei, internalformat: Enum, width: Sizei, height: Sizei, depth: Sizei) callconv(.C) void {
+    return issueCommand("glTextureStorage3D", .{ texture, levels, internalformat, width, height, depth });
+}
+pub fn textureStorage3DMultisample(texture: Uint, samples: Sizei, internalformat: Enum, width: Sizei, height: Sizei, depth: Sizei, fixedsamplelocations: Boolean) callconv(.C) void {
+    return issueCommand("glTextureStorage3DMultisample", .{ texture, samples, internalformat, width, height, depth, fixedsamplelocations });
+}
+pub fn textureSubImage1D(texture: Uint, level: Int, xoffset: Int, width: Sizei, format: Enum, @"type": Enum, pixels: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glTextureSubImage1D", .{ texture, level, xoffset, width, format, @"type", pixels });
+}
+pub fn textureSubImage2D(texture: Uint, level: Int, xoffset: Int, yoffset: Int, width: Sizei, height: Sizei, format: Enum, @"type": Enum, pixels: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glTextureSubImage2D", .{ texture, level, xoffset, yoffset, width, height, format, @"type", pixels });
+}
+pub fn textureSubImage3D(texture: Uint, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, width: Sizei, height: Sizei, depth: Sizei, format: Enum, @"type": Enum, pixels: ?*const anyopaque) callconv(.C) void {
+    return issueCommand("glTextureSubImage3D", .{ texture, level, xoffset, yoffset, zoffset, width, height, depth, format, @"type", pixels });
+}
+pub fn textureView(texture: Uint, target: Enum, origtexture: Uint, internalformat: Enum, minlevel: Uint, numlevels: Uint, minlayer: Uint, numlayers: Uint) callconv(.C) void {
+    return issueCommand("glTextureView", .{ texture, target, origtexture, internalformat, minlevel, numlevels, minlayer, numlayers });
+}
+pub fn transformFeedbackBufferBase(xfb: Uint, index: Uint, buffer: Uint) callconv(.C) void {
+    return issueCommand("glTransformFeedbackBufferBase", .{ xfb, index, buffer });
+}
+pub fn transformFeedbackBufferRange(xfb: Uint, index: Uint, buffer: Uint, offset: Intptr, size: Sizeiptr) callconv(.C) void {
+    return issueCommand("glTransformFeedbackBufferRange", .{ xfb, index, buffer, offset, size });
 }
 pub fn transformFeedbackVaryings(program: Uint, count: Sizei, varyings: [*c]const [*c]const Char, bufferMode: Enum) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glTransformFeedbackVaryings", .{ program, count, varyings, bufferMode });
+    return issueCommand("glTransformFeedbackVaryings", .{ program, count, varyings, bufferMode });
 }
 pub fn uniform1d(location: Int, x: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform1d", .{ location, x });
+    return issueCommand("glUniform1d", .{ location, x });
 }
 pub fn uniform1dv(location: Int, count: Sizei, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform1dv", .{ location, count, value });
+    return issueCommand("glUniform1dv", .{ location, count, value });
 }
 pub fn uniform1f(location: Int, v0: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform1f", .{ location, v0 });
+    return issueCommand("glUniform1f", .{ location, v0 });
 }
 pub fn uniform1fv(location: Int, count: Sizei, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform1fv", .{ location, count, value });
+    return issueCommand("glUniform1fv", .{ location, count, value });
 }
 pub fn uniform1i(location: Int, v0: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform1i", .{ location, v0 });
+    return issueCommand("glUniform1i", .{ location, v0 });
 }
 pub fn uniform1iv(location: Int, count: Sizei, value: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform1iv", .{ location, count, value });
+    return issueCommand("glUniform1iv", .{ location, count, value });
 }
 pub fn uniform1ui(location: Int, v0: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform1ui", .{ location, v0 });
+    return issueCommand("glUniform1ui", .{ location, v0 });
 }
 pub fn uniform1uiv(location: Int, count: Sizei, value: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform1uiv", .{ location, count, value });
+    return issueCommand("glUniform1uiv", .{ location, count, value });
 }
 pub fn uniform2d(location: Int, x: Double, y: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform2d", .{ location, x, y });
+    return issueCommand("glUniform2d", .{ location, x, y });
 }
 pub fn uniform2dv(location: Int, count: Sizei, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform2dv", .{ location, count, value });
+    return issueCommand("glUniform2dv", .{ location, count, value });
 }
 pub fn uniform2f(location: Int, v0: Float, v1: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform2f", .{ location, v0, v1 });
+    return issueCommand("glUniform2f", .{ location, v0, v1 });
 }
 pub fn uniform2fv(location: Int, count: Sizei, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform2fv", .{ location, count, value });
+    return issueCommand("glUniform2fv", .{ location, count, value });
 }
 pub fn uniform2i(location: Int, v0: Int, v1: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform2i", .{ location, v0, v1 });
+    return issueCommand("glUniform2i", .{ location, v0, v1 });
 }
 pub fn uniform2iv(location: Int, count: Sizei, value: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform2iv", .{ location, count, value });
+    return issueCommand("glUniform2iv", .{ location, count, value });
 }
 pub fn uniform2ui(location: Int, v0: Uint, v1: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform2ui", .{ location, v0, v1 });
+    return issueCommand("glUniform2ui", .{ location, v0, v1 });
 }
 pub fn uniform2uiv(location: Int, count: Sizei, value: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform2uiv", .{ location, count, value });
+    return issueCommand("glUniform2uiv", .{ location, count, value });
 }
 pub fn uniform3d(location: Int, x: Double, y: Double, z: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform3d", .{ location, x, y, z });
+    return issueCommand("glUniform3d", .{ location, x, y, z });
 }
 pub fn uniform3dv(location: Int, count: Sizei, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform3dv", .{ location, count, value });
+    return issueCommand("glUniform3dv", .{ location, count, value });
 }
 pub fn uniform3f(location: Int, v0: Float, v1: Float, v2: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform3f", .{ location, v0, v1, v2 });
+    return issueCommand("glUniform3f", .{ location, v0, v1, v2 });
 }
 pub fn uniform3fv(location: Int, count: Sizei, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform3fv", .{ location, count, value });
+    return issueCommand("glUniform3fv", .{ location, count, value });
 }
 pub fn uniform3i(location: Int, v0: Int, v1: Int, v2: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform3i", .{ location, v0, v1, v2 });
+    return issueCommand("glUniform3i", .{ location, v0, v1, v2 });
 }
 pub fn uniform3iv(location: Int, count: Sizei, value: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform3iv", .{ location, count, value });
+    return issueCommand("glUniform3iv", .{ location, count, value });
 }
 pub fn uniform3ui(location: Int, v0: Uint, v1: Uint, v2: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform3ui", .{ location, v0, v1, v2 });
+    return issueCommand("glUniform3ui", .{ location, v0, v1, v2 });
 }
 pub fn uniform3uiv(location: Int, count: Sizei, value: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform3uiv", .{ location, count, value });
+    return issueCommand("glUniform3uiv", .{ location, count, value });
 }
 pub fn uniform4d(location: Int, x: Double, y: Double, z: Double, w: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform4d", .{ location, x, y, z, w });
+    return issueCommand("glUniform4d", .{ location, x, y, z, w });
 }
 pub fn uniform4dv(location: Int, count: Sizei, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform4dv", .{ location, count, value });
+    return issueCommand("glUniform4dv", .{ location, count, value });
 }
 pub fn uniform4f(location: Int, v0: Float, v1: Float, v2: Float, v3: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform4f", .{ location, v0, v1, v2, v3 });
+    return issueCommand("glUniform4f", .{ location, v0, v1, v2, v3 });
 }
 pub fn uniform4fv(location: Int, count: Sizei, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform4fv", .{ location, count, value });
+    return issueCommand("glUniform4fv", .{ location, count, value });
 }
 pub fn uniform4i(location: Int, v0: Int, v1: Int, v2: Int, v3: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform4i", .{ location, v0, v1, v2, v3 });
+    return issueCommand("glUniform4i", .{ location, v0, v1, v2, v3 });
 }
 pub fn uniform4iv(location: Int, count: Sizei, value: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform4iv", .{ location, count, value });
+    return issueCommand("glUniform4iv", .{ location, count, value });
 }
 pub fn uniform4ui(location: Int, v0: Uint, v1: Uint, v2: Uint, v3: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform4ui", .{ location, v0, v1, v2, v3 });
+    return issueCommand("glUniform4ui", .{ location, v0, v1, v2, v3 });
 }
 pub fn uniform4uiv(location: Int, count: Sizei, value: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniform4uiv", .{ location, count, value });
+    return issueCommand("glUniform4uiv", .{ location, count, value });
 }
 pub fn uniformBlockBinding(program: Uint, uniformBlockIndex: Uint, uniformBlockBinding_: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformBlockBinding", .{ program, uniformBlockIndex, uniformBlockBinding_ });
+    return issueCommand("glUniformBlockBinding", .{ program, uniformBlockIndex, uniformBlockBinding_ });
 }
 pub fn uniformMatrix2dv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix2dv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix2dv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix2fv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix2fv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix2fv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix2x3dv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix2x3dv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix2x3dv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix2x3fv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix2x3fv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix2x3fv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix2x4dv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix2x4dv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix2x4dv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix2x4fv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix2x4fv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix2x4fv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix3dv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix3dv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix3dv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix3fv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix3fv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix3fv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix3x2dv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix3x2dv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix3x2dv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix3x2fv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix3x2fv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix3x2fv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix3x4dv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix3x4dv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix3x4dv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix3x4fv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix3x4fv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix3x4fv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix4dv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix4dv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix4dv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix4fv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix4fv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix4fv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix4x2dv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix4x2dv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix4x2dv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix4x2fv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix4x2fv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix4x2fv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix4x3dv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix4x3dv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix4x3dv", .{ location, count, transpose, value });
 }
 pub fn uniformMatrix4x3fv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformMatrix4x3fv", .{ location, count, transpose, value });
+    return issueCommand("glUniformMatrix4x3fv", .{ location, count, transpose, value });
 }
 pub fn uniformSubroutinesuiv(shadertype: Enum, count: Sizei, indices: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUniformSubroutinesuiv", .{ shadertype, count, indices });
+    return issueCommand("glUniformSubroutinesuiv", .{ shadertype, count, indices });
 }
 pub fn unmapBuffer(target: Enum) callconv(.C) Boolean {
-    return DispatchTable.current.?.invokeIntercepted("glUnmapBuffer", .{target});
+    return issueCommand("glUnmapBuffer", .{target});
+}
+pub fn unmapNamedBuffer(buffer: Uint) callconv(.C) Boolean {
+    return issueCommand("glUnmapNamedBuffer", .{buffer});
 }
 pub fn useProgram(program: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUseProgram", .{program});
+    return issueCommand("glUseProgram", .{program});
 }
 pub fn useProgramStages(pipeline: Uint, stages: Bitfield, program: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glUseProgramStages", .{ pipeline, stages, program });
+    return issueCommand("glUseProgramStages", .{ pipeline, stages, program });
 }
 pub fn validateProgram(program: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glValidateProgram", .{program});
+    return issueCommand("glValidateProgram", .{program});
 }
 pub fn validateProgramPipeline(pipeline: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glValidateProgramPipeline", .{pipeline});
+    return issueCommand("glValidateProgramPipeline", .{pipeline});
+}
+pub fn vertexArrayAttribBinding(vaobj: Uint, attribindex: Uint, bindingindex: Uint) callconv(.C) void {
+    return issueCommand("glVertexArrayAttribBinding", .{ vaobj, attribindex, bindingindex });
+}
+pub fn vertexArrayAttribFormat(vaobj: Uint, attribindex: Uint, size: Int, @"type": Enum, normalized: Boolean, relativeoffset: Uint) callconv(.C) void {
+    return issueCommand("glVertexArrayAttribFormat", .{ vaobj, attribindex, size, @"type", normalized, relativeoffset });
+}
+pub fn vertexArrayAttribIFormat(vaobj: Uint, attribindex: Uint, size: Int, @"type": Enum, relativeoffset: Uint) callconv(.C) void {
+    return issueCommand("glVertexArrayAttribIFormat", .{ vaobj, attribindex, size, @"type", relativeoffset });
+}
+pub fn vertexArrayAttribLFormat(vaobj: Uint, attribindex: Uint, size: Int, @"type": Enum, relativeoffset: Uint) callconv(.C) void {
+    return issueCommand("glVertexArrayAttribLFormat", .{ vaobj, attribindex, size, @"type", relativeoffset });
+}
+pub fn vertexArrayBindingDivisor(vaobj: Uint, bindingindex: Uint, divisor: Uint) callconv(.C) void {
+    return issueCommand("glVertexArrayBindingDivisor", .{ vaobj, bindingindex, divisor });
+}
+pub fn vertexArrayElementBuffer(vaobj: Uint, buffer: Uint) callconv(.C) void {
+    return issueCommand("glVertexArrayElementBuffer", .{ vaobj, buffer });
+}
+pub fn vertexArrayVertexBuffer(vaobj: Uint, bindingindex: Uint, buffer: Uint, offset: Intptr, stride: Sizei) callconv(.C) void {
+    return issueCommand("glVertexArrayVertexBuffer", .{ vaobj, bindingindex, buffer, offset, stride });
+}
+pub fn vertexArrayVertexBuffers(vaobj: Uint, first: Uint, count: Sizei, buffers: [*c]const Uint, offsets: [*c]const Intptr, strides: [*c]const Sizei) callconv(.C) void {
+    return issueCommand("glVertexArrayVertexBuffers", .{ vaobj, first, count, buffers, offsets, strides });
 }
 pub fn vertexAttrib1d(index: Uint, x: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib1d", .{ index, x });
+    return issueCommand("glVertexAttrib1d", .{ index, x });
 }
 pub fn vertexAttrib1dv(index: Uint, v: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib1dv", .{ index, v });
+    return issueCommand("glVertexAttrib1dv", .{ index, v });
 }
 pub fn vertexAttrib1f(index: Uint, x: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib1f", .{ index, x });
+    return issueCommand("glVertexAttrib1f", .{ index, x });
 }
 pub fn vertexAttrib1fv(index: Uint, v: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib1fv", .{ index, v });
+    return issueCommand("glVertexAttrib1fv", .{ index, v });
 }
 pub fn vertexAttrib1s(index: Uint, x: Short) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib1s", .{ index, x });
+    return issueCommand("glVertexAttrib1s", .{ index, x });
 }
 pub fn vertexAttrib1sv(index: Uint, v: [*c]const Short) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib1sv", .{ index, v });
+    return issueCommand("glVertexAttrib1sv", .{ index, v });
 }
 pub fn vertexAttrib2d(index: Uint, x: Double, y: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib2d", .{ index, x, y });
+    return issueCommand("glVertexAttrib2d", .{ index, x, y });
 }
 pub fn vertexAttrib2dv(index: Uint, v: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib2dv", .{ index, v });
+    return issueCommand("glVertexAttrib2dv", .{ index, v });
 }
 pub fn vertexAttrib2f(index: Uint, x: Float, y: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib2f", .{ index, x, y });
+    return issueCommand("glVertexAttrib2f", .{ index, x, y });
 }
 pub fn vertexAttrib2fv(index: Uint, v: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib2fv", .{ index, v });
+    return issueCommand("glVertexAttrib2fv", .{ index, v });
 }
 pub fn vertexAttrib2s(index: Uint, x: Short, y: Short) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib2s", .{ index, x, y });
+    return issueCommand("glVertexAttrib2s", .{ index, x, y });
 }
 pub fn vertexAttrib2sv(index: Uint, v: [*c]const Short) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib2sv", .{ index, v });
+    return issueCommand("glVertexAttrib2sv", .{ index, v });
 }
 pub fn vertexAttrib3d(index: Uint, x: Double, y: Double, z: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib3d", .{ index, x, y, z });
+    return issueCommand("glVertexAttrib3d", .{ index, x, y, z });
 }
 pub fn vertexAttrib3dv(index: Uint, v: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib3dv", .{ index, v });
+    return issueCommand("glVertexAttrib3dv", .{ index, v });
 }
 pub fn vertexAttrib3f(index: Uint, x: Float, y: Float, z: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib3f", .{ index, x, y, z });
+    return issueCommand("glVertexAttrib3f", .{ index, x, y, z });
 }
 pub fn vertexAttrib3fv(index: Uint, v: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib3fv", .{ index, v });
+    return issueCommand("glVertexAttrib3fv", .{ index, v });
 }
 pub fn vertexAttrib3s(index: Uint, x: Short, y: Short, z: Short) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib3s", .{ index, x, y, z });
+    return issueCommand("glVertexAttrib3s", .{ index, x, y, z });
 }
 pub fn vertexAttrib3sv(index: Uint, v: [*c]const Short) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib3sv", .{ index, v });
+    return issueCommand("glVertexAttrib3sv", .{ index, v });
 }
 pub fn vertexAttrib4Nbv(index: Uint, v: [*c]const Byte) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4Nbv", .{ index, v });
+    return issueCommand("glVertexAttrib4Nbv", .{ index, v });
 }
 pub fn vertexAttrib4Niv(index: Uint, v: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4Niv", .{ index, v });
+    return issueCommand("glVertexAttrib4Niv", .{ index, v });
 }
 pub fn vertexAttrib4Nsv(index: Uint, v: [*c]const Short) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4Nsv", .{ index, v });
+    return issueCommand("glVertexAttrib4Nsv", .{ index, v });
 }
 pub fn vertexAttrib4Nub(index: Uint, x: Ubyte, y: Ubyte, z: Ubyte, w: Ubyte) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4Nub", .{ index, x, y, z, w });
+    return issueCommand("glVertexAttrib4Nub", .{ index, x, y, z, w });
 }
 pub fn vertexAttrib4Nubv(index: Uint, v: [*c]const Ubyte) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4Nubv", .{ index, v });
+    return issueCommand("glVertexAttrib4Nubv", .{ index, v });
 }
 pub fn vertexAttrib4Nuiv(index: Uint, v: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4Nuiv", .{ index, v });
+    return issueCommand("glVertexAttrib4Nuiv", .{ index, v });
 }
 pub fn vertexAttrib4Nusv(index: Uint, v: [*c]const Ushort) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4Nusv", .{ index, v });
+    return issueCommand("glVertexAttrib4Nusv", .{ index, v });
 }
 pub fn vertexAttrib4bv(index: Uint, v: [*c]const Byte) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4bv", .{ index, v });
+    return issueCommand("glVertexAttrib4bv", .{ index, v });
 }
 pub fn vertexAttrib4d(index: Uint, x: Double, y: Double, z: Double, w: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4d", .{ index, x, y, z, w });
+    return issueCommand("glVertexAttrib4d", .{ index, x, y, z, w });
 }
 pub fn vertexAttrib4dv(index: Uint, v: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4dv", .{ index, v });
+    return issueCommand("glVertexAttrib4dv", .{ index, v });
 }
 pub fn vertexAttrib4f(index: Uint, x: Float, y: Float, z: Float, w: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4f", .{ index, x, y, z, w });
+    return issueCommand("glVertexAttrib4f", .{ index, x, y, z, w });
 }
 pub fn vertexAttrib4fv(index: Uint, v: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4fv", .{ index, v });
+    return issueCommand("glVertexAttrib4fv", .{ index, v });
 }
 pub fn vertexAttrib4iv(index: Uint, v: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4iv", .{ index, v });
+    return issueCommand("glVertexAttrib4iv", .{ index, v });
 }
 pub fn vertexAttrib4s(index: Uint, x: Short, y: Short, z: Short, w: Short) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4s", .{ index, x, y, z, w });
+    return issueCommand("glVertexAttrib4s", .{ index, x, y, z, w });
 }
 pub fn vertexAttrib4sv(index: Uint, v: [*c]const Short) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4sv", .{ index, v });
+    return issueCommand("glVertexAttrib4sv", .{ index, v });
 }
 pub fn vertexAttrib4ubv(index: Uint, v: [*c]const Ubyte) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4ubv", .{ index, v });
+    return issueCommand("glVertexAttrib4ubv", .{ index, v });
 }
 pub fn vertexAttrib4uiv(index: Uint, v: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4uiv", .{ index, v });
+    return issueCommand("glVertexAttrib4uiv", .{ index, v });
 }
 pub fn vertexAttrib4usv(index: Uint, v: [*c]const Ushort) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttrib4usv", .{ index, v });
+    return issueCommand("glVertexAttrib4usv", .{ index, v });
+}
+pub fn vertexAttribBinding(attribindex: Uint, bindingindex: Uint) callconv(.C) void {
+    return issueCommand("glVertexAttribBinding", .{ attribindex, bindingindex });
 }
 pub fn vertexAttribDivisor(index: Uint, divisor: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribDivisor", .{ index, divisor });
+    return issueCommand("glVertexAttribDivisor", .{ index, divisor });
+}
+pub fn vertexAttribFormat(attribindex: Uint, size: Int, @"type": Enum, normalized: Boolean, relativeoffset: Uint) callconv(.C) void {
+    return issueCommand("glVertexAttribFormat", .{ attribindex, size, @"type", normalized, relativeoffset });
 }
 pub fn vertexAttribI1i(index: Uint, x: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI1i", .{ index, x });
+    return issueCommand("glVertexAttribI1i", .{ index, x });
 }
 pub fn vertexAttribI1iv(index: Uint, v: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI1iv", .{ index, v });
+    return issueCommand("glVertexAttribI1iv", .{ index, v });
 }
 pub fn vertexAttribI1ui(index: Uint, x: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI1ui", .{ index, x });
+    return issueCommand("glVertexAttribI1ui", .{ index, x });
 }
 pub fn vertexAttribI1uiv(index: Uint, v: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI1uiv", .{ index, v });
+    return issueCommand("glVertexAttribI1uiv", .{ index, v });
 }
 pub fn vertexAttribI2i(index: Uint, x: Int, y: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI2i", .{ index, x, y });
+    return issueCommand("glVertexAttribI2i", .{ index, x, y });
 }
 pub fn vertexAttribI2iv(index: Uint, v: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI2iv", .{ index, v });
+    return issueCommand("glVertexAttribI2iv", .{ index, v });
 }
 pub fn vertexAttribI2ui(index: Uint, x: Uint, y: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI2ui", .{ index, x, y });
+    return issueCommand("glVertexAttribI2ui", .{ index, x, y });
 }
 pub fn vertexAttribI2uiv(index: Uint, v: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI2uiv", .{ index, v });
+    return issueCommand("glVertexAttribI2uiv", .{ index, v });
 }
 pub fn vertexAttribI3i(index: Uint, x: Int, y: Int, z: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI3i", .{ index, x, y, z });
+    return issueCommand("glVertexAttribI3i", .{ index, x, y, z });
 }
 pub fn vertexAttribI3iv(index: Uint, v: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI3iv", .{ index, v });
+    return issueCommand("glVertexAttribI3iv", .{ index, v });
 }
 pub fn vertexAttribI3ui(index: Uint, x: Uint, y: Uint, z: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI3ui", .{ index, x, y, z });
+    return issueCommand("glVertexAttribI3ui", .{ index, x, y, z });
 }
 pub fn vertexAttribI3uiv(index: Uint, v: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI3uiv", .{ index, v });
+    return issueCommand("glVertexAttribI3uiv", .{ index, v });
 }
 pub fn vertexAttribI4bv(index: Uint, v: [*c]const Byte) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI4bv", .{ index, v });
+    return issueCommand("glVertexAttribI4bv", .{ index, v });
 }
 pub fn vertexAttribI4i(index: Uint, x: Int, y: Int, z: Int, w: Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI4i", .{ index, x, y, z, w });
+    return issueCommand("glVertexAttribI4i", .{ index, x, y, z, w });
 }
 pub fn vertexAttribI4iv(index: Uint, v: [*c]const Int) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI4iv", .{ index, v });
+    return issueCommand("glVertexAttribI4iv", .{ index, v });
 }
 pub fn vertexAttribI4sv(index: Uint, v: [*c]const Short) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI4sv", .{ index, v });
+    return issueCommand("glVertexAttribI4sv", .{ index, v });
 }
 pub fn vertexAttribI4ubv(index: Uint, v: [*c]const Ubyte) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI4ubv", .{ index, v });
+    return issueCommand("glVertexAttribI4ubv", .{ index, v });
 }
 pub fn vertexAttribI4ui(index: Uint, x: Uint, y: Uint, z: Uint, w: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI4ui", .{ index, x, y, z, w });
+    return issueCommand("glVertexAttribI4ui", .{ index, x, y, z, w });
 }
 pub fn vertexAttribI4uiv(index: Uint, v: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI4uiv", .{ index, v });
+    return issueCommand("glVertexAttribI4uiv", .{ index, v });
 }
 pub fn vertexAttribI4usv(index: Uint, v: [*c]const Ushort) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribI4usv", .{ index, v });
+    return issueCommand("glVertexAttribI4usv", .{ index, v });
+}
+pub fn vertexAttribIFormat(attribindex: Uint, size: Int, @"type": Enum, relativeoffset: Uint) callconv(.C) void {
+    return issueCommand("glVertexAttribIFormat", .{ attribindex, size, @"type", relativeoffset });
 }
 pub fn vertexAttribIPointer(index: Uint, size: Int, @"type": Enum, stride: Sizei, pointer: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribIPointer", .{ index, size, @"type", stride, pointer });
+    return issueCommand("glVertexAttribIPointer", .{ index, size, @"type", stride, pointer });
 }
 pub fn vertexAttribL1d(index: Uint, x: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribL1d", .{ index, x });
+    return issueCommand("glVertexAttribL1d", .{ index, x });
 }
 pub fn vertexAttribL1dv(index: Uint, v: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribL1dv", .{ index, v });
+    return issueCommand("glVertexAttribL1dv", .{ index, v });
 }
 pub fn vertexAttribL2d(index: Uint, x: Double, y: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribL2d", .{ index, x, y });
+    return issueCommand("glVertexAttribL2d", .{ index, x, y });
 }
 pub fn vertexAttribL2dv(index: Uint, v: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribL2dv", .{ index, v });
+    return issueCommand("glVertexAttribL2dv", .{ index, v });
 }
 pub fn vertexAttribL3d(index: Uint, x: Double, y: Double, z: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribL3d", .{ index, x, y, z });
+    return issueCommand("glVertexAttribL3d", .{ index, x, y, z });
 }
 pub fn vertexAttribL3dv(index: Uint, v: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribL3dv", .{ index, v });
+    return issueCommand("glVertexAttribL3dv", .{ index, v });
 }
 pub fn vertexAttribL4d(index: Uint, x: Double, y: Double, z: Double, w: Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribL4d", .{ index, x, y, z, w });
+    return issueCommand("glVertexAttribL4d", .{ index, x, y, z, w });
 }
 pub fn vertexAttribL4dv(index: Uint, v: [*c]const Double) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribL4dv", .{ index, v });
+    return issueCommand("glVertexAttribL4dv", .{ index, v });
+}
+pub fn vertexAttribLFormat(attribindex: Uint, size: Int, @"type": Enum, relativeoffset: Uint) callconv(.C) void {
+    return issueCommand("glVertexAttribLFormat", .{ attribindex, size, @"type", relativeoffset });
 }
 pub fn vertexAttribLPointer(index: Uint, size: Int, @"type": Enum, stride: Sizei, pointer: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribLPointer", .{ index, size, @"type", stride, pointer });
+    return issueCommand("glVertexAttribLPointer", .{ index, size, @"type", stride, pointer });
 }
 pub fn vertexAttribP1ui(index: Uint, @"type": Enum, normalized: Boolean, value: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribP1ui", .{ index, @"type", normalized, value });
+    return issueCommand("glVertexAttribP1ui", .{ index, @"type", normalized, value });
 }
 pub fn vertexAttribP1uiv(index: Uint, @"type": Enum, normalized: Boolean, value: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribP1uiv", .{ index, @"type", normalized, value });
+    return issueCommand("glVertexAttribP1uiv", .{ index, @"type", normalized, value });
 }
 pub fn vertexAttribP2ui(index: Uint, @"type": Enum, normalized: Boolean, value: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribP2ui", .{ index, @"type", normalized, value });
+    return issueCommand("glVertexAttribP2ui", .{ index, @"type", normalized, value });
 }
 pub fn vertexAttribP2uiv(index: Uint, @"type": Enum, normalized: Boolean, value: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribP2uiv", .{ index, @"type", normalized, value });
+    return issueCommand("glVertexAttribP2uiv", .{ index, @"type", normalized, value });
 }
 pub fn vertexAttribP3ui(index: Uint, @"type": Enum, normalized: Boolean, value: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribP3ui", .{ index, @"type", normalized, value });
+    return issueCommand("glVertexAttribP3ui", .{ index, @"type", normalized, value });
 }
 pub fn vertexAttribP3uiv(index: Uint, @"type": Enum, normalized: Boolean, value: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribP3uiv", .{ index, @"type", normalized, value });
+    return issueCommand("glVertexAttribP3uiv", .{ index, @"type", normalized, value });
 }
 pub fn vertexAttribP4ui(index: Uint, @"type": Enum, normalized: Boolean, value: Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribP4ui", .{ index, @"type", normalized, value });
+    return issueCommand("glVertexAttribP4ui", .{ index, @"type", normalized, value });
 }
 pub fn vertexAttribP4uiv(index: Uint, @"type": Enum, normalized: Boolean, value: [*c]const Uint) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribP4uiv", .{ index, @"type", normalized, value });
+    return issueCommand("glVertexAttribP4uiv", .{ index, @"type", normalized, value });
 }
 pub fn vertexAttribPointer(index: Uint, size: Int, @"type": Enum, normalized: Boolean, stride: Sizei, pointer: ?*const anyopaque) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glVertexAttribPointer", .{ index, size, @"type", normalized, stride, pointer });
+    return issueCommand("glVertexAttribPointer", .{ index, size, @"type", normalized, stride, pointer });
+}
+pub fn vertexBindingDivisor(bindingindex: Uint, divisor: Uint) callconv(.C) void {
+    return issueCommand("glVertexBindingDivisor", .{ bindingindex, divisor });
 }
 pub fn viewport(x: Int, y: Int, width: Sizei, height: Sizei) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glViewport", .{ x, y, width, height });
+    return issueCommand("glViewport", .{ x, y, width, height });
 }
 pub fn viewportArrayv(first: Uint, count: Sizei, v: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glViewportArrayv", .{ first, count, v });
+    return issueCommand("glViewportArrayv", .{ first, count, v });
 }
 pub fn viewportIndexedf(index: Uint, x: Float, y: Float, w: Float, h: Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glViewportIndexedf", .{ index, x, y, w, h });
+    return issueCommand("glViewportIndexedf", .{ index, x, y, w, h });
 }
 pub fn viewportIndexedfv(index: Uint, v: [*c]const Float) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glViewportIndexedfv", .{ index, v });
+    return issueCommand("glViewportIndexedfv", .{ index, v });
 }
 pub fn waitSync(sync: Sync, flags: Bitfield, timeout: Uint64) callconv(.C) void {
-    return DispatchTable.current.?.invokeIntercepted("glWaitSync", .{ sync, flags, timeout });
+    return issueCommand("glWaitSync", .{ sync, flags, timeout });
 }
 //#endregion Commands
 
@@ -2435,6 +3412,9 @@ pub fn waitSync(sync: Sync, flags: Bitfield, timeout: Uint64) callconv(.C) void 
 /// This struct is very large; avoid storing instances of it on the stack.
 pub const DispatchTable = struct {
     threadlocal var current: ?*const DispatchTable = null;
+
+    /// An opaque pointer to an external function.
+    pub const Proc = *align(@alignOf(fn () callconv(.C) void)) const anyopaque;
 
     //#region Fields
     glActiveShaderProgram: *const @TypeOf(activeShaderProgram),
@@ -2448,15 +3428,24 @@ pub const DispatchTable = struct {
     glBindBuffer: *const @TypeOf(bindBuffer),
     glBindBufferBase: *const @TypeOf(bindBufferBase),
     glBindBufferRange: *const @TypeOf(bindBufferRange),
+    glBindBuffersBase: *const @TypeOf(bindBuffersBase),
+    glBindBuffersRange: *const @TypeOf(bindBuffersRange),
     glBindFragDataLocation: *const @TypeOf(bindFragDataLocation),
     glBindFragDataLocationIndexed: *const @TypeOf(bindFragDataLocationIndexed),
     glBindFramebuffer: *const @TypeOf(bindFramebuffer),
+    glBindImageTexture: *const @TypeOf(bindImageTexture),
+    glBindImageTextures: *const @TypeOf(bindImageTextures),
     glBindProgramPipeline: *const @TypeOf(bindProgramPipeline),
     glBindRenderbuffer: *const @TypeOf(bindRenderbuffer),
     glBindSampler: *const @TypeOf(bindSampler),
+    glBindSamplers: *const @TypeOf(bindSamplers),
     glBindTexture: *const @TypeOf(bindTexture),
+    glBindTextureUnit: *const @TypeOf(bindTextureUnit),
+    glBindTextures: *const @TypeOf(bindTextures),
     glBindTransformFeedback: *const @TypeOf(bindTransformFeedback),
     glBindVertexArray: *const @TypeOf(bindVertexArray),
+    glBindVertexBuffer: *const @TypeOf(bindVertexBuffer),
+    glBindVertexBuffers: *const @TypeOf(bindVertexBuffers),
     glBlendColor: *const @TypeOf(blendColor),
     glBlendEquation: *const @TypeOf(blendEquation),
     glBlendEquationSeparate: *const @TypeOf(blendEquationSeparate),
@@ -2467,11 +3456,16 @@ pub const DispatchTable = struct {
     glBlendFuncSeparatei: *const @TypeOf(blendFuncSeparatei),
     glBlendFunci: *const @TypeOf(blendFunci),
     glBlitFramebuffer: *const @TypeOf(blitFramebuffer),
+    glBlitNamedFramebuffer: *const @TypeOf(blitNamedFramebuffer),
     glBufferData: *const @TypeOf(bufferData),
+    glBufferStorage: *const @TypeOf(bufferStorage),
     glBufferSubData: *const @TypeOf(bufferSubData),
     glCheckFramebufferStatus: *const @TypeOf(checkFramebufferStatus),
+    glCheckNamedFramebufferStatus: *const @TypeOf(checkNamedFramebufferStatus),
     glClampColor: *const @TypeOf(clampColor),
     glClear: *const @TypeOf(clear),
+    glClearBufferData: *const @TypeOf(clearBufferData),
+    glClearBufferSubData: *const @TypeOf(clearBufferSubData),
     glClearBufferfi: *const @TypeOf(clearBufferfi),
     glClearBufferfv: *const @TypeOf(clearBufferfv),
     glClearBufferiv: *const @TypeOf(clearBufferiv),
@@ -2479,8 +3473,17 @@ pub const DispatchTable = struct {
     glClearColor: *const @TypeOf(clearColor),
     glClearDepth: *const @TypeOf(clearDepth),
     glClearDepthf: *const @TypeOf(clearDepthf),
+    glClearNamedBufferData: *const @TypeOf(clearNamedBufferData),
+    glClearNamedBufferSubData: *const @TypeOf(clearNamedBufferSubData),
+    glClearNamedFramebufferfi: *const @TypeOf(clearNamedFramebufferfi),
+    glClearNamedFramebufferfv: *const @TypeOf(clearNamedFramebufferfv),
+    glClearNamedFramebufferiv: *const @TypeOf(clearNamedFramebufferiv),
+    glClearNamedFramebufferuiv: *const @TypeOf(clearNamedFramebufferuiv),
     glClearStencil: *const @TypeOf(clearStencil),
+    glClearTexImage: *const @TypeOf(clearTexImage),
+    glClearTexSubImage: *const @TypeOf(clearTexSubImage),
     glClientWaitSync: *const @TypeOf(clientWaitSync),
+    glClipControl: *const @TypeOf(clipControl),
     glColorMask: *const @TypeOf(colorMask),
     glColorMaski: *const @TypeOf(colorMaski),
     glCompileShader: *const @TypeOf(compileShader),
@@ -2490,16 +3493,36 @@ pub const DispatchTable = struct {
     glCompressedTexSubImage1D: *const @TypeOf(compressedTexSubImage1D),
     glCompressedTexSubImage2D: *const @TypeOf(compressedTexSubImage2D),
     glCompressedTexSubImage3D: *const @TypeOf(compressedTexSubImage3D),
+    glCompressedTextureSubImage1D: *const @TypeOf(compressedTextureSubImage1D),
+    glCompressedTextureSubImage2D: *const @TypeOf(compressedTextureSubImage2D),
+    glCompressedTextureSubImage3D: *const @TypeOf(compressedTextureSubImage3D),
     glCopyBufferSubData: *const @TypeOf(copyBufferSubData),
+    glCopyImageSubData: *const @TypeOf(copyImageSubData),
+    glCopyNamedBufferSubData: *const @TypeOf(copyNamedBufferSubData),
     glCopyTexImage1D: *const @TypeOf(copyTexImage1D),
     glCopyTexImage2D: *const @TypeOf(copyTexImage2D),
     glCopyTexSubImage1D: *const @TypeOf(copyTexSubImage1D),
     glCopyTexSubImage2D: *const @TypeOf(copyTexSubImage2D),
     glCopyTexSubImage3D: *const @TypeOf(copyTexSubImage3D),
+    glCopyTextureSubImage1D: *const @TypeOf(copyTextureSubImage1D),
+    glCopyTextureSubImage2D: *const @TypeOf(copyTextureSubImage2D),
+    glCopyTextureSubImage3D: *const @TypeOf(copyTextureSubImage3D),
+    glCreateBuffers: *const @TypeOf(createBuffers),
+    glCreateFramebuffers: *const @TypeOf(createFramebuffers),
     glCreateProgram: *const @TypeOf(createProgram),
+    glCreateProgramPipelines: *const @TypeOf(createProgramPipelines),
+    glCreateQueries: *const @TypeOf(createQueries),
+    glCreateRenderbuffers: *const @TypeOf(createRenderbuffers),
+    glCreateSamplers: *const @TypeOf(createSamplers),
     glCreateShader: *const @TypeOf(createShader),
     glCreateShaderProgramv: *const @TypeOf(createShaderProgramv),
+    glCreateTextures: *const @TypeOf(createTextures),
+    glCreateTransformFeedbacks: *const @TypeOf(createTransformFeedbacks),
+    glCreateVertexArrays: *const @TypeOf(createVertexArrays),
     glCullFace: *const @TypeOf(cullFace),
+    glDebugMessageCallback: *const @TypeOf(debugMessageCallback),
+    glDebugMessageControl: *const @TypeOf(debugMessageControl),
+    glDebugMessageInsert: *const @TypeOf(debugMessageInsert),
     glDeleteBuffers: *const @TypeOf(deleteBuffers),
     glDeleteFramebuffers: *const @TypeOf(deleteFramebuffers),
     glDeleteProgram: *const @TypeOf(deleteProgram),
@@ -2520,23 +3543,32 @@ pub const DispatchTable = struct {
     glDepthRangef: *const @TypeOf(depthRangef),
     glDetachShader: *const @TypeOf(detachShader),
     glDisable: *const @TypeOf(disable),
+    glDisableVertexArrayAttrib: *const @TypeOf(disableVertexArrayAttrib),
     glDisableVertexAttribArray: *const @TypeOf(disableVertexAttribArray),
     glDisablei: *const @TypeOf(disablei),
+    glDispatchCompute: *const @TypeOf(dispatchCompute),
+    glDispatchComputeIndirect: *const @TypeOf(dispatchComputeIndirect),
     glDrawArrays: *const @TypeOf(drawArrays),
     glDrawArraysIndirect: *const @TypeOf(drawArraysIndirect),
     glDrawArraysInstanced: *const @TypeOf(drawArraysInstanced),
+    glDrawArraysInstancedBaseInstance: *const @TypeOf(drawArraysInstancedBaseInstance),
     glDrawBuffer: *const @TypeOf(drawBuffer),
     glDrawBuffers: *const @TypeOf(drawBuffers),
     glDrawElements: *const @TypeOf(drawElements),
     glDrawElementsBaseVertex: *const @TypeOf(drawElementsBaseVertex),
     glDrawElementsIndirect: *const @TypeOf(drawElementsIndirect),
     glDrawElementsInstanced: *const @TypeOf(drawElementsInstanced),
+    glDrawElementsInstancedBaseInstance: *const @TypeOf(drawElementsInstancedBaseInstance),
     glDrawElementsInstancedBaseVertex: *const @TypeOf(drawElementsInstancedBaseVertex),
+    glDrawElementsInstancedBaseVertexBaseInstance: *const @TypeOf(drawElementsInstancedBaseVertexBaseInstance),
     glDrawRangeElements: *const @TypeOf(drawRangeElements),
     glDrawRangeElementsBaseVertex: *const @TypeOf(drawRangeElementsBaseVertex),
     glDrawTransformFeedback: *const @TypeOf(drawTransformFeedback),
+    glDrawTransformFeedbackInstanced: *const @TypeOf(drawTransformFeedbackInstanced),
     glDrawTransformFeedbackStream: *const @TypeOf(drawTransformFeedbackStream),
+    glDrawTransformFeedbackStreamInstanced: *const @TypeOf(drawTransformFeedbackStreamInstanced),
     glEnable: *const @TypeOf(enable),
+    glEnableVertexArrayAttrib: *const @TypeOf(enableVertexArrayAttrib),
     glEnableVertexAttribArray: *const @TypeOf(enableVertexAttribArray),
     glEnablei: *const @TypeOf(enablei),
     glEndConditionalRender: *const @TypeOf(endConditionalRender),
@@ -2547,6 +3579,8 @@ pub const DispatchTable = struct {
     glFinish: *const @TypeOf(finish),
     glFlush: *const @TypeOf(flush),
     glFlushMappedBufferRange: *const @TypeOf(flushMappedBufferRange),
+    glFlushMappedNamedBufferRange: *const @TypeOf(flushMappedNamedBufferRange),
+    glFramebufferParameteri: *const @TypeOf(framebufferParameteri),
     glFramebufferRenderbuffer: *const @TypeOf(framebufferRenderbuffer),
     glFramebufferTexture: *const @TypeOf(framebufferTexture),
     glFramebufferTexture1D: *const @TypeOf(framebufferTexture1D),
@@ -2564,6 +3598,8 @@ pub const DispatchTable = struct {
     glGenTransformFeedbacks: *const @TypeOf(genTransformFeedbacks),
     glGenVertexArrays: *const @TypeOf(genVertexArrays),
     glGenerateMipmap: *const @TypeOf(generateMipmap),
+    glGenerateTextureMipmap: *const @TypeOf(generateTextureMipmap),
+    glGetActiveAtomicCounterBufferiv: *const @TypeOf(getActiveAtomicCounterBufferiv),
     glGetActiveAttrib: *const @TypeOf(getActiveAttrib),
     glGetActiveSubroutineName: *const @TypeOf(getActiveSubroutineName),
     glGetActiveSubroutineUniformName: *const @TypeOf(getActiveSubroutineUniformName),
@@ -2582,6 +3618,9 @@ pub const DispatchTable = struct {
     glGetBufferPointerv: *const @TypeOf(getBufferPointerv),
     glGetBufferSubData: *const @TypeOf(getBufferSubData),
     glGetCompressedTexImage: *const @TypeOf(getCompressedTexImage),
+    glGetCompressedTextureImage: *const @TypeOf(getCompressedTextureImage),
+    glGetCompressedTextureSubImage: *const @TypeOf(getCompressedTextureSubImage),
+    glGetDebugMessageLog: *const @TypeOf(getDebugMessageLog),
     glGetDoublei_v: *const @TypeOf(getDoublei_v),
     glGetDoublev: *const @TypeOf(getDoublev),
     glGetError: *const @TypeOf(getError),
@@ -2590,17 +3629,41 @@ pub const DispatchTable = struct {
     glGetFragDataIndex: *const @TypeOf(getFragDataIndex),
     glGetFragDataLocation: *const @TypeOf(getFragDataLocation),
     glGetFramebufferAttachmentParameteriv: *const @TypeOf(getFramebufferAttachmentParameteriv),
+    glGetFramebufferParameteriv: *const @TypeOf(getFramebufferParameteriv),
+    glGetGraphicsResetStatus: *const @TypeOf(getGraphicsResetStatus),
     glGetInteger64i_v: *const @TypeOf(getInteger64i_v),
     glGetInteger64v: *const @TypeOf(getInteger64v),
     glGetIntegeri_v: *const @TypeOf(getIntegeri_v),
     glGetIntegerv: *const @TypeOf(getIntegerv),
+    glGetInternalformati64v: *const @TypeOf(getInternalformati64v),
+    glGetInternalformativ: *const @TypeOf(getInternalformativ),
     glGetMultisamplefv: *const @TypeOf(getMultisamplefv),
+    glGetNamedBufferParameteri64v: *const @TypeOf(getNamedBufferParameteri64v),
+    glGetNamedBufferParameteriv: *const @TypeOf(getNamedBufferParameteriv),
+    glGetNamedBufferPointerv: *const @TypeOf(getNamedBufferPointerv),
+    glGetNamedBufferSubData: *const @TypeOf(getNamedBufferSubData),
+    glGetNamedFramebufferAttachmentParameteriv: *const @TypeOf(getNamedFramebufferAttachmentParameteriv),
+    glGetNamedFramebufferParameteriv: *const @TypeOf(getNamedFramebufferParameteriv),
+    glGetNamedRenderbufferParameteriv: *const @TypeOf(getNamedRenderbufferParameteriv),
+    glGetObjectLabel: *const @TypeOf(getObjectLabel),
+    glGetObjectPtrLabel: *const @TypeOf(getObjectPtrLabel),
+    glGetPointerv: *const @TypeOf(getPointerv),
     glGetProgramBinary: *const @TypeOf(getProgramBinary),
     glGetProgramInfoLog: *const @TypeOf(getProgramInfoLog),
+    glGetProgramInterfaceiv: *const @TypeOf(getProgramInterfaceiv),
     glGetProgramPipelineInfoLog: *const @TypeOf(getProgramPipelineInfoLog),
     glGetProgramPipelineiv: *const @TypeOf(getProgramPipelineiv),
+    glGetProgramResourceIndex: *const @TypeOf(getProgramResourceIndex),
+    glGetProgramResourceLocation: *const @TypeOf(getProgramResourceLocation),
+    glGetProgramResourceLocationIndex: *const @TypeOf(getProgramResourceLocationIndex),
+    glGetProgramResourceName: *const @TypeOf(getProgramResourceName),
+    glGetProgramResourceiv: *const @TypeOf(getProgramResourceiv),
     glGetProgramStageiv: *const @TypeOf(getProgramStageiv),
     glGetProgramiv: *const @TypeOf(getProgramiv),
+    glGetQueryBufferObjecti64v: *const @TypeOf(getQueryBufferObjecti64v),
+    glGetQueryBufferObjectiv: *const @TypeOf(getQueryBufferObjectiv),
+    glGetQueryBufferObjectui64v: *const @TypeOf(getQueryBufferObjectui64v),
+    glGetQueryBufferObjectuiv: *const @TypeOf(getQueryBufferObjectuiv),
     glGetQueryIndexediv: *const @TypeOf(getQueryIndexediv),
     glGetQueryObjecti64v: *const @TypeOf(getQueryObjecti64v),
     glGetQueryObjectiv: *const @TypeOf(getQueryObjectiv),
@@ -2628,7 +3691,18 @@ pub const DispatchTable = struct {
     glGetTexParameterIuiv: *const @TypeOf(getTexParameterIuiv),
     glGetTexParameterfv: *const @TypeOf(getTexParameterfv),
     glGetTexParameteriv: *const @TypeOf(getTexParameteriv),
+    glGetTextureImage: *const @TypeOf(getTextureImage),
+    glGetTextureLevelParameterfv: *const @TypeOf(getTextureLevelParameterfv),
+    glGetTextureLevelParameteriv: *const @TypeOf(getTextureLevelParameteriv),
+    glGetTextureParameterIiv: *const @TypeOf(getTextureParameterIiv),
+    glGetTextureParameterIuiv: *const @TypeOf(getTextureParameterIuiv),
+    glGetTextureParameterfv: *const @TypeOf(getTextureParameterfv),
+    glGetTextureParameteriv: *const @TypeOf(getTextureParameteriv),
+    glGetTextureSubImage: *const @TypeOf(getTextureSubImage),
     glGetTransformFeedbackVarying: *const @TypeOf(getTransformFeedbackVarying),
+    glGetTransformFeedbacki64_v: *const @TypeOf(getTransformFeedbacki64_v),
+    glGetTransformFeedbacki_v: *const @TypeOf(getTransformFeedbacki_v),
+    glGetTransformFeedbackiv: *const @TypeOf(getTransformFeedbackiv),
     glGetUniformBlockIndex: *const @TypeOf(getUniformBlockIndex),
     glGetUniformIndices: *const @TypeOf(getUniformIndices),
     glGetUniformLocation: *const @TypeOf(getUniformLocation),
@@ -2637,6 +3711,9 @@ pub const DispatchTable = struct {
     glGetUniformfv: *const @TypeOf(getUniformfv),
     glGetUniformiv: *const @TypeOf(getUniformiv),
     glGetUniformuiv: *const @TypeOf(getUniformuiv),
+    glGetVertexArrayIndexed64iv: *const @TypeOf(getVertexArrayIndexed64iv),
+    glGetVertexArrayIndexediv: *const @TypeOf(getVertexArrayIndexediv),
+    glGetVertexArrayiv: *const @TypeOf(getVertexArrayiv),
     glGetVertexAttribIiv: *const @TypeOf(getVertexAttribIiv),
     glGetVertexAttribIuiv: *const @TypeOf(getVertexAttribIuiv),
     glGetVertexAttribLdv: *const @TypeOf(getVertexAttribLdv),
@@ -2644,7 +3721,21 @@ pub const DispatchTable = struct {
     glGetVertexAttribdv: *const @TypeOf(getVertexAttribdv),
     glGetVertexAttribfv: *const @TypeOf(getVertexAttribfv),
     glGetVertexAttribiv: *const @TypeOf(getVertexAttribiv),
+    glGetnCompressedTexImage: *const @TypeOf(getnCompressedTexImage),
+    glGetnTexImage: *const @TypeOf(getnTexImage),
+    glGetnUniformdv: *const @TypeOf(getnUniformdv),
+    glGetnUniformfv: *const @TypeOf(getnUniformfv),
+    glGetnUniformiv: *const @TypeOf(getnUniformiv),
+    glGetnUniformuiv: *const @TypeOf(getnUniformuiv),
     glHint: *const @TypeOf(hint),
+    glInvalidateBufferData: *const @TypeOf(invalidateBufferData),
+    glInvalidateBufferSubData: *const @TypeOf(invalidateBufferSubData),
+    glInvalidateFramebuffer: *const @TypeOf(invalidateFramebuffer),
+    glInvalidateNamedFramebufferData: *const @TypeOf(invalidateNamedFramebufferData),
+    glInvalidateNamedFramebufferSubData: *const @TypeOf(invalidateNamedFramebufferSubData),
+    glInvalidateSubFramebuffer: *const @TypeOf(invalidateSubFramebuffer),
+    glInvalidateTexImage: *const @TypeOf(invalidateTexImage),
+    glInvalidateTexSubImage: *const @TypeOf(invalidateTexSubImage),
     glIsBuffer: *const @TypeOf(isBuffer),
     glIsEnabled: *const @TypeOf(isEnabled),
     glIsEnabledi: *const @TypeOf(isEnabledi),
@@ -2664,10 +3755,32 @@ pub const DispatchTable = struct {
     glLogicOp: *const @TypeOf(logicOp),
     glMapBuffer: *const @TypeOf(mapBuffer),
     glMapBufferRange: *const @TypeOf(mapBufferRange),
+    glMapNamedBuffer: *const @TypeOf(mapNamedBuffer),
+    glMapNamedBufferRange: *const @TypeOf(mapNamedBufferRange),
+    glMemoryBarrier: *const @TypeOf(memoryBarrier),
+    glMemoryBarrierByRegion: *const @TypeOf(memoryBarrierByRegion),
     glMinSampleShading: *const @TypeOf(minSampleShading),
     glMultiDrawArrays: *const @TypeOf(multiDrawArrays),
+    glMultiDrawArraysIndirect: *const @TypeOf(multiDrawArraysIndirect),
+    glMultiDrawArraysIndirectCount: *const @TypeOf(multiDrawArraysIndirectCount),
     glMultiDrawElements: *const @TypeOf(multiDrawElements),
     glMultiDrawElementsBaseVertex: *const @TypeOf(multiDrawElementsBaseVertex),
+    glMultiDrawElementsIndirect: *const @TypeOf(multiDrawElementsIndirect),
+    glMultiDrawElementsIndirectCount: *const @TypeOf(multiDrawElementsIndirectCount),
+    glNamedBufferData: *const @TypeOf(namedBufferData),
+    glNamedBufferStorage: *const @TypeOf(namedBufferStorage),
+    glNamedBufferSubData: *const @TypeOf(namedBufferSubData),
+    glNamedFramebufferDrawBuffer: *const @TypeOf(namedFramebufferDrawBuffer),
+    glNamedFramebufferDrawBuffers: *const @TypeOf(namedFramebufferDrawBuffers),
+    glNamedFramebufferParameteri: *const @TypeOf(namedFramebufferParameteri),
+    glNamedFramebufferReadBuffer: *const @TypeOf(namedFramebufferReadBuffer),
+    glNamedFramebufferRenderbuffer: *const @TypeOf(namedFramebufferRenderbuffer),
+    glNamedFramebufferTexture: *const @TypeOf(namedFramebufferTexture),
+    glNamedFramebufferTextureLayer: *const @TypeOf(namedFramebufferTextureLayer),
+    glNamedRenderbufferStorage: *const @TypeOf(namedRenderbufferStorage),
+    glNamedRenderbufferStorageMultisample: *const @TypeOf(namedRenderbufferStorageMultisample),
+    glObjectLabel: *const @TypeOf(objectLabel),
+    glObjectPtrLabel: *const @TypeOf(objectPtrLabel),
     glPatchParameterfv: *const @TypeOf(patchParameterfv),
     glPatchParameteri: *const @TypeOf(patchParameteri),
     glPauseTransformFeedback: *const @TypeOf(pauseTransformFeedback),
@@ -2680,6 +3793,8 @@ pub const DispatchTable = struct {
     glPointSize: *const @TypeOf(pointSize),
     glPolygonMode: *const @TypeOf(polygonMode),
     glPolygonOffset: *const @TypeOf(polygonOffset),
+    glPolygonOffsetClamp: *const @TypeOf(polygonOffsetClamp),
+    glPopDebugGroup: *const @TypeOf(popDebugGroup),
     glPrimitiveRestartIndex: *const @TypeOf(primitiveRestartIndex),
     glProgramBinary: *const @TypeOf(programBinary),
     glProgramParameteri: *const @TypeOf(programParameteri),
@@ -2734,9 +3849,11 @@ pub const DispatchTable = struct {
     glProgramUniformMatrix4x3dv: *const @TypeOf(programUniformMatrix4x3dv),
     glProgramUniformMatrix4x3fv: *const @TypeOf(programUniformMatrix4x3fv),
     glProvokingVertex: *const @TypeOf(provokingVertex),
+    glPushDebugGroup: *const @TypeOf(pushDebugGroup),
     glQueryCounter: *const @TypeOf(queryCounter),
     glReadBuffer: *const @TypeOf(readBuffer),
     glReadPixels: *const @TypeOf(readPixels),
+    glReadnPixels: *const @TypeOf(readnPixels),
     glReleaseShaderCompiler: *const @TypeOf(releaseShaderCompiler),
     glRenderbufferStorage: *const @TypeOf(renderbufferStorage),
     glRenderbufferStorageMultisample: *const @TypeOf(renderbufferStorageMultisample),
@@ -2755,6 +3872,8 @@ pub const DispatchTable = struct {
     glScissorIndexedv: *const @TypeOf(scissorIndexedv),
     glShaderBinary: *const @TypeOf(shaderBinary),
     glShaderSource: *const @TypeOf(shaderSource),
+    glShaderStorageBlockBinding: *const @TypeOf(shaderStorageBlockBinding),
+    glSpecializeShader: *const @TypeOf(specializeShader),
     glStencilFunc: *const @TypeOf(stencilFunc),
     glStencilFuncSeparate: *const @TypeOf(stencilFuncSeparate),
     glStencilMask: *const @TypeOf(stencilMask),
@@ -2762,6 +3881,7 @@ pub const DispatchTable = struct {
     glStencilOp: *const @TypeOf(stencilOp),
     glStencilOpSeparate: *const @TypeOf(stencilOpSeparate),
     glTexBuffer: *const @TypeOf(texBuffer),
+    glTexBufferRange: *const @TypeOf(texBufferRange),
     glTexImage1D: *const @TypeOf(texImage1D),
     glTexImage2D: *const @TypeOf(texImage2D),
     glTexImage2DMultisample: *const @TypeOf(texImage2DMultisample),
@@ -2773,9 +3893,34 @@ pub const DispatchTable = struct {
     glTexParameterfv: *const @TypeOf(texParameterfv),
     glTexParameteri: *const @TypeOf(texParameteri),
     glTexParameteriv: *const @TypeOf(texParameteriv),
+    glTexStorage1D: *const @TypeOf(texStorage1D),
+    glTexStorage2D: *const @TypeOf(texStorage2D),
+    glTexStorage2DMultisample: *const @TypeOf(texStorage2DMultisample),
+    glTexStorage3D: *const @TypeOf(texStorage3D),
+    glTexStorage3DMultisample: *const @TypeOf(texStorage3DMultisample),
     glTexSubImage1D: *const @TypeOf(texSubImage1D),
     glTexSubImage2D: *const @TypeOf(texSubImage2D),
     glTexSubImage3D: *const @TypeOf(texSubImage3D),
+    glTextureBarrier: *const @TypeOf(textureBarrier),
+    glTextureBuffer: *const @TypeOf(textureBuffer),
+    glTextureBufferRange: *const @TypeOf(textureBufferRange),
+    glTextureParameterIiv: *const @TypeOf(textureParameterIiv),
+    glTextureParameterIuiv: *const @TypeOf(textureParameterIuiv),
+    glTextureParameterf: *const @TypeOf(textureParameterf),
+    glTextureParameterfv: *const @TypeOf(textureParameterfv),
+    glTextureParameteri: *const @TypeOf(textureParameteri),
+    glTextureParameteriv: *const @TypeOf(textureParameteriv),
+    glTextureStorage1D: *const @TypeOf(textureStorage1D),
+    glTextureStorage2D: *const @TypeOf(textureStorage2D),
+    glTextureStorage2DMultisample: *const @TypeOf(textureStorage2DMultisample),
+    glTextureStorage3D: *const @TypeOf(textureStorage3D),
+    glTextureStorage3DMultisample: *const @TypeOf(textureStorage3DMultisample),
+    glTextureSubImage1D: *const @TypeOf(textureSubImage1D),
+    glTextureSubImage2D: *const @TypeOf(textureSubImage2D),
+    glTextureSubImage3D: *const @TypeOf(textureSubImage3D),
+    glTextureView: *const @TypeOf(textureView),
+    glTransformFeedbackBufferBase: *const @TypeOf(transformFeedbackBufferBase),
+    glTransformFeedbackBufferRange: *const @TypeOf(transformFeedbackBufferRange),
     glTransformFeedbackVaryings: *const @TypeOf(transformFeedbackVaryings),
     glUniform1d: *const @TypeOf(uniform1d),
     glUniform1dv: *const @TypeOf(uniform1dv),
@@ -2830,10 +3975,19 @@ pub const DispatchTable = struct {
     glUniformMatrix4x3fv: *const @TypeOf(uniformMatrix4x3fv),
     glUniformSubroutinesuiv: *const @TypeOf(uniformSubroutinesuiv),
     glUnmapBuffer: *const @TypeOf(unmapBuffer),
+    glUnmapNamedBuffer: *const @TypeOf(unmapNamedBuffer),
     glUseProgram: *const @TypeOf(useProgram),
     glUseProgramStages: *const @TypeOf(useProgramStages),
     glValidateProgram: *const @TypeOf(validateProgram),
     glValidateProgramPipeline: *const @TypeOf(validateProgramPipeline),
+    glVertexArrayAttribBinding: *const @TypeOf(vertexArrayAttribBinding),
+    glVertexArrayAttribFormat: *const @TypeOf(vertexArrayAttribFormat),
+    glVertexArrayAttribIFormat: *const @TypeOf(vertexArrayAttribIFormat),
+    glVertexArrayAttribLFormat: *const @TypeOf(vertexArrayAttribLFormat),
+    glVertexArrayBindingDivisor: *const @TypeOf(vertexArrayBindingDivisor),
+    glVertexArrayElementBuffer: *const @TypeOf(vertexArrayElementBuffer),
+    glVertexArrayVertexBuffer: *const @TypeOf(vertexArrayVertexBuffer),
+    glVertexArrayVertexBuffers: *const @TypeOf(vertexArrayVertexBuffers),
     glVertexAttrib1d: *const @TypeOf(vertexAttrib1d),
     glVertexAttrib1dv: *const @TypeOf(vertexAttrib1dv),
     glVertexAttrib1f: *const @TypeOf(vertexAttrib1f),
@@ -2870,7 +4024,9 @@ pub const DispatchTable = struct {
     glVertexAttrib4ubv: *const @TypeOf(vertexAttrib4ubv),
     glVertexAttrib4uiv: *const @TypeOf(vertexAttrib4uiv),
     glVertexAttrib4usv: *const @TypeOf(vertexAttrib4usv),
+    glVertexAttribBinding: *const @TypeOf(vertexAttribBinding),
     glVertexAttribDivisor: *const @TypeOf(vertexAttribDivisor),
+    glVertexAttribFormat: *const @TypeOf(vertexAttribFormat),
     glVertexAttribI1i: *const @TypeOf(vertexAttribI1i),
     glVertexAttribI1iv: *const @TypeOf(vertexAttribI1iv),
     glVertexAttribI1ui: *const @TypeOf(vertexAttribI1ui),
@@ -2891,6 +4047,7 @@ pub const DispatchTable = struct {
     glVertexAttribI4ui: *const @TypeOf(vertexAttribI4ui),
     glVertexAttribI4uiv: *const @TypeOf(vertexAttribI4uiv),
     glVertexAttribI4usv: *const @TypeOf(vertexAttribI4usv),
+    glVertexAttribIFormat: *const @TypeOf(vertexAttribIFormat),
     glVertexAttribIPointer: *const @TypeOf(vertexAttribIPointer),
     glVertexAttribL1d: *const @TypeOf(vertexAttribL1d),
     glVertexAttribL1dv: *const @TypeOf(vertexAttribL1dv),
@@ -2900,6 +4057,7 @@ pub const DispatchTable = struct {
     glVertexAttribL3dv: *const @TypeOf(vertexAttribL3dv),
     glVertexAttribL4d: *const @TypeOf(vertexAttribL4d),
     glVertexAttribL4dv: *const @TypeOf(vertexAttribL4dv),
+    glVertexAttribLFormat: *const @TypeOf(vertexAttribLFormat),
     glVertexAttribLPointer: *const @TypeOf(vertexAttribLPointer),
     glVertexAttribP1ui: *const @TypeOf(vertexAttribP1ui),
     glVertexAttribP1uiv: *const @TypeOf(vertexAttribP1uiv),
@@ -2910,6 +4068,7 @@ pub const DispatchTable = struct {
     glVertexAttribP4ui: *const @TypeOf(vertexAttribP4ui),
     glVertexAttribP4uiv: *const @TypeOf(vertexAttribP4uiv),
     glVertexAttribPointer: *const @TypeOf(vertexAttribPointer),
+    glVertexBindingDivisor: *const @TypeOf(vertexBindingDivisor),
     glViewport: *const @TypeOf(viewport),
     glViewportArrayv: *const @TypeOf(viewportArrayv),
     glViewportIndexedf: *const @TypeOf(viewportIndexedf),
@@ -2920,29 +4079,27 @@ pub const DispatchTable = struct {
     /// Initializes the specified dispatch table. Returns `true` if successful, `false` otherwise.
     ///
     /// This function must be called successfully before passing the dispatch table to
-    /// `makeDispatchTableCurrent()`, `invoke()`, `invokeIntercepted()` or accessing any of its
-    /// fields.
+    /// `makeDispatchTableCurrent` or accessing any of fields.
     ///
-    /// `loader` is duck-typed and can be either a container or an instance, so long as it satisfies
-    /// the following code:
+    /// `loader` is a duck-typed "callable" that takes the prefixed name of an OpenGL command (e.g.
+    /// *glClear*) and returns a pointer to the corresponding function. It should be able to be
+    /// called in one of the following two ways:
     ///
-    /// ```
-    /// const prefixed_command_name: [:0]const u8 = "glExample";
-    /// const AnyCFnPtr = *align(@alignOf(fn () callconv(.C) void)) const anyopaque;
-    /// const fn_ptr_opt: ?AnyCFnPtr = loader.GetCommandFnPtr(prefixed_command_name);
-    /// _ = fn_ptr_opt;
-    /// ```
+    /// - `@as(?DispatchTable.Proc, loader(@as([*:0]const u8, prefixed_name)))`
+    /// - `@as(?DispatchTable.Proc, loader.getProcAddress(@as([*:0]const u8, prefixed_name)))`
     ///
-    /// No references to `loader` are retained after this function returns. There is no
-    /// corresponding `deinit()` function.
+    /// No references to `loader` are retained after this function returns.
+    ///
+    /// There is no corresponding `deinit` function.
     pub fn init(self: *DispatchTable, loader: anytype) bool {
         @setEvalBranchQuota(1_000_000);
         var success: u1 = 1;
         inline for (@typeInfo(DispatchTable).Struct.fields) |field_info| {
-            const prefixed_feature_name = comptime nullTerminate(field_info.name);
             switch (@typeInfo(field_info.type)) {
                 .Pointer => |ptr_info| switch (@typeInfo(ptr_info.child)) {
-                    .Fn => success &= @intFromBool(self.load(loader, prefixed_feature_name)),
+                    .Fn => {
+                        success &= @intFromBool(self.initCommand(field_info.name ++ "", loader));
+                    },
                     else => comptime unreachable,
                 },
                 else => comptime unreachable,
@@ -2951,107 +4108,74 @@ pub const DispatchTable = struct {
         return success != 0;
     }
 
-    fn nullTerminate(comptime string: []const u8) [:0]const u8 {
-        comptime {
-            var buf: [string.len + 1]u8 = undefined;
-            std.mem.copy(u8, &buf, string);
-            buf[string.len] = 0;
-            return buf[0..string.len :0];
-        }
-    }
-
-    fn load(
+    fn initCommand(
         self: *DispatchTable,
+        comptime prefixed_name: [:0]const u8,
         loader: anytype,
-        comptime prefixed_command_name: [:0]const u8,
     ) bool {
-        const FieldType = @TypeOf(@field(self, prefixed_command_name));
-        const AnyCFnPtr = *align(@alignOf(fn () callconv(.C) void)) const anyopaque;
-        const fn_ptr_opt: ?AnyCFnPtr = loader.getCommandFnPtr(prefixed_command_name);
-        if (fn_ptr_opt) |fn_ptr| {
-            @field(self, prefixed_command_name) = @ptrCast(fn_ptr);
+        const loader_info = @typeInfo(@TypeOf(loader));
+        const loader_is_fn =
+            loader_info == .Fn or
+            loader_info == .Pointer and @typeInfo(loader_info.Pointer.child) == .Fn;
+        const proc_opt: ?DispatchTable.Proc = if (loader_is_fn)
+            loader(prefixed_name)
+        else
+            loader.getProcAddress(prefixed_name);
+        if (proc_opt) |proc| {
+            @field(self, prefixed_name) = @ptrCast(proc);
             return true;
         } else {
-            return @typeInfo(FieldType) == .Optional;
+            return @typeInfo(@TypeOf(@field(self, prefixed_name))) == .Optional;
         }
     }
+};
 
-    /// Invokes the specified OpenGL command with the specified arguments. The invocation will not
-    /// be intercepted.
-    pub fn invoke(
-        self: *const DispatchTable,
-        comptime prefixed_command_name: [:0]const u8,
-        args: anytype,
-    ) ReturnType(prefixed_command_name) {
-        const FieldType = @TypeOf(@field(self, prefixed_command_name));
-        return if (@typeInfo(FieldType) == .Optional)
-            @call(.auto, @field(self, prefixed_command_name).?, args)
-        else
-            @call(.auto, @field(self, prefixed_command_name), args);
-    }
+/// Issues the specified OpenGL command.
+///
+/// This function is called internally by the OpenGL binding. Its implementation can be overridden
+/// by publicly declaring a function named `gl_issueCommand` with a compatible signature in the root
+/// source file.
+pub fn issueCommand(
+    comptime prefixed_name: [:0]const u8,
+    args: anytype,
+) ReturnTypeOfCommand(prefixed_name) {
+    return if (@hasDecl(root, "gl_issueCommand"))
+        root.gl_issueCommand(prefixed_name, args)
+    else
+        defaultIssueCommand(prefixed_name, args);
+}
 
-    /// Invokes the specified OpenGL command with the specified arguments. The invocation will be
-    /// intercepted by `options.intercept()`.
-    pub fn invokeIntercepted(
-        self: *const DispatchTable,
-        comptime prefixed_command_name: [:0]const u8,
-        args: anytype,
-    ) ReturnType(prefixed_command_name) {
-        return options.intercept(self, prefixed_command_name, args);
-    }
+/// The default implementation of `issueCommand`.
+///
+/// Overriding implementations can call this function to fall back to the default behavior.
+pub fn defaultIssueCommand(
+    comptime prefixed_name: [:0]const u8,
+    args: anytype,
+) ReturnTypeOfCommand(prefixed_name) {
+    return if (@typeInfo(@TypeOf(@field(@as(DispatchTable, undefined), prefixed_name))) == .Optional)
+        @call(.auto, @field(DispatchTable.current.?, prefixed_name).?, args)
+    else
+        @call(.auto, @field(DispatchTable.current.?, prefixed_name), args);
+}
 
-    pub fn ReturnType(comptime prefixed_command_name: [:0]const u8) type {
-        const FieldType = @TypeOf(@field(@as(DispatchTable, undefined), prefixed_command_name));
-        if (@hasField(DispatchTable, prefixed_command_name)) {
-            switch (@typeInfo(FieldType)) {
+/// The return type of the specified OpenGL command.
+pub fn ReturnTypeOfCommand(comptime prefixed_name: [:0]const u8) type {
+    if (@hasField(DispatchTable, prefixed_name)) {
+        return switch (@typeInfo(@TypeOf(@field(@as(DispatchTable, undefined), prefixed_name)))) {
+            .Pointer => |ptr_info| switch (@typeInfo(ptr_info.child)) {
+                .Fn => |fn_info| fn_info.return_type.?,
+                else => comptime unreachable,
+            },
+            .Bool => {},
+            .Optional => |opt_info| switch (@typeInfo(opt_info.child)) {
                 .Pointer => |ptr_info| switch (@typeInfo(ptr_info.child)) {
-                    .Fn => |fn_info| return fn_info.return_type.?,
-                    else => comptime unreachable,
-                },
-                .Bool => {},
-                .Optional => |opt_info| switch (@typeInfo(opt_info.child)) {
-                    .Pointer => |ptr_info| switch (@typeInfo(ptr_info.child)) {
-                        .Fn => |fn_info| return fn_info.return_type.?,
-                        else => comptime unreachable,
-                    },
+                    .Fn => |fn_info| fn_info.return_type.?,
                     else => comptime unreachable,
                 },
                 else => comptime unreachable,
-            }
-        }
-        @compileError("unknown command: '" ++ prefixed_command_name ++ "'");
+            },
+            else => comptime unreachable,
+        };
     }
-};
-
-/// Options that can be overriden by publicly declaring a container named `gl_options` in the root
-/// source file.
-pub const options = struct {
-    /// Intercepts OpenGL command invocations.
-    pub const intercept: @TypeOf(struct {
-        fn intercept(
-            dispatch_table: *const DispatchTable,
-            comptime prefixed_command_name: [:0]const u8,
-            args: anytype,
-        ) DispatchTable.ReturnType(prefixed_command_name) {
-            _ = args;
-            _ = dispatch_table;
-            comptime unreachable;
-        }
-    }.intercept) = if (@hasDecl(options_overrides, "intercept"))
-        options_overrides.intercept
-    else
-        DispatchTable.invoke;
-};
-
-const options_overrides = if (@hasDecl(root, "gl_options")) root.gl_options else struct {};
-
-comptime {
-    for (@typeInfo(options_overrides).Struct.decls) |decl| {
-        if (!@hasDecl(options, decl.name)) @compileError("unknown option: '" ++ decl.name ++ "'");
-    }
-}
-
-test {
-    @setEvalBranchQuota(1_000_000);
-    std.testing.refAllDeclsRecursive(@This());
+    @compileError("unknown OpenGL command: '" ++ prefixed_name ++ "'");
 }

@@ -468,19 +468,11 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
 
 var gl_dispatch_table: gl.DispatchTable = undefined;
 
-const GlDispatchTableLoader = struct {
-    pub fn getCommandFnPtr(command_name: [:0]const u8) glfw.GLFWglproc {
-        const res = glfw.glfwGetProcAddress(command_name);
-        //std.debug.print("command: {?} {s}\n", .{ res, command_name });
-        return res;
-    }
-
-    pub fn extensionSupported(extension_name: [:0]const u8) bool {
-        const res = glfw.glfwExtensionSupported(extension_name);
-        //std.debug.print("ext: {?} {s}\n", .{ res, extension_name });
-        return res;
-    }
-};
+pub const GLProc = *const fn () callconv(.C) void;
+pub fn getProcAddress(proc_name: [*:0]const u8) callconv(.C) ?GLProc {
+    if (glfw.glfwGetProcAddress(proc_name)) |proc_address| return proc_address;
+    return null;
+}
 
 const MapType = struct {
     *anyopaque,
@@ -673,7 +665,7 @@ pub const Window = struct {
         _ = glfw.glfwSetCursorPosCallback(glfw_win, getGlfwCursorPos);
         _ = glfw.glfwSetScrollCallback(glfw_win, getScroll);
 
-        if (!gl_dispatch_table.init(GlDispatchTableLoader)) return error.GlInitFailed;
+        if (!gl_dispatch_table.init(getProcAddress)) return error.GlInitFailed;
 
         gl.makeDispatchTableCurrent(&gl_dispatch_table);
 

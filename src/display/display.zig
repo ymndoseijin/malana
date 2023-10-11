@@ -73,20 +73,18 @@ pub const State = struct {
         try bdf.parse("b12.bdf");
 
         try graphics.initGraphics();
-        defer graphics.deinitGraphics();
-
-        gl.cullFace(gl.FRONT);
-        gl.enable(gl.BLEND);
-        gl.lineWidth(2);
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
         _ = graphics.glfw.glfwWindowHint(graphics.glfw.GLFW_SAMPLES, 4);
-        gl.enable(gl.MULTISAMPLE);
 
         var state = try common.allocator.create(State);
 
         var main_win = try common.allocator.create(graphics.Window);
         main_win.* = try graphics.Window.initBare(100, 100);
+
+        gl.enable(gl.MULTISAMPLE);
+        gl.cullFace(gl.FRONT);
+        gl.enable(gl.BLEND);
+        gl.lineWidth(2);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
         try main_win.addToMap(state);
 
@@ -183,6 +181,7 @@ pub const State = struct {
         self.skybox_scene.deinit();
         self.flat_scene.deinit();
         self.bdf.deinit();
+        graphics.deinitGraphics();
         common.allocator.destroy(self);
     }
 
