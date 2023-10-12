@@ -354,7 +354,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             try self.textures.append(texture_id);
         }
 
-        pub fn textureFromPath(self: *Self, path: [:0]const u8) !void {
+        pub fn textureFromPath(self: *Self, path: []const u8) !struct { usize, usize } {
             var read_image = try img.Image.fromFilePath(common.allocator, path);
             defer read_image.deinit();
 
@@ -364,6 +364,8 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
                 },
                 else => return error.InvalidImage,
             }
+
+            return .{ read_image.width, read_image.height };
         }
 
         pub fn bindVertex(self: *Self, vertices: []const f32, indices: []const u32) void {
