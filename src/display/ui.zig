@@ -24,12 +24,12 @@ const Focusable = struct {
     char_func: *const fn (*anyopaque, *Ui, u32) anyerror!void = defaultChar,
     frame_func: *const fn (*anyopaque, *Ui, i32, i32) anyerror!void = defaultFrame,
     scroll_func: *const fn (*anyopaque, *Ui, f64, f64) anyerror!void = defaultScroll,
-
     mouse_func: *const fn (*anyopaque, *Ui, i32, i32, i32) anyerror!bool = defaultMouse,
+    cursor_func: *const fn (*anyopaque, *Ui, f64, f64) anyerror!void = defaultCursor,
+
     focus_enter_func: *const fn (*anyopaque, *Ui, i32, i32, i32) anyerror!bool = defaultMouse,
     focus_exit_func: *const fn (*anyopaque, *Ui, i32, i32, i32) anyerror!void = defaultExit,
 
-    cursor_func: *const fn (*anyopaque, *Ui, f64, f64) anyerror!void = defaultCursor,
     aabb: *AABB,
 
     pub fn defaultKey(_: *anyopaque, _: *Ui, _: i32, _: i32, _: i32, _: i32) !void {

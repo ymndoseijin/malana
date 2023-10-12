@@ -11,12 +11,24 @@ const gl = @import("gl");
 const std = @import("std");
 const math = @import("math");
 
-pub const elems = @import("elements/elements.zig");
+pub const Cube = @import("elems/cube.zig").Cube;
+pub const Line = @import("elems/line.zig").Line;
+pub const Grid = @import("elems/grid.zig").makeGrid;
+pub const Axis = @import("elems/axis.zig").makeAxis;
+pub const Camera = @import("elems/camera.zig").Camera;
+pub const Text = @import("elems/text.zig").Text;
+pub const Sprite = @import("elems/sprite.zig").Sprite;
 
 pub const MeshBuilder = @import("meshbuilder.zig").MeshBuilder;
 pub const SpatialMesh = @import("spatialmesh.zig").SpatialMesh;
 pub const ObjParse = @import("obj.zig").ObjParse;
 pub const ComptimeMeshBuilder = @import("comptime_meshbuilder.zig").ComptimeMeshBuilder;
+
+pub const Transform2D = struct {
+    scale: math.Vec2,
+    rotation: struct { angle: f32, center: math.Vec2 },
+    translation: math.Vec2,
+};
 
 const Uniform1f = struct {
     name: [:0]const u8,
@@ -43,7 +55,7 @@ pub const Shader = struct {
         const shader: u32 = gl.createShader(shader_type);
 
         const version_idx = comptime std.mem.indexOf(u8, source, "\n").?;
-        const processed_source = source[0..version_idx] ++ "\n" ++ @embedFile("shaders/common.glsl") ++ source[version_idx..];
+        const processed_source = source[0..version_idx] ++ "\n" ++ @embedFile("common.glsl") ++ source[version_idx..];
         gl.shaderSource(shader, 1, @ptrCast(&processed_source), null);
         gl.compileShader(shader);
         var response: i32 = 1;
@@ -207,9 +219,6 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
 
         vert_count: usize,
 
-        transform: math.Mat3,
-        transform3d: math.Mat3,
-
         const Self = @This();
         pub const Pipeline = pipeline;
 
@@ -272,8 +281,6 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             drawing.textures = std.ArrayList(u32).init(common.allocator);
 
             drawing.vert_count = 0;
-            drawing.transform = math.Mat3.identity();
-            drawing.transform3d = math.Mat3.identity();
 
             return drawing;
         }
@@ -404,8 +411,6 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             gl.useProgram(self.shader_program);
             const time = @as(f32, @floatCast(glfw.glfwGetTime()));
             const now: f32 = 2 * time;
-            const arrayUniformLoc: i32 = gl.getUniformLocation(self.shader_program, "transform");
-            gl.uniformMatrix3fv(arrayUniformLoc, 1, gl.FALSE, &self.transform.columns[0][0]);
 
             const resolutionLoc: i32 = gl.getUniformLocation(self.shader_program, "in_resolution");
             gl.uniform2f(resolutionLoc, @floatFromInt(window.current_width), @floatFromInt(window.current_height));
@@ -609,6 +614,12 @@ pub const EventTable = struct {
     cursor_func: ?*const fn (*anyopaque, f64, f64) anyerror!void,
 };
 
+pub const WindowInfo = struct {
+    width: i32 = 256,
+    height: i32 = 256,
+    name: [:0]const u8 = "default name",
+};
+
 pub const Window = struct {
     glfw_win: *glfw.GLFWwindow,
     alive: bool,
@@ -645,15 +656,15 @@ pub const Window = struct {
         try windowMap.?.put(self.glfw_win, .{ elem, self });
     }
 
-    pub fn init(width: i32, height: i32) !*Window {
+    pub fn init(info: WindowInfo) !*Window {
         var win = try common.allocator.create(Window);
-        win.* = try initBare(width, height);
+        win.* = try initBare(info);
         try win.addToMap(win);
         return win;
     }
 
-    pub fn initBare(width: i32, height: i32) !Window {
-        const win_or = glfw.glfwCreateWindow(width, height, "My Title", null, null);
+    pub fn initBare(info: WindowInfo) !Window {
+        const win_or = glfw.glfwCreateWindow(info.width, info.height, info.name, null, null);
 
         const glfw_win = win_or orelse return GlfwError.FailedGlfwWindow;
 

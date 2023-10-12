@@ -20,9 +20,9 @@ const HalfEdge = geometry.HalfEdge;
 const Drawing = graphics.Drawing;
 const glfw = graphics.glfw;
 
-const Camera = graphics.elems.Camera;
-const Cube = graphics.elems.Cube;
-const Line = graphics.elems.Line;
+const Camera = graphics.Camera;
+const Cube = graphics.Cube;
+const Line = graphics.Line;
 const MeshBuilder = graphics.MeshBuilder;
 
 const Mat4 = math.Mat4;
@@ -43,9 +43,38 @@ const DrawingList = union(enum) {
 
 var is_wireframe = false;
 
-fn defaultKeyDown(_: []const bool, _: i32, _: f32) !void {
+fn defaultKeyDown(_: KeyState, _: i32, _: f32) !void {
     return;
 }
+
+fn defaultChar(_: u32) !void {
+    return;
+}
+
+fn defaultScroll(_: f64, _: f64) !void {
+    return;
+}
+
+fn defaultMouse(_: i32, _: i32, _: i32) !void {
+    return;
+}
+
+fn defaultCursor(_: f64, _: f64) !void {
+    return;
+}
+
+fn defaultFrame(_: i32, _: i32) !void {
+    return;
+}
+
+fn defaultKey(_: i32, _: i32, _: i32, _: i32) !void {
+    return;
+}
+
+pub const KeyState = struct {
+    pressed_table: []bool,
+    last_interact_table: []f64,
+};
 
 pub const State = struct {
     main_win: *graphics.Window,
@@ -58,17 +87,27 @@ pub const State = struct {
     time: f64,
 
     current_keys: [glfw.GLFW_KEY_MENU + 1]bool = .{false} ** (glfw.GLFW_KEY_MENU + 1),
+    last_interact_keys: [glfw.GLFW_KEY_MENU + 1]f64 = .{0} ** (glfw.GLFW_KEY_MENU + 1),
+
     down_num: usize = 0,
     last_mods: i32 = 0,
 
-    key_down: *const fn ([]const bool, i32, f32) anyerror!void = defaultKeyDown,
     last_time: f32,
     dt: f32,
 
     ui: Ui,
     bdf: BdfParse,
 
-    pub fn init() !*State {
+    key_down: *const fn (KeyState, i32, f32) anyerror!void = defaultKeyDown,
+
+    char_func: *const fn (codepoint: u32) anyerror!void = defaultChar,
+    scroll_func: *const fn (xoffset: f64, yoffset: f64) anyerror!void = defaultScroll,
+    mouse_func: *const fn (button: i32, action: i32, mods: i32) anyerror!void = defaultMouse,
+    cursor_func: *const fn (xoffset: f64, yoffset: f64) anyerror!void = defaultCursor,
+    frame_func: *const fn (width: i32, height: i32) anyerror!void = defaultFrame,
+    key_func: *const fn (key: i32, scancode: i32, action: i32, mods: i32) anyerror!void = defaultKey,
+
+    pub fn init(info: graphics.WindowInfo) !*State {
         var bdf = try BdfParse.init();
         try bdf.parse("b12.bdf");
 
@@ -78,7 +117,7 @@ pub const State = struct {
         var state = try common.allocator.create(State);
 
         var main_win = try common.allocator.create(graphics.Window);
-        main_win.* = try graphics.Window.initBare(100, 100);
+        main_win.* = try graphics.Window.initBare(info);
 
         gl.enable(gl.MULTISAMPLE);
         gl.cullFace(gl.FRONT);
@@ -118,21 +157,25 @@ pub const State = struct {
     pub fn charFunc(ptr: *anyopaque, codepoint: u32) !void {
         var state: *State = @ptrCast(@alignCast(ptr));
         try state.ui.getChar(codepoint);
+        try state.char_func(codepoint);
     }
 
     pub fn scrollFunc(ptr: *anyopaque, xoffset: f64, yoffset: f64) !void {
         var state: *State = @ptrCast(@alignCast(ptr));
         try state.ui.getScroll(xoffset, yoffset);
+        try state.scroll_func(xoffset, yoffset);
     }
 
     pub fn mouseFunc(ptr: *anyopaque, button: i32, action: i32, mods: i32) !void {
         var state: *State = @ptrCast(@alignCast(ptr));
         try state.ui.getMouse(button, action, mods);
+        try state.mouse_func(button, action, mods);
     }
 
     pub fn cursorFunc(ptr: *anyopaque, xoffset: f64, yoffset: f64) !void {
         var state: *State = @ptrCast(@alignCast(ptr));
         try state.ui.getCursor(xoffset, yoffset);
+        try state.cursor_func(xoffset, yoffset);
     }
 
     pub fn updateEvents(state: *State) !void {
@@ -149,7 +192,7 @@ pub const State = struct {
         state.time = time;
 
         if (state.down_num > 0) {
-            try state.key_down(&state.current_keys, state.last_mods, state.dt);
+            try state.key_down(.{ .pressed_table = &state.current_keys, .last_interact_table = &state.last_interact_keys }, state.last_mods, state.dt);
         }
 
         state.last_time = time;
@@ -193,12 +236,14 @@ pub const State = struct {
         try state.cam.setParameters(0.6, w / h, 0.1, 2048);
 
         try state.ui.getFrame(width, height);
+        try state.frame_func(width, height);
     }
 
     fn keyFunc(ptr: *anyopaque, key: i32, scancode: i32, action: i32, mods: i32) !void {
         var state: *State = @ptrCast(@alignCast(ptr));
 
         try state.ui.getKey(key, scancode, action, mods);
+        try state.key_func(key, scancode, action, mods);
 
         if (action == glfw.GLFW_PRESS) {
             if (key == glfw.GLFW_KEY_C) {
@@ -211,10 +256,14 @@ pub const State = struct {
                 }
             }
             state.current_keys[@intCast(key)] = true;
+            state.last_interact_keys[@intCast(key)] = state.time;
+
             state.last_mods = mods;
             state.down_num += 1;
         } else if (action == glfw.GLFW_RELEASE) {
             state.current_keys[@intCast(key)] = false;
+            state.last_interact_keys[@intCast(key)] = state.time;
+
             state.down_num -= 1;
         }
     }

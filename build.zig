@@ -81,12 +81,12 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    inline for (.{ "base", "geo" }) |app| {
+    inline for (.{"base2d"}) |app| {
         const exe = b.addExecutable(.{
             .name = app,
             // In this case the main source file is merely a path, however, in more
             // complicated build scripts, this could be a generated file.
-            .root_source_file = .{ .path = "src/applications/" ++ app ++ "/main.zig" },
+            .root_source_file = .{ .path = "examples/" ++ app ++ "/main.zig" },
             .target = target,
             .optimize = optimize,
         });
@@ -115,7 +115,7 @@ pub fn build(b: *std.Build) void {
     }
 
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/applications/plotter/ui.zig" },
+        .root_source_file = .{ .path = "examples/plotter/ui.zig" },
         .target = target,
         .optimize = optimize,
     });

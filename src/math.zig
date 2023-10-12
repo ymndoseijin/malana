@@ -200,6 +200,22 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
     };
 }
 
+pub fn rotation2D(comptime T: type, t: T) Mat(T, 2, 2) {
+    return Mat(T, 2, 2).init(.{
+        .{ cos(t), sin(t) },
+        .{ -sin(t), cos(t) },
+    });
+}
+
+// rotation is struct { angle: T = 0, center: @Vector(2, T) = .{ 0, 0 } }
+pub fn transform2D(comptime T: type, scaling: @Vector(2, T), rotation: anytype, translation: @Vector(2, T)) Mat(T, 3, 3) {
+    var rot = rotation2D(T, rotation.angle).cast(3, 3).mul(Mat(T, 3, 3).translation(@as(@Vector(2, T), @splat(-1)) * rotation.center));
+
+    var trans = Mat(T, 3, 3).translation(.{ translation[0], translation[1] });
+    var scale = Mat(T, 3, 3).scaling(.{ scaling[0], scaling[1], 1 });
+    return trans.mul(scale.mul(rot));
+}
+
 pub fn rotationX(comptime T: type, t: T) Mat(T, 3, 3) {
     return Mat(T, 3, 3).init(.{
         .{ 1, 0, 0 },
