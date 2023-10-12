@@ -14,7 +14,6 @@ const HalfEdge = geometry.HalfEdge;
 
 const Drawing = graphics.Drawing;
 const glfw = graphics.glfw;
-const SpatialPipeline = graphics.SpatialPipeline;
 const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
@@ -40,7 +39,7 @@ pub const Image = struct {
 };
 
 pub const Text = struct {
-    drawing: *Drawing(SpatialPipeline),
+    drawing: *Drawing(graphics.FlatPipeline),
     bdf: BdfParse,
     atlas: Image,
     pos: Vec3,
@@ -133,10 +132,10 @@ pub const Text = struct {
                     const atlas_y: f32 = @floatFromInt(@divFloor(i, size) + 1);
 
                     const c_vert = [_]f32{
-                        x,         y,         0, atlas_x,     size_f - atlas_y,     0, 0, 0,
-                        x + width, y,         0, atlas_x + 1, size_f - atlas_y,     0, 0, 0,
-                        x + width, y + width, 0, atlas_x + 1, size_f - atlas_y + 1, 0, 0, 0,
-                        x,         y + width, 0, atlas_x,     size_f - atlas_y + 1, 0, 0, 0,
+                        x,         y,         0, atlas_x,     size_f - atlas_y,
+                        x + width, y,         0, atlas_x + 1, size_f - atlas_y,
+                        x + width, y + width, 0, atlas_x + 1, size_f - atlas_y + 1,
+                        x,         y + width, 0, atlas_x,     size_f - atlas_y + 1,
                     };
 
                     final_width = x + width;
@@ -173,8 +172,8 @@ pub const Text = struct {
         try self.drawing.addUniformVec3("pos", &self.pos);
     }
 
-    pub fn init(drawing: *Drawing(SpatialPipeline), bdf: BdfParse, pos: Vec3) !Text {
-        drawing.* = graphics.Drawing(SpatialPipeline).init(try graphics.Shader.setupShader(@embedFile("shaders/text/vertex.glsl"), @embedFile("shaders/text/fragment.glsl")));
+    pub fn init(drawing: *Drawing(graphics.FlatPipeline), bdf: BdfParse, pos: Vec3) !Text {
+        drawing.* = graphics.Drawing(graphics.FlatPipeline).init(try graphics.Shader.setupShader(@embedFile("shaders/text/vertex.glsl"), @embedFile("shaders/text/fragment.glsl")));
 
         var atlas = try makeAtlas(bdf);
 

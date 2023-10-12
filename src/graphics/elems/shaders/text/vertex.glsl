@@ -20,6 +20,7 @@ void main()
 
    vec3 position = (aPos+pos)*2*pixel_scale;
    position.xy -= 1.;
+   position.z = 0;
    vec4 vert = vec4(position, 1.0);
 
    gl_Position = vert;

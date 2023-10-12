@@ -209,7 +209,9 @@ pub fn rotation2D(comptime T: type, t: T) Mat(T, 2, 2) {
 
 // rotation is struct { angle: T = 0, center: @Vector(2, T) = .{ 0, 0 } }
 pub fn transform2D(comptime T: type, scaling: @Vector(2, T), rotation: anytype, translation: @Vector(2, T)) Mat(T, 3, 3) {
-    var rot = rotation2D(T, rotation.angle).cast(3, 3).mul(Mat(T, 3, 3).translation(@as(@Vector(2, T), @splat(-1)) * rotation.center));
+    var rot = Mat(T, 3, 3).translation(@as(@Vector(2, T), @splat(-1)) * rotation.center);
+    rot = rotation2D(T, rotation.angle).cast(3, 3).mul(rot);
+    rot = Mat(T, 3, 3).translation(rotation.center).mul(rot);
 
     var trans = Mat(T, 3, 3).translation(.{ translation[0], translation[1] });
     var scale = Mat(T, 3, 3).scaling(.{ scaling[0], scaling[1], 1 });

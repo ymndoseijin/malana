@@ -16,16 +16,9 @@ const Drawing = graphics.Drawing;
 const glfw = graphics.glfw;
 const Mat3 = math.Mat3;
 const Mat4 = math.Mat4;
-const Vec3 = math.Vec3;
-const Vec3Utils = math.Vec3Utils;
-
-pub const ColoredRectInfo = struct {
-    color: Vec3,
-    transform: Mat3,
-};
 
 pub const ColoredRect = struct {
-    pub fn init(drawing: *Drawing(graphics.FlatPipeline), info: ColoredRectInfo) !ColoredRect {
+    pub fn init(drawing: *Drawing(graphics.FlatPipeline), color: math.Vec4) !ColoredRect {
         var shader = try graphics.Shader.setupShader(@embedFile("shaders/color_rect/vertex.glsl"), @embedFile("shaders/color_rect/fragment.glsl"));
 
         drawing.* = graphics.Drawing(graphics.FlatPipeline).init(shader);
@@ -37,13 +30,23 @@ pub const ColoredRect = struct {
             0, 1, 0, 0, 1,
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
-        drawing.setUniformVec3("color", info.color);
-        drawing.setUniformMat3("transform", info.transform);
+        drawing.setUniformVec4("color", color);
+        drawing.setUniformMat3("transform", Mat3.identity());
 
         return ColoredRect{
             .drawing = drawing,
+            .transform = .{
+                .scale = .{ 1, 1 },
+                .rotation = .{ .angle = 0, .center = .{ 0.5, 0.5 } },
+                .translation = .{ 0, 0 },
+            },
         };
     }
 
+    pub fn updateTransform(self: ColoredRect) void {
+        self.drawing.setUniformMat3("transform", math.transform2D(f32, self.transform.scale, self.transform.rotation, self.transform.translation));
+    }
+
+    transform: graphics.Transform2D,
     drawing: *Drawing(graphics.FlatPipeline),
 };

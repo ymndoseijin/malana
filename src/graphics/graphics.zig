@@ -18,6 +18,7 @@ pub const Axis = @import("elems/axis.zig").makeAxis;
 pub const Camera = @import("elems/camera.zig").Camera;
 pub const Text = @import("elems/text.zig").Text;
 pub const Sprite = @import("elems/sprite.zig").Sprite;
+pub const ColoredRect = @import("elems/color_rect.zig").ColoredRect;
 
 pub const MeshBuilder = @import("meshbuilder.zig").MeshBuilder;
 pub const SpatialMesh = @import("spatialmesh.zig").SpatialMesh;
@@ -248,6 +249,12 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             gl.useProgram(self.shader_program);
             const loc: i32 = gl.getUniformLocation(self.shader_program, name);
             gl.uniform3f(loc, value[0], value[1], value[2]);
+        }
+
+        pub fn setUniformVec4(self: *Self, name: [:0]const u8, value: math.Vec4) void {
+            gl.useProgram(self.shader_program);
+            const loc: i32 = gl.getUniformLocation(self.shader_program, name);
+            gl.uniform4f(loc, value[0], value[1], value[2], value[3]);
         }
 
         pub fn setUniformMat3(self: *Self, name: [:0]const u8, value: math.Mat3) void {
