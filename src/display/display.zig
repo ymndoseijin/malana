@@ -3,7 +3,10 @@ const math = @import("math");
 const gl = @import("gl");
 const numericals = @import("numericals");
 const img = @import("img");
-const Ui = @import("ui.zig").Ui;
+
+pub const Ui = @import("ui.zig").Ui;
+pub const Region = @import("ui.zig").Region;
+
 const geometry = @import("geometry");
 const graphics = @import("graphics");
 const common = @import("common");
@@ -55,7 +58,7 @@ fn defaultScroll(_: f64, _: f64) !void {
     return;
 }
 
-fn defaultMouse(_: i32, _: i32, _: i32) !void {
+fn defaultMouse(_: i32, _: graphics.Action, _: i32) !void {
     return;
 }
 
@@ -67,7 +70,7 @@ fn defaultFrame(_: i32, _: i32) !void {
     return;
 }
 
-fn defaultKey(_: i32, _: i32, _: i32, _: i32) !void {
+fn defaultKey(_: i32, _: i32, _: graphics.Action, _: i32) !void {
     return;
 }
 
@@ -102,10 +105,10 @@ pub const State = struct {
 
     char_func: *const fn (codepoint: u32) anyerror!void = defaultChar,
     scroll_func: *const fn (xoffset: f64, yoffset: f64) anyerror!void = defaultScroll,
-    mouse_func: *const fn (button: i32, action: i32, mods: i32) anyerror!void = defaultMouse,
+    mouse_func: *const fn (button: i32, action: graphics.Action, mods: i32) anyerror!void = defaultMouse,
     cursor_func: *const fn (xoffset: f64, yoffset: f64) anyerror!void = defaultCursor,
     frame_func: *const fn (width: i32, height: i32) anyerror!void = defaultFrame,
-    key_func: *const fn (key: i32, scancode: i32, action: i32, mods: i32) anyerror!void = defaultKey,
+    key_func: *const fn (key: i32, scancode: i32, action: graphics.Action, mods: i32) anyerror!void = defaultKey,
 
     pub fn init(info: graphics.WindowInfo) !*State {
         var bdf = try BdfParse.init();
@@ -166,7 +169,7 @@ pub const State = struct {
         try state.scroll_func(xoffset, yoffset);
     }
 
-    pub fn mouseFunc(ptr: *anyopaque, button: i32, action: i32, mods: i32) !void {
+    pub fn mouseFunc(ptr: *anyopaque, button: i32, action: graphics.Action, mods: i32) !void {
         var state: *State = @ptrCast(@alignCast(ptr));
         try state.ui.getMouse(button, action, mods);
         try state.mouse_func(button, action, mods);
@@ -219,6 +222,7 @@ pub const State = struct {
     }
 
     pub fn deinit(self: *State) void {
+        self.ui.deinit();
         self.main_win.deinit();
         self.scene.deinit();
         self.skybox_scene.deinit();
@@ -239,13 +243,13 @@ pub const State = struct {
         try state.frame_func(width, height);
     }
 
-    fn keyFunc(ptr: *anyopaque, key: i32, scancode: i32, action: i32, mods: i32) !void {
+    fn keyFunc(ptr: *anyopaque, key: i32, scancode: i32, action: graphics.Action, mods: i32) !void {
         var state: *State = @ptrCast(@alignCast(ptr));
 
         try state.ui.getKey(key, scancode, action, mods);
         try state.key_func(key, scancode, action, mods);
 
-        if (action == glfw.GLFW_PRESS) {
+        if (action == .press) {
             if (key == glfw.GLFW_KEY_C) {
                 if (is_wireframe) {
                     gl.polygonMode(gl.FRONT_AND_BACK, gl.FILL);
@@ -260,7 +264,7 @@ pub const State = struct {
 
             state.last_mods = mods;
             state.down_num += 1;
-        } else if (action == glfw.GLFW_RELEASE) {
+        } else if (action == .release) {
             state.current_keys[@intCast(key)] = false;
             state.last_interact_keys[@intCast(key)] = state.time;
 

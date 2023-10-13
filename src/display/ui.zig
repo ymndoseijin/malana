@@ -8,31 +8,29 @@ const Window = graphics.Window;
 const math = @import("math");
 const Vec2 = math.Vec2;
 
-const AABB = struct {
-    size: Vec2,
-    pos: Vec2,
+pub const Region = struct {
+    transform: graphics.Transform2D,
 
-    pub fn isInside(self: AABB, pos: Vec2) bool {
-        const e_x = self.size[0] + self.pos[0];
-        const e_y = self.size[1] + self.pos[1];
-        return (self.pos[0] <= pos[0] and pos[0] <= e_x) and (self.pos[1] <= pos[1] and pos[1] <= e_y);
+    pub fn isInside(self: Region, pos: Vec2) bool {
+        const relative = self.transform.reverse(pos);
+        return 0 <= relative[0] and relative[0] <= 1 and 0 <= relative[1] and relative[1] <= 1;
     }
 };
 
 const Focusable = struct {
-    key_func: *const fn (*anyopaque, *Ui, i32, i32, i32, i32) anyerror!void = defaultKey,
+    key_func: *const fn (*anyopaque, *Ui, i32, i32, graphics.Action, i32) anyerror!void = defaultKey,
     char_func: *const fn (*anyopaque, *Ui, u32) anyerror!void = defaultChar,
     frame_func: *const fn (*anyopaque, *Ui, i32, i32) anyerror!void = defaultFrame,
     scroll_func: *const fn (*anyopaque, *Ui, f64, f64) anyerror!void = defaultScroll,
-    mouse_func: *const fn (*anyopaque, *Ui, i32, i32, i32) anyerror!bool = defaultMouse,
+    mouse_func: *const fn (*anyopaque, *Ui, i32, graphics.Action, i32) anyerror!bool = defaultMouse,
     cursor_func: *const fn (*anyopaque, *Ui, f64, f64) anyerror!void = defaultCursor,
 
-    focus_enter_func: *const fn (*anyopaque, *Ui, i32, i32, i32) anyerror!bool = defaultMouse,
-    focus_exit_func: *const fn (*anyopaque, *Ui, i32, i32, i32) anyerror!void = defaultExit,
+    focus_enter_func: *const fn (*anyopaque, *Ui, i32, graphics.Action, i32) anyerror!bool = defaultMouse,
+    focus_exit_func: *const fn (*anyopaque, *Ui, i32, graphics.Action, i32) anyerror!void = defaultExit,
 
-    aabb: *AABB,
+    region: *Region,
 
-    pub fn defaultKey(_: *anyopaque, _: *Ui, _: i32, _: i32, _: i32, _: i32) !void {
+    pub fn defaultKey(_: *anyopaque, _: *Ui, _: i32, _: i32, _: graphics.Action, _: i32) !void {
         return;
     }
 
@@ -48,11 +46,15 @@ const Focusable = struct {
         return;
     }
 
-    pub fn defaultMouse(_: *anyopaque, _: *Ui, _: i32, _: i32, _: i32) !bool {
+    pub fn defaultEnter(_: *anyopaque, _: *Ui, _: i32, _: i32, _: i32) !bool {
         return true;
     }
 
-    pub fn defaultExit(_: *anyopaque, _: *Ui, _: i32, _: i32, _: i32) !void {
+    pub fn defaultMouse(_: *anyopaque, _: *Ui, _: i32, _: graphics.Action, _: i32) !bool {
+        return true;
+    }
+
+    pub fn defaultExit(_: *anyopaque, _: *Ui, _: i32, _: graphics.Action, _: i32) !void {
         return;
     }
 
@@ -75,7 +77,7 @@ pub const Ui = struct {
         };
     }
 
-    pub fn getKey(ui: *Ui, key: i32, scancode: i32, action: i32, mods: i32) !void {
+    pub fn getKey(ui: *Ui, key: i32, scancode: i32, action: graphics.Action, mods: i32) !void {
         if (ui.focused) |focused_elem| {
             try focused_elem[1].key_func(focused_elem[0], ui, key, scancode, action, mods);
         }
@@ -99,9 +101,11 @@ pub const Ui = struct {
         }
     }
 
-    pub fn getMouse(ui: *Ui, button: i32, action: i32, mods: i32) !void {
+    pub fn getMouse(ui: *Ui, button: i32, action: graphics.Action, mods: i32) !void {
         var pos: [2]f64 = undefined;
         graphics.glfw.glfwGetCursorPos(ui.window.glfw_win, &pos[0], &pos[1]);
+        const h: f64 = @floatFromInt(ui.window.current_height);
+        pos[1] = h - pos[1];
 
         if (button == 0) {
             for (ui.elements.items) |elem| {
@@ -109,7 +113,7 @@ pub const Ui = struct {
                     if (elem[0] == focused_elem[0]) continue;
                 }
 
-                if (elem[1].aabb.isInside(.{ @floatCast(pos[0]), @floatCast(pos[1]) })) {
+                if (elem[1].region.isInside(.{ @floatCast(pos[0]), @floatCast(pos[1]) })) {
                     if (!try elem[1].focus_enter_func(elem[0], ui, button, action, mods)) {
                         continue;
                     }
@@ -124,7 +128,7 @@ pub const Ui = struct {
             }
 
             if (ui.focused) |focused_elem| {
-                if (focused_elem[1].aabb.isInside(.{ @floatCast(pos[0]), @floatCast(pos[1]) })) {
+                if (focused_elem[1].region.isInside(.{ @floatCast(pos[0]), @floatCast(pos[1]) })) {
                     if (!try focused_elem[1].mouse_func(focused_elem[0], ui, button, action, mods)) {
                         try focused_elem[1].focus_exit_func(focused_elem[0], ui, button, action, mods);
                         ui.focused = null;

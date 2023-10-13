@@ -44,7 +44,7 @@ pub const ColoredRect = struct {
     }
 
     pub fn updateTransform(self: ColoredRect) void {
-        self.drawing.setUniformMat3("transform", math.transform2D(f32, self.transform.scale, self.transform.rotation, self.transform.translation));
+        self.drawing.setUniformMat3("transform", self.transform.getMat());
     }
 
     transform: graphics.Transform2D,

@@ -29,6 +29,21 @@ pub const Transform2D = struct {
     scale: math.Vec2,
     rotation: struct { angle: f32, center: math.Vec2 },
     translation: math.Vec2,
+    pub fn getMat(self: Transform2D) math.Mat3 {
+        return math.transform2D(f32, self.scale, self.rotation, self.translation);
+    }
+    pub fn getInverseMat(self: Transform2D) math.Mat3 {
+        return math.transform2D(f32, math.Vec2{ 1, 1 } / self.scale, .{ .angle = -self.rotation.angle, .center = self.rotation.center }, math.Vec2{ -1, -1 } * self.translation);
+    }
+    pub fn apply(self: Transform2D, v: math.Vec2) math.Vec2 {
+        var res: [3]f32 = self.getMat().dot(.{ v[0], v[1], 1 });
+        return res[0..2].*;
+    }
+
+    pub fn reverse(self: Transform2D, v: math.Vec2) math.Vec2 {
+        var res: [3]f32 = self.getInverseMat().dot(.{ v[0], v[1], 1 });
+        return res[0..2].*;
+    }
 };
 
 const Uniform1f = struct {
@@ -540,13 +555,19 @@ pub fn getGlfwCursorPos(win_or: ?*glfw.GLFWwindow, xpos: f64, ypos: f64) callcon
     }
 }
 
+pub const Action = enum(i32) {
+    release = 0,
+    press = 1,
+    repeat = 2,
+};
+
 pub fn getGlfwMouseButton(win_or: ?*glfw.GLFWwindow, button: c_int, action: c_int, mods: c_int) callconv(.C) void {
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
         if (win.events.mouse_func) |fun| {
-            fun(map[0], button, action, mods) catch {
+            fun(map[0], button, @enumFromInt(action), mods) catch {
                 @panic("error!");
             };
         }
@@ -559,7 +580,7 @@ pub fn getGlfwKey(win_or: ?*glfw.GLFWwindow, key: c_int, scancode: c_int, action
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
         if (win.events.key_func) |fun| {
-            fun(map[0], key, scancode, action, mods) catch {
+            fun(map[0], key, scancode, @enumFromInt(action), mods) catch {
                 @panic("error!");
             };
         }
@@ -615,11 +636,11 @@ pub fn waitGraphicsEvent() void {
 }
 
 pub const EventTable = struct {
-    key_func: ?*const fn (*anyopaque, i32, i32, i32, i32) anyerror!void,
+    key_func: ?*const fn (*anyopaque, i32, i32, Action, i32) anyerror!void,
     char_func: ?*const fn (*anyopaque, u32) anyerror!void,
     frame_func: ?*const fn (*anyopaque, i32, i32) anyerror!void,
     scroll_func: ?*const fn (*anyopaque, f64, f64) anyerror!void,
-    mouse_func: ?*const fn (*anyopaque, i32, i32, i32) anyerror!void,
+    mouse_func: ?*const fn (*anyopaque, i32, Action, i32) anyerror!void,
     cursor_func: ?*const fn (*anyopaque, f64, f64) anyerror!void,
 };
 
@@ -641,7 +662,7 @@ pub const Window = struct {
         self.events.scroll_func = fun;
     }
 
-    pub fn setKeyCallback(self: *Window, fun: *const fn (*anyopaque, i32, i32, i32, i32) anyerror!void) void {
+    pub fn setKeyCallback(self: *Window, fun: *const fn (*anyopaque, i32, i32, Action, i32) anyerror!void) void {
         self.events.key_func = fun;
     }
 
@@ -653,7 +674,7 @@ pub const Window = struct {
         self.events.frame_func = fun;
     }
 
-    pub fn setMouseButtonCallback(self: *Window, fun: *const fn (*anyopaque, i32, i32, i32) anyerror!void) void {
+    pub fn setMouseButtonCallback(self: *Window, fun: *const fn (*anyopaque, i32, Action, i32) anyerror!void) void {
         self.events.mouse_func = fun;
     }
 
