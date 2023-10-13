@@ -40,6 +40,8 @@ pub const Sprite = struct {
 
         return Sprite{
             .drawing = drawing,
+            .width = w,
+            .height = w,
             .transform = .{
                 .scale = .{ 1, 1 },
                 .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
@@ -48,10 +50,29 @@ pub const Sprite = struct {
         };
     }
 
+    pub fn textureFromPath(self: *Sprite, path: []const u8) !Sprite {
+        const wi, const hi = try self.drawing.textureFromPath(path);
+
+        const w: f32 = @floatFromInt(wi);
+        const h: f32 = @floatFromInt(hi);
+
+        self.drawing.bindVertex(&.{
+            0, 0, 1, 0, 0,
+            w, 0, 1, 1, 0,
+            w, h, 1, 1, 1,
+            0, h, 1, 0, 1,
+        }, &.{ 0, 1, 2, 2, 3, 0 });
+
+        self.width = w;
+        self.height = h;
+    }
+
     pub fn updateTransform(self: Sprite) void {
         self.drawing.setUniformMat3("transform", math.transform2D(f32, self.transform.scale, self.transform.rotation, self.transform.translation));
     }
 
+    width: f32,
+    height: f32,
     transform: graphics.Transform2D,
     drawing: *Drawing(graphics.FlatPipeline),
 };
