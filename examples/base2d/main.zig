@@ -34,7 +34,7 @@ pub fn main() !void {
     defer bdf.deinit();
     try bdf.parse("b12.bdf");
 
-    state = try display.State.init(.{ .name = "image test" });
+    state = try display.State.init(.{ .name = "image test", .width = 1920, .height = 1080 });
     defer state.deinit();
 
     // get image file

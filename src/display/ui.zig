@@ -104,7 +104,7 @@ pub const Ui = struct {
     pub fn getMouse(ui: *Ui, button: i32, action: graphics.Action, mods: i32) !void {
         var pos: [2]f64 = undefined;
         graphics.glfw.glfwGetCursorPos(ui.window.glfw_win, &pos[0], &pos[1]);
-        const h: f64 = @floatFromInt(ui.window.current_height);
+        const h: f64 = @floatFromInt(ui.window.viewport_height);
         pos[1] = h - pos[1];
 
         if (button == 0) {

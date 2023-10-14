@@ -437,7 +437,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             const now: f32 = 2 * time;
 
             const resolutionLoc: i32 = gl.getUniformLocation(self.shader_program, "in_resolution");
-            gl.uniform2f(resolutionLoc, @floatFromInt(window.current_width), @floatFromInt(window.current_height));
+            gl.uniform2f(resolutionLoc, @floatFromInt(window.viewport_width), @floatFromInt(window.viewport_height));
 
             const timeUniformLoc: i32 = gl.getUniformLocation(self.shader_program, "time");
             gl.uniform1f(timeUniformLoc, now);
@@ -605,10 +605,10 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
 
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
-        win.current_width = width;
-        win.current_height = height;
-
         gl.viewport(0, 0, width, height);
+
+        win.frame_width = width;
+        win.frame_height = 1080;
 
         if (win.events.frame_func) |fun| {
             fun(map[0], width, height) catch {
@@ -653,8 +653,11 @@ pub const WindowInfo = struct {
 pub const Window = struct {
     glfw_win: *glfw.GLFWwindow,
     alive: bool,
-    current_width: i32 = 100,
-    current_height: i32 = 100,
+    frame_width: i32,
+    frame_height: i32,
+
+    viewport_width: i32,
+    viewport_height: i32,
 
     events: EventTable,
 
@@ -699,6 +702,7 @@ pub const Window = struct {
         const glfw_win = win_or orelse return GlfwError.FailedGlfwWindow;
 
         glfw.glfwMakeContextCurrent(glfw_win);
+        glfw.glfwSetWindowAspectRatio(glfw_win, 16, 9);
         _ = glfw.glfwSetKeyCallback(glfw_win, getGlfwKey);
         _ = glfw.glfwSetCharCallback(glfw_win, getGlfwChar);
         _ = glfw.glfwSetFramebufferSizeCallback(glfw_win, getFramebufferSize);
@@ -728,6 +732,10 @@ pub const Window = struct {
             .glfw_win = glfw_win,
             .events = events,
             .alive = true,
+            .viewport_width = info.width,
+            .frame_width = info.width,
+            .viewport_height = info.height,
+            .frame_height = info.height,
         };
     }
 
