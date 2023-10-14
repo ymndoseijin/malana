@@ -66,6 +66,79 @@ const Uniform4fv = struct {
     value: *math.Mat4,
 };
 
+pub const TextureInfo = struct {
+    const FilterEnum = enum {
+        nearest,
+        linear,
+
+        pub fn getGL(self: FilterEnum) i32 {
+            switch (self) {
+                .nearest => return gl.NEAREST,
+                .linear => return gl.LINEAR,
+            }
+        }
+    };
+    const TextureType = enum {
+        cubemap,
+        flat,
+
+        pub fn getGL(self: TextureType) u32 {
+            switch (self) {
+                .cubemap => return gl.TEXTURE_CUBE_MAP,
+                .flat => return gl.TEXTURE_2D,
+            }
+        }
+    };
+
+    texture_type: TextureType,
+    mag_filter: FilterEnum,
+    min_filter: FilterEnum,
+};
+
+pub const Texture = struct {
+    texture_id: u32,
+    info: TextureInfo,
+
+    pub fn init(info: TextureInfo) Texture {
+        var texture_id: u32 = undefined;
+        gl.genTextures(1, &texture_id);
+
+        const texture_type = info.texture_type.getGL();
+
+        gl.bindTexture(texture_type, texture_id);
+
+        gl.texParameteri(texture_type, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
+        gl.texParameteri(texture_type, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
+
+        gl.texParameteri(texture_type, gl.TEXTURE_MIN_FILTER, info.mag_filter.getGL());
+        gl.texParameteri(texture_type, gl.TEXTURE_MAG_FILTER, info.min_filter.getGL());
+
+        return .{
+            .texture_id = texture_id,
+            .info = info,
+        };
+    }
+
+    pub fn setFromRgba(self: Texture, rgba: anytype, flip: bool) !void {
+        const texture_type = self.info.texture_type.getGL();
+        gl.bindTexture(texture_type, self.texture_id);
+        if (flip) {
+            var flipped: @TypeOf(rgba.data) = try common.allocator.dupe(@TypeOf(rgba.data[0]), rgba.data);
+            defer common.allocator.free(flipped);
+            for (0..rgba.height) |i| {
+                for (0..rgba.width) |j| {
+                    const pix = rgba.data[(rgba.height - i - 1) * rgba.width + j];
+                    flipped[i * rgba.width + j] = pix;
+                }
+            }
+
+            gl.texImage2D(texture_type, 0, gl.RGBA8, @intCast(rgba.width), @intCast(rgba.height), 0, gl.RGBA, gl.UNSIGNED_BYTE, &flipped[0]);
+        } else {
+            gl.texImage2D(texture_type, 0, gl.RGBA8, @intCast(rgba.width), @intCast(rgba.height), 0, gl.RGBA, gl.UNSIGNED_BYTE, &rgba.data[0]);
+        }
+    }
+};
+
 pub const Shader = struct {
     pub fn compileShader(comptime source: [:0]const u8, shader_type: gl.Enum) !u32 {
         const shader: u32 = gl.createShader(shader_type);
@@ -343,30 +416,11 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             return @intCast(0x84C0 + i);
         }
 
-        pub fn textureFromRgba(self: *Self, data: anytype, width: usize, height: usize) !void {
-            var texture_id: u32 = undefined;
-            gl.genTextures(1, &texture_id);
-            gl.bindTexture(gl.TEXTURE_2D, texture_id);
-
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-
-            var flipped: @TypeOf(data) = try common.allocator.dupe(@TypeOf(data[0]), data);
-            defer common.allocator.free(flipped);
-            for (0..height) |i| {
-                for (0..width) |j| {
-                    const pix = data[(height - i - 1) * width + j];
-                    flipped[i * width + j] = pix;
-                }
+        pub fn addTexture(self: *Self, texture: Texture) !void {
+            switch (texture.info.texture_type) {
+                .flat => try self.textures.append(texture.texture_id),
+                .cubemap => try self.cube_textures.append(texture.texture_id),
             }
-
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, @intCast(width), @intCast(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, &flipped[0]);
-
-            //gl.generateMipmap(gl.TEXTURE_2D);
-
-            try self.textures.append(texture_id);
         }
 
         pub fn textureFromPath(self: *Self, path: []const u8) !struct { usize, usize } {
@@ -375,7 +429,14 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
 
             switch (read_image.pixels) {
                 .rgba32 => |data| {
-                    try self.textureFromRgba(data, read_image.width, read_image.height);
+                    const tex = Texture.init(.{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
+                    try tex.setFromRgba(.{
+                        .width = read_image.width,
+                        .height = read_image.height,
+                        .data = data,
+                    }, true);
+
+                    try self.addTexture(tex);
                 },
                 else => return error.InvalidImage,
             }
