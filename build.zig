@@ -81,6 +81,8 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    _ = b.addModule("ui", ui);
+
     inline for (.{"base2d"}) |app| {
         const exe = b.addExecutable(.{
             .name = app,
