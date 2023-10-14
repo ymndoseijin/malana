@@ -97,10 +97,7 @@ pub fn build(b: *std.Build) void {
 
         exe.addModule("ui", ui);
 
-        exe.linkLibrary(b.dependency("glfw", .{
-            .target = exe.target,
-            .optimize = exe.optimize,
-        }).artifact("glfw"));
+        linkLibraries(b, exe);
 
         exe.linkLibC();
 
@@ -134,10 +131,7 @@ pub fn build(b: *std.Build) void {
     unit_tests.addModule("gl", gl);
     unit_tests.addModule("math", math);
 
-    unit_tests.linkLibrary(b.dependency("glfw", .{
-        .target = unit_tests.target,
-        .optimize = unit_tests.optimize,
-    }).artifact("glfw"));
+    linkLibraries(b, unit_tests);
 
     unit_tests.linkLibC();
 
@@ -145,4 +139,11 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+}
+
+pub fn linkLibraries(b: *std.Build, step: *std.build.CompileStep) void {
+    step.linkLibrary(b.dependency("glfw", .{
+        .target = step.target,
+        .optimize = step.optimize,
+    }).artifact("glfw"));
 }
