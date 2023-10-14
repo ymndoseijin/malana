@@ -66,7 +66,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const ui = b.createModule(.{
+    var ui_info: std.Build.CreateModuleOptions = .{
         .source_file = .{ .path = "src/ui.zig" },
         .dependencies = &.{
             .{ .name = "img", .module = zigimg_dep.module("zigimg") },
@@ -79,9 +79,11 @@ pub fn build(b: *std.Build) void {
             .{ .name = "gl", .module = gl },
             .{ .name = "math", .module = math },
         },
-    });
+    };
 
-    _ = b.addModule("ui", ui);
+    const ui = b.createModule(ui_info);
+
+    _ = b.addModule("ui", ui_info);
 
     inline for (.{"base2d"}) |app| {
         const exe = b.addExecutable(.{
