@@ -272,7 +272,7 @@ const RenderPipeline = struct {
 pub const FlatPipeline = RenderPipeline{
     .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 } },
     .render_type = .triangle,
-    .depth_test = true,
+    .depth_test = false,
     .cull_face = false,
 };
 

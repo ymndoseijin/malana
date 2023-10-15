@@ -36,17 +36,16 @@ pub fn main() !void {
 
     state = try display.State.init(.{ .name = "image test", .width = 1920, .height = 1080 });
     defer state.deinit();
-
     // get image file
     var arg_it = std.process.args();
     _ = arg_it.next();
 
     var image_path = arg_it.next() orelse return error.NotEnoughArguments;
 
-    var sprite = try graphics.Sprite.init(try state.scene.new(.flat), image_path);
+    var sprite = try graphics.Sprite.init(try state.flat_scene.new(.flat), image_path);
 
     var text = try graphics.Text.init(
-        try state.scene.new(.flat),
+        try state.flat_scene.new(.flat),
         bdf,
         .{ 0, 0, 0 },
     );
@@ -54,16 +53,17 @@ pub fn main() !void {
 
     try text.initUniform();
 
-    state.key_down = keyDown;
-
-    var color = try graphics.ColoredRect.init(try state.scene.new(.flat), .{ 0.3, 0.3, 1, 1 });
+    var color = try graphics.ColoredRect.init(try state.flat_scene.new(.flat), .{ 0.3, 0.3, 1, 1 });
     color.transform.scale = .{ 200, 200 };
-    color.transform.rotation.angle = 0.78;
+    color.transform.rotation.angle = 0.5;
     color.updateTransform();
 
     var color_region: display.Region = .{ .transform = color.transform };
 
     try state.ui.elements.append(.{ @ptrCast(&color), .{ .mouse_func = nice, .region = &color_region } });
+
+    state.key_down = keyDown;
+    gl.depthFunc(gl.NEVER);
 
     while (state.main_win.alive) {
         try state.updateEvents();
