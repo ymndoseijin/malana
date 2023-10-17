@@ -15,6 +15,8 @@ var state: *display.State = undefined;
 
 var num_clicked: u32 = 0;
 
+var color: graphics.ColoredRect = undefined;
+
 fn keyDown(key_state: display.KeyState, mods: i32, dt: f32) !void {
     _ = mods;
     _ = dt;
@@ -23,7 +25,11 @@ fn keyDown(key_state: display.KeyState, mods: i32, dt: f32) !void {
     }
 }
 fn nice(_: *anyopaque, _: *display.Ui, _: i32, action: graphics.Action, _: i32) !bool {
-    if (action == .press) num_clicked += 1;
+    if (action == .press) {
+        std.debug.print("Hey!", .{});
+        try state.flat_scene.delete(color.drawing);
+        num_clicked += 1;
+    }
     return true;
 }
 
@@ -44,7 +50,17 @@ pub fn main() !void {
 
     var sprite = try graphics.Sprite.init(try state.flat_scene.new(.flat), image_path);
 
-    var text = try graphics.Text.init(
+    color = try graphics.ColoredRect.init(try state.flat_scene.new(.flat), .{ 0.3, 0.3, 1, 1 });
+    color.transform.scale = .{ 200, 200 };
+    color.transform.translation = .{ 0, 0 };
+    color.transform.rotation.angle = 0.5;
+    color.updateTransform();
+
+    var color_region: display.Region = .{ .transform = color.transform };
+
+    try state.ui.elements.append(.{ @ptrCast(&color), .{ .mouse_func = nice, .region = &color_region } });
+
+    var text = try graphics.TextBdf.init(
         try state.flat_scene.new(.flat),
         bdf,
         .{ 0, 0, 0 },
@@ -53,14 +69,9 @@ pub fn main() !void {
 
     try text.initUniform();
 
-    var color = try graphics.ColoredRect.init(try state.flat_scene.new(.flat), .{ 0.3, 0.3, 1, 1 });
-    color.transform.scale = .{ 200, 200 };
-    color.transform.rotation.angle = 0.5;
-    color.updateTransform();
-
-    var color_region: display.Region = .{ .transform = color.transform };
-
-    try state.ui.elements.append(.{ @ptrCast(&color), .{ .mouse_func = nice, .region = &color_region } });
+    var char_test = try graphics.TextFt.init("resources/cmunrm.ttf");
+    try char_test.print("hello world", &state.flat_scene);
+    defer char_test.deinit();
 
     state.key_down = keyDown;
     gl.depthFunc(gl.NEVER);

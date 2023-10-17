@@ -19,6 +19,38 @@ const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
 
 pub const Sprite = struct {
+    pub fn initRgba(drawing: *Drawing(graphics.FlatPipeline), data: anytype) !Sprite {
+        var shader = try graphics.Shader.setupShader(@embedFile("shaders/sprite/vertex.glsl"), @embedFile("shaders/sprite/fragment.glsl"));
+
+        drawing.* = graphics.Drawing(graphics.FlatPipeline).init(shader);
+
+        const w: f32 = @floatFromInt(data.width);
+        const h: f32 = @floatFromInt(data.height);
+
+        drawing.bindVertex(&.{
+            0, 0, 1, 0, 0,
+            w, 0, 1, 1, 0,
+            w, h, 1, 1, 1,
+            0, h, 1, 0, 1,
+        }, &.{ 0, 1, 2, 2, 3, 0 });
+
+        drawing.setUniformMat3("transform", Mat3.identity());
+        const tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
+        try tex.setFromRgba(data, true);
+        try drawing.addTexture(tex);
+
+        return Sprite{
+            .drawing = drawing,
+            .width = w,
+            .height = w,
+            .transform = .{
+                .scale = .{ 1, 1 },
+                .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
+                .translation = .{ 0, 0 },
+            },
+        };
+    }
+
     pub fn init(drawing: *Drawing(graphics.FlatPipeline), path: []const u8) !Sprite {
         var shader = try graphics.Shader.setupShader(@embedFile("shaders/sprite/vertex.glsl"), @embedFile("shaders/sprite/fragment.glsl"));
 
@@ -41,7 +73,7 @@ pub const Sprite = struct {
         return Sprite{
             .drawing = drawing,
             .width = w,
-            .height = w,
+            .height = h,
             .transform = .{
                 .scale = .{ 1, 1 },
                 .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },

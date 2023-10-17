@@ -25,6 +25,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const freetype_dep = b.dependency("freetype", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const gl = b.createModule(.{ .source_file = .{ .path = "src/graphics/gl.zig" } });
     const math = b.createModule(.{ .source_file = .{ .path = "src/math.zig" } });
     const common = b.createModule(.{ .source_file = .{ .path = "src/common.zig" } });
@@ -55,6 +60,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "parsing", .module = parsing },
             .{ .name = "geometry", .module = geometry },
             .{ .name = "img", .module = zigimg_dep.module("zigimg") },
+            .{ .name = "freetype", .module = freetype_dep.module("mach-freetype") },
         },
     });
 
@@ -70,6 +76,7 @@ pub fn build(b: *std.Build) void {
         .source_file = .{ .path = "src/ui.zig" },
         .dependencies = &.{
             .{ .name = "img", .module = zigimg_dep.module("zigimg") },
+            .{ .name = "freetype", .module = freetype_dep.module("mach-freetype") },
             .{ .name = "zilliam", .module = zilliam_dep.module("zilliam") },
             .{ .name = "graphics", .module = graphics },
             .{ .name = "geometry", .module = geometry },
@@ -142,8 +149,13 @@ pub fn build(b: *std.Build) void {
 }
 
 pub fn linkLibraries(b: *std.Build, step: *std.build.CompileStep) void {
+    const freetype_dep = b.dependency("freetype", .{
+        .target = step.target,
+        .optimize = step.optimize,
+    });
     step.linkLibrary(b.dependency("glfw", .{
         .target = step.target,
         .optimize = step.optimize,
     }).artifact("glfw"));
+    @import("freetype").linkFreetype(freetype_dep.builder, step);
 }

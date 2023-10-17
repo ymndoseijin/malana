@@ -10,13 +10,15 @@ const common = @import("common");
 const gl = @import("gl");
 const std = @import("std");
 const math = @import("math");
+const freetype = @import("freetype");
 
 pub const Cube = @import("elems/cube.zig").Cube;
 pub const Line = @import("elems/line.zig").Line;
 pub const Grid = @import("elems/grid.zig").makeGrid;
 pub const Axis = @import("elems/axis.zig").makeAxis;
 pub const Camera = @import("elems/camera.zig").Camera;
-pub const Text = @import("elems/text.zig").Text;
+pub const TextBdf = @import("elems/textbdf.zig").Text;
+pub const TextFt = @import("elems/textft.zig").Text;
 pub const Sprite = @import("elems/sprite.zig").Sprite;
 pub const ColoredRect = @import("elems/color_rect.zig").ColoredRect;
 
@@ -228,6 +230,20 @@ pub fn Scene(comptime pipelines_union: anytype) type {
             var val = try common.allocator.create(@typeInfo(DrawingList.FieldType(render)).Pointer.child);
             try self.drawing_array.array(render).append(val);
             return val;
+        }
+
+        pub fn delete(self: *Self, drawing: anytype) !void {
+            const T = @TypeOf(drawing);
+            inline for (DrawingList.Enums) |field| {
+                const res = comptime std.meta.eql(@typeInfo(DrawingList.FieldType(field)).Pointer.child.Pipeline, @typeInfo(T).Pointer.child.Pipeline);
+                if (!res) continue;
+                var arr = self.drawing_array.array(field);
+                const idx = std.mem.indexOfScalar(T, arr.items, drawing) orelse return error.DeletedDrawingNotInScene;
+                _ = arr.swapRemove(idx);
+                drawing.deinit();
+                return;
+            }
+            @compileError("Drawing type not in Scene.");
         }
 
         pub fn draw(self: *Self, win: Window) !void {
@@ -571,6 +587,8 @@ const MapType = struct {
 
 var windowMap: ?std.AutoHashMap(*glfw.GLFWwindow, MapType) = null;
 
+pub var ft_lib: freetype.Library = undefined;
+
 pub fn initGraphics() !void {
     if (glfw.glfwInit() == glfw.GLFW_FALSE) return GlfwError.FailedGlfwInit;
 
@@ -580,10 +598,13 @@ pub fn initGraphics() !void {
     glfw.glfwWindowHint(glfw.GLFW_CONTEXT_VERSION_MAJOR, 4); // We want OpenGL 3.3
     glfw.glfwWindowHint(glfw.GLFW_CONTEXT_VERSION_MINOR, 6);
     glfw.glfwWindowHint(glfw.GLFW_OPENGL_PROFILE, glfw.GLFW_OPENGL_CORE_PROFILE); // We don't want the old OpenGL
+
+    ft_lib = try freetype.Library.init();
 }
 
 pub fn deinitGraphics() void {
     windowMap.?.deinit();
+    ft_lib.deinit();
 }
 
 const GlfwError = error{

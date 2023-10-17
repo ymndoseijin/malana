@@ -10,6 +10,10 @@
             .url = "https://github.com/hexops/glfw/archive/b2f564195804b86f62efb33d48daa046f1d8ca43.tar.gz",
             .hash = "122084cd0c37822d43ad4d72c1cfdc9d83e7066b52536812c367b95d165811c1c134",
         },
+        .freetype = .{
+            .url = "https://github.com/hexops/mach-freetype/archive/90b353a9425067010ae5e924dc845e5e5045dab7.tar.gz",
+            .hash = "12200d064703408a8c4a5734dac089a07c228d94a2ea19f3d2b5a07c2c97f1ca46dc",
+        },
         .zilliam = .{
            .url = "https://github.com/ymndoseijin/zilliam/archive/master.tar.gz",
            .hash = "1220de9861cd84dd4bd1715ba4907441261a9b862691d0b742263d36d52dbd42e709",
