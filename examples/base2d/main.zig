@@ -70,7 +70,7 @@ pub fn main() !void {
     try text.initUniform();
 
     var char_test = try graphics.TextFt.init("resources/cmunrm.ttf");
-    try char_test.print("hello world", &state.flat_scene);
+    try char_test.print(&state.flat_scene, "hello world!");
     defer char_test.deinit();
 
     state.key_down = keyDown;

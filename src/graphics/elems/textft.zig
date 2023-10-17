@@ -80,18 +80,21 @@ pub const Text = struct {
     width: f32,
     height: f32,
 
-    pub fn updatePos(self: *Text, pos: Vec3) void {
-        self.drawing.uniform3f_array[0].value = pos;
-    }
-
-    pub fn printFmt(self: *Text, comptime fmt: []const u8, fmt_args: anytype) !void {
+    pub fn printFmt(self: *Text, scene: anytype, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
         var str = try std.fmt.bufPrint(&buf, fmt, fmt_args);
-        try self.print(str);
+        try self.print(scene, str);
     }
 
-    pub fn print(self: *Text, text: []const u8, scene: anytype) !void {
+    pub fn print(self: *Text, scene: anytype, text: []const u8) !void {
         if (text.len == 0) return;
+
+        for (self.characters.items) |c| {
+            try scene.delete(c.sprite.drawing);
+            c.deinit();
+        }
+        self.characters.clearRetainingCapacity();
+
         var utf8 = (try std.unicode.Utf8View.init(text)).iterator();
 
         var x: f32 = 0;
@@ -115,10 +118,6 @@ pub const Text = struct {
             c.deinit();
         }
         self.characters.deinit();
-    }
-
-    pub fn initUniform(self: *Text) !void {
-        try self.drawing.addUniformVec3("pos", &self.pos);
     }
 
     pub fn init(path: [:0]const u8) !Text {
