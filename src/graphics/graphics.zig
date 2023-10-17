@@ -239,8 +239,11 @@ pub fn Scene(comptime pipelines_union: anytype) type {
                 if (!res) continue;
                 var arr = self.drawing_array.array(field);
                 const idx = std.mem.indexOfScalar(T, arr.items, drawing) orelse return error.DeletedDrawingNotInScene;
-                _ = arr.swapRemove(idx);
-                drawing.deinit();
+
+                var rem = arr.swapRemove(idx);
+                rem.deinit();
+                common.allocator.destroy(rem);
+
                 return;
             }
             @compileError("Drawing type not in Scene.");
