@@ -52,7 +52,6 @@ pub const Character = struct {
             .width = bitmap.width(),
             .height = bitmap.rows(),
         };
-        std.debug.print("{} {} {}\n", .{ char, image.width, image.height });
 
         for (0..bitmap.rows()) |i| {
             for (0..bitmap.width()) |j| {
@@ -98,7 +97,6 @@ pub const Text = struct {
         var x: f32 = 0;
 
         while (utf8.nextCodepoint()) |c| {
-            std.debug.print("{}\n", .{c});
             if (c == 32) {
                 x += 15;
                 continue;
