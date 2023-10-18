@@ -68,6 +68,12 @@ const Uniform4fv = struct {
     value: *math.Mat4,
 };
 
+pub const Image = struct {
+    width: u32,
+    height: u32,
+    data: []img.color.Rgba32,
+};
+
 pub const TextureInfo = struct {
     const FilterEnum = enum {
         nearest,

@@ -18,50 +18,37 @@ const Mat3 = math.Mat3;
 const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
 
+const SpriteInfo = struct {
+    path: ?[]const u8 = null,
+    rgba: ?graphics.Image = null,
+
+    comptime shaders: ?[2][:0]const u8 = null,
+};
+
 pub const Sprite = struct {
-    pub fn initRgba(drawing: *Drawing(graphics.FlatPipeline), data: anytype) !Sprite {
-        var shader = try graphics.Shader.setupShader(@embedFile("shaders/sprite/vertex.glsl"), @embedFile("shaders/sprite/fragment.glsl"));
-
-        drawing.* = graphics.Drawing(graphics.FlatPipeline).init(shader);
-
-        const w: f32 = @floatFromInt(data.width);
-        const h: f32 = @floatFromInt(data.height);
-
-        drawing.bindVertex(&.{
-            .{ 0, 0, 1, 0, 0 },
-            .{ w, 0, 1, 1, 0 },
-            .{ w, h, 1, 1, 1 },
-            .{ 0, h, 1, 0, 1 },
-        }, &.{ 0, 1, 2, 2, 3, 0 });
-
-        drawing.shader.setUniformMat3("transform", Mat3.identity());
-        const tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
-        try tex.setFromRgba(data, true);
-        try drawing.addTexture(tex);
-
-        return Sprite{
-            .drawing = drawing,
-            .width = w,
-            .height = w,
-            .transform = .{
-                .scale = .{ 1, 1 },
-                .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
-                .translation = .{ 0, 0 },
-            },
-        };
-    }
-
-    pub fn init(scene: anytype, path: []const u8) !Sprite {
+    pub fn init(scene: anytype, info: SpriteInfo) !Sprite {
         var drawing = try scene.new(graphics.FlatPipeline);
 
-        var shader = try graphics.Shader.setupShader(@embedFile("shaders/sprite/vertex.glsl"), @embedFile("shaders/sprite/fragment.glsl"));
+        const vert, const frag = if (info.shaders) |pair| pair else .{ @embedFile("shaders/sprite/vertex.glsl"), @embedFile("shaders/sprite/fragment.glsl") };
+        var shader = try graphics.Shader.setupShader(vert, frag);
 
         drawing.* = graphics.Drawing(graphics.FlatPipeline).init(shader);
 
-        const wi, const hi = try drawing.textureFromPath(path);
+        const wi, const hi = blk: {
+            if (info.path) |path| {
+                break :blk try drawing.textureFromPath(path);
+            } else if (info.rgba) |data| {
+                const tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
+                try tex.setFromRgba(data, true);
+                try drawing.addTexture(tex);
+                break :blk [2]usize{ data.width, data.height };
+            }
+        };
 
         const w: f32 = @floatFromInt(wi);
         const h: f32 = @floatFromInt(hi);
+
+        drawing.shader.setUniformMat3("transform", Mat3.identity());
 
         drawing.bindVertex(&.{
             .{ 0, 0, 1, 0, 0 },

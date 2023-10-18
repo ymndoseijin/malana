@@ -50,7 +50,7 @@ pub fn main() !void {
 
     var image_path = arg_it.next() orelse return error.NotEnoughArguments;
 
-    var sprite = try graphics.Sprite.init(&state.flat_scene, image_path);
+    var sprite = try graphics.Sprite.init(&state.flat_scene, .{ .path = image_path });
 
     color = try graphics.ColoredRect.init(&state.flat_scene, .{ 0.3, 0.3, 1, 1 });
     color.transform.scale = .{ 200, 200 };

@@ -33,11 +33,7 @@ pub fn bdfToRgba(res: []bool) ![fs * fs]img.color.Rgba32 {
     return buf;
 }
 
-pub const Image = struct {
-    width: u32,
-    height: u32,
-    data: []img.color.Rgba32,
-};
+const Image = graphics.Image;
 
 pub const Character = struct {
     image: Image,
@@ -71,11 +67,9 @@ pub const Character = struct {
             }
         }
 
-        var draw = try scene.new(graphics.FlatPipeline);
-
         return .{
             .image = image,
-            .sprite = try graphics.Sprite.initRgba(draw, image),
+            .sprite = try graphics.Sprite.init(scene, .{ .rgba = image }),
             .offset = offset,
             .advance = advance / 64,
         };
