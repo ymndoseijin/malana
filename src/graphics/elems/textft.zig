@@ -42,16 +42,27 @@ pub const Image = struct {
 pub const Character = struct {
     image: Image,
     sprite: graphics.Sprite,
+    offset: math.Vec2,
+    advance: f32,
 
     pub fn init(face: freetype.Face, char: u32, scene: anytype) !Character {
         try face.loadChar(char, .{ .render = true });
-        const bitmap = face.glyph().bitmap();
+        const glyph = face.glyph();
+        const bitmap = glyph.bitmap();
 
         var image: Image = .{
             .data = try common.allocator.alloc(img.color.Rgba32, bitmap.rows() * bitmap.width()),
             .width = bitmap.width(),
             .height = bitmap.rows(),
         };
+
+        const metrics = glyph.metrics();
+        var offset: math.Vec2 = .{ @floatFromInt(metrics.horiBearingX), @floatFromInt(-metrics.height + metrics.horiBearingY) };
+
+        const metrics_scale: math.Vec2 = @splat(1.0 / 64.0);
+        offset *= metrics_scale;
+
+        const advance: f32 = @floatFromInt(metrics.horiAdvance);
 
         for (0..bitmap.rows()) |i| {
             for (0..bitmap.width()) |j| {
@@ -65,6 +76,8 @@ pub const Character = struct {
         return .{
             .image = image,
             .sprite = try graphics.Sprite.initRgba(draw, image),
+            .offset = offset,
+            .advance = advance / 64,
         };
     }
 
@@ -79,6 +92,11 @@ pub const Text = struct {
 
     width: f32,
     height: f32,
+
+    line_spacing: f32,
+    bounding_width: f32,
+
+    transform: graphics.Transform2D,
 
     pub fn printFmt(self: *Text, scene: anytype, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
@@ -97,19 +115,30 @@ pub const Text = struct {
 
         var utf8 = (try std.unicode.Utf8View.init(text)).iterator();
 
-        var x: f32 = 0;
+        var start: math.Vec2 = self.transform.translation;
+
+        const space_width: f32 = 10;
 
         while (utf8.nextCodepoint()) |c| {
-            if (c == 32) {
-                x += 15;
+            if (c == ' ') {
+                start += .{ space_width, 0 };
+                continue;
+            } else if (c == '\n') {
+                start = .{ self.transform.translation[0], start[1] - self.line_spacing };
                 continue;
             }
 
             var char = try Character.init(self.face, c, scene);
             try self.characters.append(char);
-            char.sprite.transform.translation = .{ x, 0 };
+
+            // for now, no word wrapping
+            if (char.advance + start[0] > self.bounding_width) {
+                start = .{ self.transform.translation[0], start[1] - self.line_spacing };
+            }
+
+            char.sprite.transform.translation = start + char.offset;
             char.sprite.updateTransform();
-            x += @floatFromInt(char.image.width);
+            start += .{ char.advance, 0 };
         }
     }
 
@@ -120,14 +149,21 @@ pub const Text = struct {
         self.characters.deinit();
     }
 
-    pub fn init(path: [:0]const u8) !Text {
+    pub fn init(path: [:0]const u8, size: f32, line_spacing: f32, bounding_width: f32) !Text {
         var face = try graphics.ft_lib.createFace(path, 0);
-        try face.setCharSize(60 * 48, 0, 50, 0);
+        try face.setCharSize(@intFromFloat(size * 64), 0, 0, 0);
         return .{
             .width = 0,
             .height = 0,
+            .bounding_width = bounding_width,
             .face = face,
+            .line_spacing = size * line_spacing,
             .characters = std.ArrayList(Character).init(common.allocator),
+            .transform = .{
+                .scale = .{ 1, 1 },
+                .rotation = .{ .angle = 0, .center = .{ 0.5, 0.5 } },
+                .translation = .{ 0, 100 },
+            },
         };
     }
 };

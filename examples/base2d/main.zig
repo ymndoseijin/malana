@@ -71,8 +71,8 @@ pub fn main() !void {
 
     try text.initUniform();
 
-    var char_test = try graphics.TextFt.init("resources/cmunrm.ttf");
-    try char_test.print(&state.flat_scene, "hello world!");
+    var char_test = try graphics.TextFt.init("resources/cmunrm.ttf", 50, 1, 200);
+    try char_test.print(&state.flat_scene, "hello world! I'm here!");
     defer char_test.deinit();
 
     state.key_down = keyDown;
