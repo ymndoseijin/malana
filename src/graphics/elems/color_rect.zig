@@ -30,8 +30,8 @@ pub const ColoredRect = struct {
             0, 1, 1, 0, 1,
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
-        drawing.setUniformVec4("color", color);
-        drawing.setUniformMat3("transform", Mat3.identity());
+        drawing.shader.setUniformVec4("color", color);
+        drawing.shader.setUniformMat3("transform", Mat3.identity());
 
         return ColoredRect{
             .drawing = drawing,
@@ -44,7 +44,7 @@ pub const ColoredRect = struct {
     }
 
     pub fn updateTransform(self: ColoredRect) void {
-        self.drawing.setUniformMat3("transform", self.transform.getMat());
+        self.drawing.shader.setUniformMat3("transform", self.transform.getMat());
     }
 
     transform: graphics.Transform2D,

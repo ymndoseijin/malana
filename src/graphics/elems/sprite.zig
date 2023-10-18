@@ -34,7 +34,7 @@ pub const Sprite = struct {
             0, h, 1, 0, 1,
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
-        drawing.setUniformMat3("transform", Mat3.identity());
+        drawing.shader.setUniformMat3("transform", Mat3.identity());
         const tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
         try tex.setFromRgba(data, true);
         try drawing.addTexture(tex);
@@ -68,7 +68,7 @@ pub const Sprite = struct {
             0, h, 1, 0, 1,
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
-        drawing.setUniformMat3("transform", Mat3.identity());
+        drawing.shader.setUniformMat3("transform", Mat3.identity());
 
         return Sprite{
             .drawing = drawing,
@@ -100,7 +100,7 @@ pub const Sprite = struct {
     }
 
     pub fn updateTransform(self: Sprite) void {
-        self.drawing.setUniformMat3("transform", math.transform2D(f32, self.transform.scale, self.transform.rotation, self.transform.translation));
+        self.drawing.shader.setUniformMat3("transform", math.transform2D(f32, self.transform.scale, self.transform.rotation, self.transform.translation));
     }
 
     width: f32,

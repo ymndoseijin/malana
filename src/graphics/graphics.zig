@@ -142,7 +142,41 @@ pub const Texture = struct {
 };
 
 pub const Shader = struct {
-    pub fn compileShader(comptime source: [:0]const u8, shader_type: gl.Enum) !u32 {
+    program: u32,
+    const Self = Shader;
+
+    pub fn setUniformFloat(self: *Self, name: [:0]const u8, value: f32) void {
+        gl.useProgram(self.program);
+        const loc: i32 = gl.getUniformLocation(self.program, name);
+        gl.uniform1f(loc, value);
+    }
+
+    pub fn setUniformVec3(self: *Self, name: [:0]const u8, value: math.Vec3) void {
+        gl.useProgram(self.program);
+        const loc: i32 = gl.getUniformLocation(self.program, name);
+        gl.uniform3f(loc, value[0], value[1], value[2]);
+    }
+
+    pub fn setUniformVec4(self: *Self, name: [:0]const u8, value: math.Vec4) void {
+        gl.useProgram(self.program);
+        const loc: i32 = gl.getUniformLocation(self.program, name);
+        gl.uniform4f(loc, value[0], value[1], value[2], value[3]);
+    }
+
+    pub fn setUniformMat3(self: *Self, name: [:0]const u8, value: math.Mat3) void {
+        gl.useProgram(self.program);
+        const loc: i32 = gl.getUniformLocation(self.program, name);
+
+        gl.uniformMatrix3fv(loc, 1, gl.FALSE, &value.columns[0][0]);
+    }
+
+    pub fn setUniformMat4(self: *Self, name: [:0]const u8, value: math.Mat4) void {
+        gl.useProgram(self.program);
+        const loc: i32 = gl.getUniformLocation(self.program, name);
+        gl.uniformMatrix4fv(loc, 1, gl.FALSE, &value.columns[0][0]);
+    }
+
+    pub fn compileShader(comptime source: [:0]const u8, shader_type: gl.Enum) !Shader {
         const shader: u32 = gl.createShader(shader_type);
 
         const version_idx = comptime std.mem.indexOf(u8, source, "\n").?;
@@ -159,47 +193,43 @@ pub const Shader = struct {
             std.os.exit(255);
         }
 
-        return shader;
+        return .{
+            .program = shader,
+        };
     }
 
-    pub fn linkShaders(shaders: []u32) !u32 {
-        const shaderProgram: u32 = gl.createProgram();
+    pub fn linkShaders(shaders: []const Shader) !Shader {
+        const program: u32 = gl.createProgram();
 
         for (shaders) |shader| {
-            //printf("compiling %lu\n", i);
-            //printf("it has id %u\n", *(shader_ptr+i));
-            gl.attachShader(shaderProgram, shader);
+            gl.attachShader(program, shader.program);
         }
 
-        gl.linkProgram(shaderProgram);
+        gl.linkProgram(program);
 
         var response: i32 = 1;
-        gl.getShaderiv(shaderProgram, gl.LINK_STATUS, &response);
+        gl.getShaderiv(program, gl.LINK_STATUS, &response);
         var infoLog: [4096]u8 = undefined;
         if (response <= 0) {
-            gl.getShaderInfoLog(shaderProgram, 512, null, &infoLog[0]);
+            gl.getShaderInfoLog(program, 512, null, &infoLog[0]);
             std.debug.print("Couldn't compile from source: {s}\n", .{infoLog});
             std.os.exit(255);
         }
 
         for (shaders) |shader| {
-            gl.deleteShader(shader);
+            gl.deleteShader(shader.program);
         }
 
-        return shaderProgram;
+        return .{
+            .program = program,
+        };
     }
 
-    pub fn setupShader(comptime vertex_path: [:0]const u8, comptime fragment_path: [:0]const u8) !u32 {
-        //printf("Compiling vertex shader at %s and fragment at %s\n", vertex_path, fragment_path);
-        const vertex: u32 = try compileShader(vertex_path, gl.VERTEX_SHADER);
-        const fragment: u32 = try compileShader(fragment_path, gl.FRAGMENT_SHADER);
-        var shaderArray = [2]u32{ fragment, vertex };
+    pub fn setupShader(comptime vertex_path: [:0]const u8, comptime fragment_path: [:0]const u8) !Shader {
+        const vertex = try compileShader(vertex_path, gl.VERTEX_SHADER);
+        const fragment = try compileShader(fragment_path, gl.FRAGMENT_SHADER);
 
-        const shader_result: u32 = try linkShaders(&shaderArray);
-
-        //printf("In the end, %i is %s, %i is %s and %i is the link, vertex fragment\n", vertex, vertex_path, fragment, fragment_path, shader_result);
-
-        return shader_result;
+        return try linkShaders(&[_]Shader{ vertex, fragment });
     }
 };
 
@@ -314,7 +344,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
         vao: u32,
         vbo: u32,
         ebo: u32,
-        shader_program: u32,
+        shader: Shader,
 
         uniform1f_array: std.ArrayList(Uniform1f),
         uniform3f_array: std.ArrayList(Uniform3f),
@@ -346,41 +376,10 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             try self.uniform3fv_array.append(.{ .name = name, .value = m });
         }
 
-        pub fn setUniformFloat(self: *Self, name: [:0]const u8, value: f32) void {
-            gl.useProgram(self.shader_program);
-            const loc: i32 = gl.getUniformLocation(self.shader_program, name);
-            gl.uniform1f(loc, value);
-        }
-
-        pub fn setUniformVec3(self: *Self, name: [:0]const u8, value: math.Vec3) void {
-            gl.useProgram(self.shader_program);
-            const loc: i32 = gl.getUniformLocation(self.shader_program, name);
-            gl.uniform3f(loc, value[0], value[1], value[2]);
-        }
-
-        pub fn setUniformVec4(self: *Self, name: [:0]const u8, value: math.Vec4) void {
-            gl.useProgram(self.shader_program);
-            const loc: i32 = gl.getUniformLocation(self.shader_program, name);
-            gl.uniform4f(loc, value[0], value[1], value[2], value[3]);
-        }
-
-        pub fn setUniformMat3(self: *Self, name: [:0]const u8, value: math.Mat3) void {
-            gl.useProgram(self.shader_program);
-            const loc: i32 = gl.getUniformLocation(self.shader_program, name);
-
-            gl.uniformMatrix3fv(loc, 1, gl.FALSE, &value.columns[0][0]);
-        }
-
-        pub fn setUniformMat4(self: *Self, name: [:0]const u8, value: math.Mat4) void {
-            gl.useProgram(self.shader_program);
-            const loc: i32 = gl.getUniformLocation(self.shader_program, name);
-            gl.uniformMatrix4fv(loc, 1, gl.FALSE, &value.columns[0][0]);
-        }
-
-        pub fn init(shader: u32) Self {
+        pub fn init(shader: Shader) Self {
             var drawing: Self = undefined;
 
-            drawing.shader_program = shader;
+            drawing.shader = shader;
 
             gl.genVertexArrays(1, &drawing.vao);
             gl.genBuffers(1, &drawing.vbo);
@@ -512,33 +511,33 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
                 gl.bindFramebuffer(gl.FRAMEBUFFER, 0);
             }
 
-            gl.useProgram(self.shader_program);
+            gl.useProgram(self.shader.program);
             const time = @as(f32, @floatCast(glfw.glfwGetTime()));
             const now: f32 = 2 * time;
 
-            const resolutionLoc: i32 = gl.getUniformLocation(self.shader_program, "in_resolution");
+            const resolutionLoc: i32 = gl.getUniformLocation(self.shader.program, "in_resolution");
             gl.uniform2f(resolutionLoc, @floatFromInt(window.viewport_width), @floatFromInt(window.viewport_height));
 
-            const timeUniformLoc: i32 = gl.getUniformLocation(self.shader_program, "time");
+            const timeUniformLoc: i32 = gl.getUniformLocation(self.shader.program, "time");
             gl.uniform1f(timeUniformLoc, now);
 
             for (self.uniform1f_array.items) |uni| {
-                const loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
+                const loc: i32 = gl.getUniformLocation(self.shader.program, uni.name);
                 gl.uniform1f(loc, uni.value.*);
             }
 
             for (self.uniform3f_array.items) |uni| {
-                const loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
+                const loc: i32 = gl.getUniformLocation(self.shader.program, uni.name);
                 gl.uniform3f(loc, uni.value[0], uni.value[1], uni.value[2]);
             }
 
             for (self.uniform4fv_array.items) |uni| {
-                const loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
+                const loc: i32 = gl.getUniformLocation(self.shader.program, uni.name);
                 gl.uniformMatrix4fv(loc, 1, gl.FALSE, &uni.value.columns[0][0]);
             }
 
             for (self.uniform3fv_array.items) |uni| {
-                const loc: i32 = gl.getUniformLocation(self.shader_program, uni.name);
+                const loc: i32 = gl.getUniformLocation(self.shader.program, uni.name);
 
                 gl.uniformMatrix3fv(loc, 1, gl.FALSE, &uni.value.columns[0][0]);
             }
@@ -547,7 +546,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
                 gl.activeTexture(try getIthTexture(c_uint, index));
                 gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture);
 
-                //const textureUniformLoc: i32 = gl.getUniformLocation(self.shader_program, "texture0");
+                //const textureUniformLoc: i32 = gl.getUniformLocation(self.shader.program, "texture0");
                 //gl.uniform1i(textureUniformLoc, 0);
             }
 
@@ -557,7 +556,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
 
                 var buff: [64]u8 = undefined;
                 const res = try std.fmt.bufPrintZ(&buff, "texture{}", .{index});
-                const textureUniformLoc: i32 = gl.getUniformLocation(self.shader_program, res);
+                const textureUniformLoc: i32 = gl.getUniformLocation(self.shader.program, res);
                 gl.uniform1i(textureUniformLoc, @intCast(index));
             }
 
