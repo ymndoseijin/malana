@@ -172,7 +172,8 @@ pub const Text = struct {
         try self.drawing.addUniformVec3("pos", &self.pos);
     }
 
-    pub fn init(drawing: *Drawing(graphics.FlatPipeline), bdf: BdfParse, pos: Vec3) !Text {
+    pub fn init(scene: anytype, bdf: BdfParse, pos: Vec3) !Text {
+        var drawing = try scene.new(graphics.FlatPipeline);
         drawing.* = graphics.Drawing(graphics.FlatPipeline).init(try graphics.Shader.setupShader(@embedFile("shaders/text/vertex.glsl"), @embedFile("shaders/text/fragment.glsl")));
 
         var atlas = try makeAtlas(bdf);

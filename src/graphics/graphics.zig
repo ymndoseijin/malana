@@ -256,7 +256,16 @@ pub fn Scene(comptime pipelines_union: anytype) type {
             self.drawing_array.deinit(common.allocator);
         }
 
-        pub fn new(self: *Self, comptime render: DrawingList.Field) !*@typeInfo(DrawingList.FieldType(render)).Pointer.child {
+        pub fn fieldFromPipeline(comptime pipeline: RenderPipeline) DrawingList.Field {
+            for (DrawingList.Enums) |field| {
+                const res = comptime std.meta.eql(@typeInfo(DrawingList.FieldType(field)).Pointer.child.Pipeline, pipeline);
+                if (res) return field;
+            }
+            @compileError("Pipeline not in Scene.");
+        }
+
+        pub fn new(self: *Self, comptime pipeline: RenderPipeline) !*Drawing(pipeline) {
+            const render = comptime fieldFromPipeline(pipeline);
             var val = try common.allocator.create(@typeInfo(DrawingList.FieldType(render)).Pointer.child);
             try self.drawing_array.array(render).append(val);
             return val;
@@ -264,19 +273,16 @@ pub fn Scene(comptime pipelines_union: anytype) type {
 
         pub fn delete(self: *Self, drawing: anytype) !void {
             const T = @TypeOf(drawing);
-            inline for (DrawingList.Enums) |field| {
-                const res = comptime std.meta.eql(@typeInfo(DrawingList.FieldType(field)).Pointer.child.Pipeline, @typeInfo(T).Pointer.child.Pipeline);
-                if (!res) continue;
-                var arr = self.drawing_array.array(field);
-                const idx = std.mem.indexOfScalar(T, arr.items, drawing) orelse return error.DeletedDrawingNotInScene;
+            const field = comptime fieldFromPipeline(@typeInfo(T).Pointer.child.Pipeline);
+            var arr = self.drawing_array.array(field);
+            const idx = std.mem.indexOfScalar(T, arr.items, drawing) orelse return error.DeletedDrawingNotInScene;
 
-                var rem = arr.swapRemove(idx);
-                rem.deinit();
-                common.allocator.destroy(rem);
+            var rem = arr.swapRemove(idx);
 
-                return;
-            }
-            @compileError("Drawing type not in Scene.");
+            rem.deinit();
+            common.allocator.destroy(rem);
+
+            return;
         }
 
         pub fn draw(self: *Self, win: Window) !void {

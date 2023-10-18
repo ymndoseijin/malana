@@ -50,9 +50,9 @@ pub fn main() !void {
 
     var image_path = arg_it.next() orelse return error.NotEnoughArguments;
 
-    var sprite = try graphics.Sprite.init(try state.flat_scene.new(.flat), image_path);
+    var sprite = try graphics.Sprite.init(&state.flat_scene, image_path);
 
-    color = try graphics.ColoredRect.init(try state.flat_scene.new(.flat), .{ 0.3, 0.3, 1, 1 });
+    color = try graphics.ColoredRect.init(&state.flat_scene, .{ 0.3, 0.3, 1, 1 });
     color.transform.scale = .{ 200, 200 };
     color.transform.translation = .{ 0, 0 };
     color.transform.rotation.angle = 0.5;
@@ -63,7 +63,7 @@ pub fn main() !void {
     try state.ui.elements.append(.{ @ptrCast(&color), .{ .mouse_func = nice, .region = &color_region } });
 
     var text = try graphics.TextBdf.init(
-        try state.flat_scene.new(.flat),
+        &state.flat_scene,
         bdf,
         .{ 0, 0, 0 },
     );

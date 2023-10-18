@@ -71,7 +71,7 @@ pub const Character = struct {
             }
         }
 
-        var draw = try scene.new(.flat);
+        var draw = try scene.new(graphics.FlatPipeline);
 
         return .{
             .image = image,

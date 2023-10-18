@@ -51,7 +51,9 @@ pub const Sprite = struct {
         };
     }
 
-    pub fn init(drawing: *Drawing(graphics.FlatPipeline), path: []const u8) !Sprite {
+    pub fn init(scene: anytype, path: []const u8) !Sprite {
+        var drawing = try scene.new(graphics.FlatPipeline);
+
         var shader = try graphics.Shader.setupShader(@embedFile("shaders/sprite/vertex.glsl"), @embedFile("shaders/sprite/fragment.glsl"));
 
         drawing.* = graphics.Drawing(graphics.FlatPipeline).init(shader);
