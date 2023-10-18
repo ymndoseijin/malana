@@ -295,6 +295,24 @@ const RenderType = enum {
 };
 
 const VertexAttribute = struct {
+    attribute: enum {
+        float,
+        short,
+
+        pub fn getType(comptime self: @This()) type {
+            switch (self) {
+                .float => return f32,
+                .short => return i16,
+            }
+        }
+
+        pub fn getGL(self: @This()) c_uint {
+            switch (self) {
+                .float => return gl.FLOAT,
+                .short => return gl.SHORT,
+            }
+        }
+    } = .float,
     size: comptime_int,
 };
 
@@ -316,6 +334,15 @@ const RenderPipeline = struct {
     cull_face: bool,
     cull_type: CullType = .back,
     framebuffer: ?[]Framebuffer = null,
+
+    pub fn getAttributeType(comptime pipeline: RenderPipeline) type {
+        var types: []const type = &.{};
+        for (pipeline.vertex_attrib) |attrib| {
+            const t = attrib.attribute.getType();
+            for (0..attrib.size) |_| types = types ++ .{t};
+        }
+        return std.meta.Tuple(types);
+    }
 };
 
 pub const FlatPipeline = RenderPipeline{
@@ -359,6 +386,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
 
         const Self = @This();
         pub const Pipeline = pipeline;
+        pub const Attribute = pipeline.getAttributeType();
 
         pub fn addUniformFloat(self: *Self, name: [:0]const u8, f: *f32) !void {
             try self.uniform1f_array.append(.{ .name = name, .value = f });
@@ -462,11 +490,11 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             return .{ read_image.width, read_image.height };
         }
 
-        pub fn bindVertex(self: *Self, vertices: []const f32, indices: []const u32) void {
+        pub fn bindVertex(self: *Self, vertices: []const Attribute, indices: []const u32) void {
             gl.bindVertexArray(self.vao);
 
             gl.bindBuffer(gl.ARRAY_BUFFER, self.vbo);
-            gl.bufferData(gl.ARRAY_BUFFER, @intCast(@sizeOf(f32) * vertices.len), &vertices[0], gl.STATIC_DRAW);
+            gl.bufferData(gl.ARRAY_BUFFER, @intCast(@sizeOf(Attribute) * vertices.len), &vertices[0], gl.STATIC_DRAW);
 
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, self.ebo);
             gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, @intCast(@sizeOf(u32) * indices.len), &indices[0], gl.STATIC_DRAW);
@@ -474,16 +502,17 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             self.vert_count = indices.len;
 
             gl.bindVertexArray(self.vao);
+
             var sum_size: usize = 0;
             inline for (pipeline.vertex_attrib) |attrib| {
-                sum_size += attrib.size;
+                sum_size += attrib.size * @sizeOf(attrib.attribute.getType());
             }
 
-            var index_size: usize = 0;
+            var offset: usize = 0;
             inline for (pipeline.vertex_attrib, 0..) |attrib, i| {
-                gl.vertexAttribPointer(i, attrib.size, gl.FLOAT, gl.FALSE, @intCast(sum_size * @sizeOf(f32)), @ptrFromInt(index_size * @sizeOf(f32)));
+                gl.vertexAttribPointer(i, attrib.size, attrib.attribute.getGL(), gl.FALSE, @intCast(sum_size), @ptrFromInt(offset));
                 gl.enableVertexAttribArray(i);
-                index_size += attrib.size;
+                offset += attrib.size * @sizeOf(attrib.attribute.getType());
             }
         }
 

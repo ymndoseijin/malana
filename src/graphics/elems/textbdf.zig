@@ -88,7 +88,7 @@ pub const Text = struct {
     pub fn print(self: *Text, text: []const u8) !void {
         if (text.len == 0) return;
 
-        var vertices = std.ArrayList(f32).init(common.allocator);
+        var vertices = std.ArrayList(Drawing(graphics.FlatPipeline).Attribute).init(common.allocator);
         var indices = std.ArrayList(u32).init(common.allocator);
         defer vertices.deinit();
         defer indices.deinit();
@@ -131,11 +131,11 @@ pub const Text = struct {
                     const atlas_x: f32 = @floatFromInt(i % size);
                     const atlas_y: f32 = @floatFromInt(@divFloor(i, size) + 1);
 
-                    const c_vert = [_]f32{
-                        x,         y,         0, atlas_x,     size_f - atlas_y,
-                        x + width, y,         0, atlas_x + 1, size_f - atlas_y,
-                        x + width, y + width, 0, atlas_x + 1, size_f - atlas_y + 1,
-                        x,         y + width, 0, atlas_x,     size_f - atlas_y + 1,
+                    const c_vert = [_]Drawing(graphics.FlatPipeline).Attribute{
+                        .{ x, y, 0, atlas_x, size_f - atlas_y },
+                        .{ x + width, y, 0, atlas_x + 1, size_f - atlas_y },
+                        .{ x + width, y + width, 0, atlas_x + 1, size_f - atlas_y + 1 },
+                        .{ x, y + width, 0, atlas_x, size_f - atlas_y + 1 },
                     };
 
                     final_width = x + width;

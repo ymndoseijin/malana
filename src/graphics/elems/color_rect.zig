@@ -24,10 +24,10 @@ pub const ColoredRect = struct {
         drawing.* = graphics.Drawing(graphics.FlatPipeline).init(shader);
 
         drawing.bindVertex(&.{
-            0, 0, 1, 0, 0,
-            1, 0, 1, 1, 0,
-            1, 1, 1, 1, 1,
-            0, 1, 1, 0, 1,
+            .{ 0, 0, 1, 0, 0 },
+            .{ 1, 0, 1, 1, 0 },
+            .{ 1, 1, 1, 1, 1 },
+            .{ 0, 1, 1, 0, 1 },
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
         drawing.shader.setUniformVec4("color", color);

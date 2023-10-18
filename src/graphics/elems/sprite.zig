@@ -28,10 +28,10 @@ pub const Sprite = struct {
         const h: f32 = @floatFromInt(data.height);
 
         drawing.bindVertex(&.{
-            0, 0, 1, 0, 0,
-            w, 0, 1, 1, 0,
-            w, h, 1, 1, 1,
-            0, h, 1, 0, 1,
+            .{ 0, 0, 1, 0, 0 },
+            .{ w, 0, 1, 1, 0 },
+            .{ w, h, 1, 1, 1 },
+            .{ 0, h, 1, 0, 1 },
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
         drawing.shader.setUniformMat3("transform", Mat3.identity());
@@ -62,10 +62,10 @@ pub const Sprite = struct {
         const h: f32 = @floatFromInt(hi);
 
         drawing.bindVertex(&.{
-            0, 0, 1, 0, 0,
-            w, 0, 1, 1, 0,
-            w, h, 1, 1, 1,
-            0, h, 1, 0, 1,
+            .{ 0, 0, 1, 0, 0 },
+            .{ w, 0, 1, 1, 0 },
+            .{ w, h, 1, 1, 1 },
+            .{ 0, h, 1, 0, 1 },
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
         drawing.shader.setUniformMat3("transform", Mat3.identity());
