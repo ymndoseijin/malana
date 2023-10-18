@@ -40,8 +40,10 @@ pub fn main() !void {
     defer bdf.deinit();
     try bdf.parse("b12.bdf");
 
-    state = try display.State.init(.{ .name = "image test", .width = 1920, .height = 1080 });
+    state = try display.State.init(.{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
     defer state.deinit();
+
+    state.main_win.setSize(1920, 1080);
     // get image file
     var arg_it = std.process.args();
     _ = arg_it.next();

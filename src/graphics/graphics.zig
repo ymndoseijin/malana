@@ -732,6 +732,7 @@ pub const EventTable = struct {
 pub const WindowInfo = struct {
     width: i32 = 256,
     height: i32 = 256,
+    resizable: bool = true,
     name: [:0]const u8 = "default name",
 };
 
@@ -774,6 +775,10 @@ pub const Window = struct {
         try windowMap.?.put(self.glfw_win, .{ elem, self });
     }
 
+    pub fn setSize(self: Window, width: u32, height: u32) void {
+        glfw.glfwSetWindowSize(self.glfw_win, @intCast(width), @intCast(height));
+    }
+
     pub fn init(info: WindowInfo) !*Window {
         var win = try common.allocator.create(Window);
         win.* = try initBare(info);
@@ -782,6 +787,7 @@ pub const Window = struct {
     }
 
     pub fn initBare(info: WindowInfo) !Window {
+        glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, if (info.resizable) glfw.GLFW_TRUE else glfw.GLFW_FALSE);
         const win_or = glfw.glfwCreateWindow(info.width, info.height, info.name, null, null);
 
         const glfw_win = win_or orelse return GlfwError.FailedGlfwWindow;
