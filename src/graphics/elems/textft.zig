@@ -37,9 +37,9 @@ const Image = graphics.Image;
 
 const CharacterInfo = struct {
     char: u32,
-    comptime shaders: ?[2][:0]const u8 = null,
     index: usize,
     count: usize,
+    shaders: ?[2][:0]const u8 = null,
 };
 
 pub const Character = struct {
@@ -101,7 +101,7 @@ pub const Character = struct {
 
 const TextInfo = struct {
     text: []const u8,
-    comptime shaders: ?[2][:0]const u8 = null,
+    shaders: ?[2][:0]const u8 = null,
 };
 
 pub const Text = struct {

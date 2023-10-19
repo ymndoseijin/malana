@@ -147,6 +147,12 @@ pub const Texture = struct {
     }
 };
 
+pub fn embedProcess(comptime source: [:0]const u8) [:0]const u8 {
+    const version_idx = comptime std.mem.indexOf(u8, source, "\n").?;
+    const processed_source = source[0..version_idx] ++ "\n" ++ @embedFile("common.glsl") ++ source[version_idx..];
+    return processed_source;
+}
+
 pub const Shader = struct {
     program: u32,
     const Self = Shader;
@@ -182,12 +188,10 @@ pub const Shader = struct {
         gl.uniformMatrix4fv(loc, 1, gl.FALSE, &value.columns[0][0]);
     }
 
-    pub fn compileShader(comptime source: [:0]const u8, shader_type: gl.Enum) !Shader {
+    pub fn compileShader(source: [:0]const u8, shader_type: gl.Enum) !Shader {
         const shader: u32 = gl.createShader(shader_type);
 
-        const version_idx = comptime std.mem.indexOf(u8, source, "\n").?;
-        const processed_source = source[0..version_idx] ++ "\n" ++ @embedFile("common.glsl") ++ source[version_idx..];
-        gl.shaderSource(shader, 1, @ptrCast(&processed_source), null);
+        gl.shaderSource(shader, 1, @ptrCast(&source), null);
         gl.compileShader(shader);
         var response: i32 = 1;
         gl.getShaderiv(shader, gl.COMPILE_STATUS, &response);
@@ -195,7 +199,7 @@ pub const Shader = struct {
         var infoLog: [512]u8 = undefined;
         if (response <= 0) {
             gl.getShaderInfoLog(shader, 512, null, &infoLog[0]);
-            std.debug.print("Couldn't compile {s} from source: {s} file\n", .{ processed_source, infoLog });
+            std.debug.print("Couldn't compile {s} from source: {s} file\n", .{ source, infoLog });
             std.os.exit(255);
         }
 
@@ -231,7 +235,7 @@ pub const Shader = struct {
         };
     }
 
-    pub fn setupShader(comptime vertex_path: [:0]const u8, comptime fragment_path: [:0]const u8) !Shader {
+    pub fn setupShader(vertex_path: [:0]const u8, fragment_path: [:0]const u8) !Shader {
         const vertex = try compileShader(vertex_path, gl.VERTEX_SHADER);
         const fragment = try compileShader(fragment_path, gl.FRAGMENT_SHADER);
 

@@ -21,8 +21,7 @@ const Vec3Utils = math.Vec3Utils;
 const SpriteInfo = struct {
     path: ?[]const u8 = null,
     rgba: ?graphics.Image = null,
-
-    comptime shaders: ?[2][:0]const u8 = null,
+    shaders: ?[2][:0]const u8 = null,
 };
 
 pub const Sprite = struct {
