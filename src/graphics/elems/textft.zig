@@ -80,8 +80,8 @@ pub const Character = struct {
         }
 
         var sprite = try graphics.Sprite.init(scene, .{ .rgba = image, .shaders = info.shaders });
-        sprite.drawing.shader.setUniformFloat("index", @floatFromInt(info.index)); // stop floating here??
-        sprite.drawing.shader.setUniformFloat("count", @floatFromInt(info.count)); // here too
+        sprite.drawing.shader.setUniformInt("index", @intCast(info.index));
+        sprite.drawing.shader.setUniformInt("count", @intCast(info.count));
 
         sprite.drawing.shader.setUniformFloat("opacity", parent.opacity);
 
@@ -121,7 +121,6 @@ pub const Text = struct {
     count: usize = 0,
 
     cursor_pos: math.Vec2,
-    cursor_index: usize = 0,
 
     pub fn printFmt(self: *Text, scene: anytype, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
@@ -138,7 +137,6 @@ pub const Text = struct {
 
     pub fn clear(self: *Text, scene: anytype) !void {
         self.cursor_pos = self.transform.translation;
-        self.cursor_index = 0;
         self.count = 0;
         for (self.characters.items) |c| {
             try scene.delete(c.sprite.drawing);
@@ -157,7 +155,9 @@ pub const Text = struct {
             break :blk size + self.count;
         };
 
-        self.count = count;
+        for (self.characters.items) |c| {
+            c.sprite.drawing.shader.setUniformInt("count", @intCast(count));
+        }
 
         var utf8 = (try std.unicode.Utf8View.init(info.text)).iterator();
 
@@ -165,8 +165,12 @@ pub const Text = struct {
 
         const space_width: f32 = 10;
 
+        var index: usize = self.count;
+
+        self.count = count;
+
         while (utf8.nextCodepoint()) |c| {
-            defer self.cursor_index += 1;
+            defer index += 1;
             if (c == ' ') {
                 start += .{ space_width, 0 };
                 continue;
@@ -179,7 +183,7 @@ pub const Text = struct {
                 .char = c,
                 .shaders = info.shaders,
                 .count = count,
-                .index = self.cursor_index,
+                .index = index,
             });
             try self.characters.append(char);
 
