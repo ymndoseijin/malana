@@ -37,7 +37,7 @@ pub const Sprite = struct {
             if (info.path) |path| {
                 break :blk try drawing.textureFromPath(path);
             } else if (info.rgba) |data| {
-                const tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
+                const tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
                 try tex.setFromRgba(data, true);
                 try drawing.addTexture(tex);
                 break :blk [2]usize{ data.width, data.height };

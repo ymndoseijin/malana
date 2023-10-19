@@ -78,11 +78,13 @@ pub const TextureInfo = struct {
     const FilterEnum = enum {
         nearest,
         linear,
+        mipmap,
 
         pub fn getGL(self: FilterEnum) i32 {
             switch (self) {
                 .nearest => return gl.NEAREST,
                 .linear => return gl.LINEAR,
+                .mipmap => return gl.LINEAR_MIPMAP_LINEAR,
             }
         }
     };
@@ -118,8 +120,8 @@ pub const Texture = struct {
         gl.texParameteri(texture_type, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
         gl.texParameteri(texture_type, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
 
-        gl.texParameteri(texture_type, gl.TEXTURE_MIN_FILTER, info.mag_filter.getGL());
-        gl.texParameteri(texture_type, gl.TEXTURE_MAG_FILTER, info.min_filter.getGL());
+        gl.texParameteri(texture_type, gl.TEXTURE_MAG_FILTER, info.mag_filter.getGL());
+        gl.texParameteri(texture_type, gl.TEXTURE_MIN_FILTER, info.min_filter.getGL());
 
         return .{
             .texture_id = texture_id,
@@ -144,6 +146,7 @@ pub const Texture = struct {
         } else {
             gl.texImage2D(texture_type, 0, gl.RGBA8, @intCast(rgba.width), @intCast(rgba.height), 0, gl.RGBA, gl.UNSIGNED_BYTE, &rgba.data[0]);
         }
+        if (self.info.min_filter == .mipmap) gl.generateMipmap(texture_type);
     }
 };
 
@@ -501,7 +504,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
 
             switch (read_image.pixels) {
                 .rgba32 => |data| {
-                    const tex = Texture.init(.{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
+                    const tex = Texture.init(.{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
                     try tex.setFromRgba(.{
                         .width = read_image.width,
                         .height = read_image.height,
