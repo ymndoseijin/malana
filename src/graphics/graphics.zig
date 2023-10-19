@@ -305,6 +305,10 @@ pub fn Scene(comptime pipelines_union: anytype) type {
     };
 }
 
+pub fn getTime() f64 {
+    return glfw.glfwGetTime();
+}
+
 const RenderType = enum {
     line,
     triangle,

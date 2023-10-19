@@ -118,6 +118,11 @@ pub const Text = struct {
     transform: graphics.Transform2D,
     opacity: f32,
 
+    count: usize = 0,
+
+    cursor_pos: math.Vec2,
+    cursor_index: usize = 0,
+
     pub fn printFmt(self: *Text, scene: anytype, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
         var str = try std.fmt.bufPrint(&buf, fmt, fmt_args);
@@ -131,32 +136,37 @@ pub const Text = struct {
         }
     }
 
-    pub fn print(self: *Text, scene: anytype, info: TextInfo) !void {
-        if (info.text.len == 0) return;
-
+    pub fn clear(self: *Text, scene: anytype) !void {
+        self.cursor_pos = self.transform.translation;
+        self.cursor_index = 0;
+        self.count = 0;
         for (self.characters.items) |c| {
             try scene.delete(c.sprite.drawing);
             c.deinit();
         }
         self.characters.clearRetainingCapacity();
+    }
+
+    pub fn print(self: *Text, scene: anytype, info: TextInfo) !void {
+        if (info.text.len == 0) return;
 
         const count = blk: {
             var it = (try std.unicode.Utf8View.init(info.text)).iterator();
             var size: usize = 0;
             while (it.nextCodepoint()) |_| size += 1;
-            break :blk size;
+            break :blk size + self.count;
         };
+
+        self.count = count;
 
         var utf8 = (try std.unicode.Utf8View.init(info.text)).iterator();
 
-        var start: math.Vec2 = self.transform.translation;
+        var start: math.Vec2 = self.cursor_pos;
 
         const space_width: f32 = 10;
 
-        var index: usize = 0;
-
         while (utf8.nextCodepoint()) |c| {
-            defer index += 1;
+            defer self.cursor_index += 1;
             if (c == ' ') {
                 start += .{ space_width, 0 };
                 continue;
@@ -169,7 +179,7 @@ pub const Text = struct {
                 .char = c,
                 .shaders = info.shaders,
                 .count = count,
-                .index = index,
+                .index = self.cursor_index,
             });
             try self.characters.append(char);
 
@@ -182,6 +192,8 @@ pub const Text = struct {
             char.sprite.updateTransform();
             start += .{ char.advance, 0 };
         }
+
+        self.cursor_pos = start;
     }
 
     pub fn deinit(self: *Text) void {
@@ -202,6 +214,7 @@ pub const Text = struct {
             .face = face,
             .line_spacing = size * line_spacing,
             .characters = std.ArrayList(Character).init(common.allocator),
+            .cursor_pos = .{ 0, 100 },
             .transform = .{
                 .scale = .{ 1, 1 },
                 .rotation = .{ .angle = 0, .center = .{ 0.5, 0.5 } },

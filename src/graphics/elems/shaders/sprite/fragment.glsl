@@ -6,9 +6,6 @@ in float Time;
 in vec3 Pos;
 
 uniform sampler2D texture0;
-uniform vec3 real_cam_pos;
-uniform vec3 spatial_pos;
-uniform float fog;
 uniform float opacity;
 
 void main()
