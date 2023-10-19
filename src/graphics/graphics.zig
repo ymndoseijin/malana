@@ -157,6 +157,12 @@ pub const Shader = struct {
     program: u32,
     const Self = Shader;
 
+    pub fn setUniformInt(self: *Self, name: [:0]const u8, value: i32) void {
+        gl.useProgram(self.program);
+        const loc: i32 = gl.getUniformLocation(self.program, name);
+        gl.uniform1i(loc, value);
+    }
+
     pub fn setUniformFloat(self: *Self, name: [:0]const u8, value: f32) void {
         gl.useProgram(self.program);
         const loc: i32 = gl.getUniformLocation(self.program, name);
@@ -562,7 +568,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
 
             gl.useProgram(self.shader.program);
             const time = @as(f32, @floatCast(glfw.glfwGetTime()));
-            const now: f32 = 2 * time;
+            const now: f32 = time;
 
             const resolutionLoc: i32 = gl.getUniformLocation(self.shader.program, "in_resolution");
             gl.uniform2f(resolutionLoc, @floatFromInt(window.viewport_width), @floatFromInt(window.viewport_height));
