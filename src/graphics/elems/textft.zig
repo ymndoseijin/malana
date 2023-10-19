@@ -35,15 +35,27 @@ pub fn bdfToRgba(res: []bool) ![fs * fs]img.color.Rgba32 {
 
 const Image = graphics.Image;
 
+const CharacterInfo = struct {
+    char: u32,
+    comptime shaders: ?[2][:0]const u8 = null,
+    index: usize,
+    count: usize,
+};
+
 pub const Character = struct {
     image: Image,
     sprite: graphics.Sprite,
     offset: math.Vec2,
     advance: f32,
+    parent: *Text,
 
-    pub fn init(face: freetype.Face, char: u32, scene: anytype) !Character {
-        try face.loadChar(char, .{ .render = true });
-        const glyph = face.glyph();
+    pub fn setOpacity(self: *Character, opacity: f32) void {
+        self.sprite.setOpacity(opacity);
+    }
+
+    pub fn init(scene: anytype, parent: *Text, info: CharacterInfo) !Character {
+        try parent.face.loadChar(info.char, .{ .render = true });
+        const glyph = parent.face.glyph();
         const bitmap = glyph.bitmap();
 
         var image: Image = .{
@@ -67,9 +79,16 @@ pub const Character = struct {
             }
         }
 
+        var sprite = try graphics.Sprite.init(scene, .{ .rgba = image, .shaders = info.shaders });
+        sprite.drawing.shader.setUniformFloat("index", @floatFromInt(info.index)); // stop floating here??
+        sprite.drawing.shader.setUniformFloat("count", @floatFromInt(info.count)); // here too
+
+        sprite.drawing.shader.setUniformFloat("opacity", parent.opacity);
+
         return .{
             .image = image,
-            .sprite = try graphics.Sprite.init(scene, .{ .rgba = image }),
+            .parent = parent,
+            .sprite = sprite,
             .offset = offset,
             .advance = advance / 64,
         };
@@ -78,6 +97,11 @@ pub const Character = struct {
     pub fn deinit(self: Character) void {
         common.allocator.free(self.image.data);
     }
+};
+
+const TextInfo = struct {
+    text: []const u8,
+    comptime shaders: ?[2][:0]const u8 = null,
 };
 
 pub const Text = struct {
@@ -90,16 +114,25 @@ pub const Text = struct {
     line_spacing: f32,
     bounding_width: f32,
 
+    // 2D structure
     transform: graphics.Transform2D,
+    opacity: f32,
 
     pub fn printFmt(self: *Text, scene: anytype, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
         var str = try std.fmt.bufPrint(&buf, fmt, fmt_args);
-        try self.print(scene, str);
+        try self.print(scene, .{ .text = str });
     }
 
-    pub fn print(self: *Text, scene: anytype, text: []const u8) !void {
-        if (text.len == 0) return;
+    pub fn setOpacity(self: *Text, opacity: f32) void {
+        self.opacity = opacity;
+        for (self.characters.items) |*c| {
+            c.setOpacity(opacity);
+        }
+    }
+
+    pub fn print(self: *Text, scene: anytype, info: TextInfo) !void {
+        if (info.text.len == 0) return;
 
         for (self.characters.items) |c| {
             try scene.delete(c.sprite.drawing);
@@ -107,13 +140,23 @@ pub const Text = struct {
         }
         self.characters.clearRetainingCapacity();
 
-        var utf8 = (try std.unicode.Utf8View.init(text)).iterator();
+        const count = blk: {
+            var it = (try std.unicode.Utf8View.init(info.text)).iterator();
+            var size: usize = 0;
+            while (it.nextCodepoint()) |_| size += 1;
+            break :blk size;
+        };
+
+        var utf8 = (try std.unicode.Utf8View.init(info.text)).iterator();
 
         var start: math.Vec2 = self.transform.translation;
 
         const space_width: f32 = 10;
 
+        var index: usize = 0;
+
         while (utf8.nextCodepoint()) |c| {
+            defer index += 1;
             if (c == ' ') {
                 start += .{ space_width, 0 };
                 continue;
@@ -122,7 +165,12 @@ pub const Text = struct {
                 continue;
             }
 
-            var char = try Character.init(self.face, c, scene);
+            var char = try Character.init(scene, self, .{
+                .char = c,
+                .shaders = info.shaders,
+                .count = count,
+                .index = index,
+            });
             try self.characters.append(char);
 
             // for now, no word wrapping
@@ -149,6 +197,7 @@ pub const Text = struct {
         return .{
             .width = 0,
             .height = 0,
+            .opacity = 1,
             .bounding_width = bounding_width,
             .face = face,
             .line_spacing = size * line_spacing,

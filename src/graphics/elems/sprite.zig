@@ -58,11 +58,13 @@ pub const Sprite = struct {
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
         drawing.shader.setUniformMat3("transform", Mat3.identity());
+        drawing.shader.setUniformFloat("opacity", 1.0);
 
         return Sprite{
             .drawing = drawing,
             .width = w,
             .height = h,
+            .opacity = 1.0,
             .transform = .{
                 .scale = .{ 1, 1 },
                 .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
@@ -92,8 +94,15 @@ pub const Sprite = struct {
         self.drawing.shader.setUniformMat3("transform", math.transform2D(f32, self.transform.scale, self.transform.rotation, self.transform.translation));
     }
 
+    pub fn setOpacity(self: *Sprite, opacity: f32) void {
+        self.opacity = opacity;
+        self.drawing.shader.setUniformFloat("opacity", opacity);
+    }
+
     width: f32,
     height: f32,
+    opacity: f32,
     transform: graphics.Transform2D,
+
     drawing: *Drawing(graphics.FlatPipeline),
 };

@@ -9,8 +9,11 @@ uniform sampler2D texture0;
 uniform vec3 real_cam_pos;
 uniform vec3 spatial_pos;
 uniform float fog;
+uniform float opacity;
 
 void main()
 {
-   FragColor = texture(texture0, TexCoord);
+   vec4 col = texture(texture0, TexCoord);
+   col.a *= opacity;
+   FragColor = col;
 }
