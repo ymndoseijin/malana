@@ -178,7 +178,7 @@ pub const Text = struct {
 
         var atlas = try makeAtlas(bdf);
 
-        const tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
+        var tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
         try tex.setFromRgba(atlas, true);
         try drawing.addTexture(tex);
 

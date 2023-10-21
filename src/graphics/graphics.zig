@@ -109,6 +109,9 @@ pub const Texture = struct {
     texture_id: u32,
     info: TextureInfo,
 
+    width: u32,
+    height: u32,
+
     pub fn init(info: TextureInfo) Texture {
         var texture_id: u32 = undefined;
         gl.genTextures(1, &texture_id);
@@ -126,12 +129,37 @@ pub const Texture = struct {
         return .{
             .texture_id = texture_id,
             .info = info,
+            .width = 0,
+            .height = 0,
         };
     }
 
-    pub fn setFromRgba(self: Texture, rgba: anytype, flip: bool) !void {
+    pub fn setFromPath(tex: *Texture, path: []const u8) !void {
+        var read_image = try img.Image.fromFilePath(common.allocator, path);
+        defer read_image.deinit();
+
+        tex.width = @intCast(read_image.width);
+        tex.height = @intCast(read_image.height);
+
+        switch (read_image.pixels) {
+            .rgba32 => |data| {
+                try tex.setFromRgba(.{
+                    .width = read_image.width,
+                    .height = read_image.height,
+                    .data = data,
+                }, true);
+            },
+            else => return error.InvalidImage,
+        }
+    }
+
+    pub fn setFromRgba(self: *Texture, rgba: anytype, flip: bool) !void {
         const texture_type = self.info.texture_type.getGL();
         gl.bindTexture(texture_type, self.texture_id);
+
+        self.width = @intCast(rgba.width);
+        self.height = @intCast(rgba.height);
+
         if (flip) {
             var flipped: @TypeOf(rgba.data) = try common.allocator.dupe(@TypeOf(rgba.data[0]), rgba.data);
             defer common.allocator.free(flipped);
@@ -496,27 +524,6 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
                 .flat => try self.textures.append(texture.texture_id),
                 .cubemap => try self.cube_textures.append(texture.texture_id),
             }
-        }
-
-        pub fn textureFromPath(self: *Self, path: []const u8) !struct { usize, usize } {
-            var read_image = try img.Image.fromFilePath(common.allocator, path);
-            defer read_image.deinit();
-
-            switch (read_image.pixels) {
-                .rgba32 => |data| {
-                    const tex = Texture.init(.{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
-                    try tex.setFromRgba(.{
-                        .width = read_image.width,
-                        .height = read_image.height,
-                        .data = data,
-                    }, true);
-
-                    try self.addTexture(tex);
-                },
-                else => return error.InvalidImage,
-            }
-
-            return .{ read_image.width, read_image.height };
         }
 
         pub fn bindVertex(self: *Self, vertices: []const Attribute, indices: []const u32) void {

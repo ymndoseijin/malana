@@ -33,19 +33,17 @@ pub const Sprite = struct {
 
         drawing.* = graphics.Drawing(graphics.FlatPipeline).init(shader);
 
-        const wi, const hi = blk: {
-            if (info.path) |path| {
-                break :blk try drawing.textureFromPath(path);
-            } else if (info.rgba) |data| {
-                const tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
-                try tex.setFromRgba(data, true);
-                try drawing.addTexture(tex);
-                break :blk [2]usize{ data.width, data.height };
-            }
-        };
+        var tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
 
-        const w: f32 = @floatFromInt(wi);
-        const h: f32 = @floatFromInt(hi);
+        if (info.path) |path| {
+            try tex.setFromPath(path);
+        } else if (info.rgba) |data| {
+            try tex.setFromRgba(data, true);
+            try drawing.addTexture(tex);
+        }
+
+        const w: f32 = @floatFromInt(tex.width);
+        const h: f32 = @floatFromInt(tex.height);
 
         drawing.shader.setUniformMat3("transform", Mat3.identity());
 
@@ -69,6 +67,7 @@ pub const Sprite = struct {
                 .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
                 .translation = .{ 0, 0 },
             },
+            .texture = tex,
         };
     }
 
@@ -102,6 +101,7 @@ pub const Sprite = struct {
     height: f32,
     opacity: f32,
     transform: graphics.Transform2D,
+    texture: graphics.Texture,
 
     drawing: *Drawing(graphics.FlatPipeline),
 };
