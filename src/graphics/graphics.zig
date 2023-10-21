@@ -436,7 +436,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
         uniform3fv_array: std.ArrayList(Uniform3fv),
         uniform4fv_array: std.ArrayList(Uniform4fv),
 
-        textures: std.ArrayList(u32),
+        textures: std.ArrayList(Texture),
         cube_textures: std.ArrayList(u32),
 
         vert_count: usize,
@@ -476,7 +476,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
             drawing.uniform4fv_array = std.ArrayList(Uniform4fv).init(common.allocator);
 
             drawing.cube_textures = std.ArrayList(u32).init(common.allocator);
-            drawing.textures = std.ArrayList(u32).init(common.allocator);
+            drawing.textures = std.ArrayList(Texture).init(common.allocator);
 
             drawing.vert_count = 0;
 
@@ -520,10 +520,7 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
         }
 
         pub fn addTexture(self: *Self, texture: Texture) !void {
-            switch (texture.info.texture_type) {
-                .flat => try self.textures.append(texture.texture_id),
-                .cubemap => try self.cube_textures.append(texture.texture_id),
-            }
+            try self.textures.append(texture);
         }
 
         pub fn bindVertex(self: *Self, vertices: []const Attribute, indices: []const u32) void {
@@ -617,12 +614,14 @@ pub fn Drawing(comptime pipeline: RenderPipeline) type {
 
             for (self.textures.items, 0..) |texture, index| {
                 gl.activeTexture(try getIthTexture(c_uint, index));
-                gl.bindTexture(gl.TEXTURE_2D, texture);
+                gl.bindTexture(texture.info.texture_type.getGL(), texture.texture_id);
 
-                var buff: [64]u8 = undefined;
-                const res = try std.fmt.bufPrintZ(&buff, "texture{}", .{index});
-                const textureUniformLoc: i32 = gl.getUniformLocation(self.shader.program, res);
-                gl.uniform1i(textureUniformLoc, @intCast(index));
+                if (texture.info.texture_type == .flat) {
+                    var buff: [64]u8 = undefined;
+                    const res = try std.fmt.bufPrintZ(&buff, "texture{}", .{index});
+                    const textureUniformLoc: i32 = gl.getUniformLocation(self.shader.program, res);
+                    gl.uniform1i(textureUniformLoc, @intCast(index));
+                }
             }
 
             gl.bindVertexArray(self.vao);

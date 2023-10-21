@@ -67,7 +67,6 @@ pub const Sprite = struct {
                 .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
                 .translation = .{ 0, 0 },
             },
-            .texture = tex,
         };
     }
 
@@ -101,7 +100,6 @@ pub const Sprite = struct {
     height: f32,
     opacity: f32,
     transform: graphics.Transform2D,
-    texture: graphics.Texture,
 
     drawing: *Drawing(graphics.FlatPipeline),
 };
