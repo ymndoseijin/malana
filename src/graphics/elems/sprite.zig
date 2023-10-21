@@ -39,8 +39,8 @@ pub const Sprite = struct {
             try tex.setFromPath(path);
         } else if (info.rgba) |data| {
             try tex.setFromRgba(data, true);
-            try drawing.addTexture(tex);
         }
+        try drawing.addTexture(tex);
 
         const w: f32 = @floatFromInt(tex.width);
         const h: f32 = @floatFromInt(tex.height);
