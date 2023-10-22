@@ -690,14 +690,19 @@ pub const Square = struct {
     };
 };
 
+fn printError(err: anyerror) noreturn {
+    var buf: [2048]u8 = undefined;
+    @panic(std.fmt.bufPrint(&buf, "error: {s}", .{@errorName(err)}) catch @panic("error name too long"));
+}
+
 pub fn getGlfwCursorPos(win_or: ?*glfw.GLFWwindow, xpos: f64, ypos: f64) callconv(.C) void {
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
         if (win.events.cursor_func) |fun| {
-            fun(map[0], xpos, ypos) catch {
-                @panic("error!");
+            fun(map[0], xpos, ypos) catch |err| {
+                printError(err);
             };
         }
     }
@@ -715,8 +720,8 @@ pub fn getGlfwMouseButton(win_or: ?*glfw.GLFWwindow, button: c_int, action: c_in
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
         if (win.events.mouse_func) |fun| {
-            fun(map[0], button, @enumFromInt(action), mods) catch {
-                @panic("error!");
+            fun(map[0], button, @enumFromInt(action), mods) catch |err| {
+                printError(err);
             };
         }
     }
@@ -728,8 +733,8 @@ pub fn getGlfwKey(win_or: ?*glfw.GLFWwindow, key: c_int, scancode: c_int, action
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
         if (win.events.key_func) |fun| {
-            fun(map[0], key, scancode, @enumFromInt(action), mods) catch {
-                @panic("error!");
+            fun(map[0], key, scancode, @enumFromInt(action), mods) catch |err| {
+                printError(err);
             };
         }
     }
@@ -741,8 +746,8 @@ pub fn getGlfwChar(win_or: ?*glfw.GLFWwindow, codepoint: c_uint) callconv(.C) vo
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
         if (win.events.char_func) |fun| {
-            fun(map[0], codepoint) catch {
-                @panic("error!");
+            fun(map[0], codepoint) catch |err| {
+                printError(err);
             };
         }
     }
@@ -759,8 +764,8 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
         win.frame_height = 1080;
 
         if (win.events.frame_func) |fun| {
-            fun(map[0], width, height) catch {
-                @panic("error!");
+            fun(map[0], width, height) catch |err| {
+                printError(err);
             };
         }
     }
@@ -772,8 +777,8 @@ pub fn getScroll(win_or: ?*glfw.GLFWwindow, xoffset: f64, yoffset: f64) callconv
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
         if (win.events.scroll_func) |fun| {
-            fun(map[0], xoffset, yoffset) catch {
-                @panic("error!");
+            fun(map[0], xoffset, yoffset) catch |err| {
+                printError(err);
             };
         }
     }
