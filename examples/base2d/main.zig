@@ -50,7 +50,10 @@ pub fn main() !void {
 
     var image_path = arg_it.next() orelse return error.NotEnoughArguments;
 
-    var sprite = try graphics.Sprite.init(&state.flat_scene, .{ .texture = .{ .path = image_path } });
+    var tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
+    try tex.setFromPath(image_path);
+
+    var sprite = try graphics.Sprite.init(&state.flat_scene, tex, .{});
 
     color = try graphics.ColoredRect.init(&state.flat_scene, .{ 0.3, 0.3, 1, 1 });
     color.transform.scale = .{ 200, 200 };

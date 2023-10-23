@@ -19,16 +19,11 @@ const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
 
 const SpriteInfo = struct {
-    texture: union(enum) {
-        path: []const u8,
-        memory: []const u8,
-        raw_rgba: graphics.Image,
-    },
     shaders: ?[2][:0]const u8 = null,
 };
 
 pub const Sprite = struct {
-    pub fn init(scene: anytype, info: SpriteInfo) !Sprite {
+    pub fn init(scene: anytype, tex: graphics.Texture, info: SpriteInfo) !Sprite {
         var drawing = try scene.new(graphics.FlatPipeline);
 
         const vert, const frag = if (info.shaders) |pair| pair else .{ @embedFile("shaders/sprite/vertex.glsl"), @embedFile("shaders/sprite/fragment.glsl") };
@@ -36,13 +31,6 @@ pub const Sprite = struct {
 
         drawing.* = graphics.Drawing(graphics.FlatPipeline).init(shader);
 
-        var tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
-
-        switch (info.texture) {
-            .path => |path| try tex.setFromPath(path),
-            .memory => |mem| try tex.setFromMemory(mem),
-            .raw_rgba => |data| try tex.setFromRgba(data, true),
-        }
         try drawing.addTexture(tex);
 
         const w: f32 = @floatFromInt(tex.width);

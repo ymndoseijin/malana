@@ -79,7 +79,10 @@ pub const Character = struct {
             }
         }
 
-        var sprite = try graphics.Sprite.init(scene, .{ .texture = .{ .raw_rgba = image }, .shaders = info.shaders });
+        var tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
+        try tex.setFromRgba(image, true);
+
+        var sprite = try graphics.Sprite.init(scene, tex, .{ .shaders = info.shaders });
         sprite.drawing.shader.setUniformInt("index", @intCast(info.index));
         sprite.drawing.shader.setUniformInt("count", @intCast(info.count));
 
