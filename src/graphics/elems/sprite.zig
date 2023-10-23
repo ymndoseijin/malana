@@ -19,8 +19,11 @@ const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
 
 const SpriteInfo = struct {
-    path: ?[]const u8 = null,
-    rgba: ?graphics.Image = null,
+    texture: union(enum) {
+        path: []const u8,
+        memory: []const u8,
+        raw_rgba: graphics.Image,
+    },
     shaders: ?[2][:0]const u8 = null,
 };
 
@@ -35,10 +38,10 @@ pub const Sprite = struct {
 
         var tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
 
-        if (info.path) |path| {
-            try tex.setFromPath(path);
-        } else if (info.rgba) |data| {
-            try tex.setFromRgba(data, true);
+        switch (info.texture) {
+            .path => |path| try tex.setFromPath(path),
+            .memory => |mem| try tex.setFromMemory(mem),
+            .raw_rgba => |data| try tex.setFromRgba(data, true),
         }
         try drawing.addTexture(tex);
 

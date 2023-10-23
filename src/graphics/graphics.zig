@@ -134,6 +134,25 @@ pub const Texture = struct {
         };
     }
 
+    pub fn setFromMemory(tex: *Texture, buffer: []const u8) !void {
+        var read_image = try img.Image.fromMemory(common.allocator, buffer);
+        defer read_image.deinit();
+
+        tex.width = @intCast(read_image.width);
+        tex.height = @intCast(read_image.height);
+
+        switch (read_image.pixels) {
+            .rgba32 => |data| {
+                try tex.setFromRgba(.{
+                    .width = read_image.width,
+                    .height = read_image.height,
+                    .data = data,
+                }, true);
+            },
+            else => return error.InvalidImage,
+        }
+    }
+
     pub fn setFromPath(tex: *Texture, path: []const u8) !void {
         var read_image = try img.Image.fromFilePath(common.allocator, path);
         defer read_image.deinit();
