@@ -136,7 +136,7 @@ pub const Text = struct {
     }
 
     pub fn clear(self: *Text, scene: anytype) !void {
-        self.cursor_pos = self.transform.translation;
+        self.cursor_pos = .{ 0, 0 };
         self.count = 0;
         for (self.characters.items) |c| {
             try scene.delete(c.sprite.drawing);
@@ -145,59 +145,78 @@ pub const Text = struct {
         self.characters.clearRetainingCapacity();
     }
 
+    pub fn getExtent(self: Text, unicode: []const u32) !f32 {
+        var res: f32 = 0;
+        for (unicode) |c| {
+            try self.face.loadChar(c, .{ .render = true });
+            const glyph = self.face.glyph();
+            const metrics = glyph.metrics();
+            const advance: f32 = @floatFromInt(metrics.horiAdvance);
+            res += advance / 64;
+        }
+        return res;
+    }
+
     pub fn print(self: *Text, scene: anytype, info: TextInfo) !void {
         if (info.text.len == 0) return;
 
-        const count = blk: {
-            var it = (try std.unicode.Utf8View.init(info.text)).iterator();
-            var size: usize = 0;
-            while (it.nextCodepoint()) |_| size += 1;
-            break :blk size + self.count;
-        };
+        var unicode = (try std.unicode.Utf8View.init(info.text)).iterator();
+        var codepoints = std.ArrayList(u32).init(common.allocator);
+        defer codepoints.deinit();
 
-        for (self.characters.items) |c| {
-            c.sprite.drawing.shader.setUniformInt("count", @intCast(count));
+        while (unicode.nextCodepoint()) |c| {
+            try codepoints.append(c);
         }
-
-        var utf8 = (try std.unicode.Utf8View.init(info.text)).iterator();
-
-        var start: math.Vec2 = self.cursor_pos;
-
-        const space_width: f32 = 10;
 
         var index: usize = self.count;
 
-        self.count = count;
+        self.count += codepoints.items.len;
 
-        while (utf8.nextCodepoint()) |c| {
-            defer index += 1;
-            if (c == ' ') {
-                start += .{ space_width, 0 };
-                continue;
-            } else if (c == '\n') {
-                start = .{ self.transform.translation[0], start[1] - self.line_spacing };
-                continue;
-            }
-
-            var char = try Character.init(scene, self, .{
-                .char = c,
-                .shaders = info.shaders,
-                .count = count,
-                .index = index,
-            });
-            try self.characters.append(char);
-
-            // for now, no word wrapping
-            if (char.advance + start[0] > self.bounding_width) {
-                start = .{ self.transform.translation[0], start[1] - self.line_spacing };
-            }
-
-            char.sprite.transform.translation = start + char.offset;
-            char.sprite.updateTransform();
-            start += .{ char.advance, 0 };
+        for (self.characters.items) |c| {
+            c.sprite.drawing.shader.setUniformInt("count", @intCast(self.count));
         }
 
-        self.cursor_pos = start;
+        var start: math.Vec2 = self.transform.translation + self.cursor_pos;
+
+        const space_width: f32 = 10;
+
+        var it = std.mem.splitScalar(u32, codepoints.items, ' ');
+
+        while (it.next()) |word| {
+            if (try self.getExtent(word) + start[0] > self.bounding_width + self.transform.translation[0] and self.count != 0) {
+                start = .{ self.transform.translation[0], start[1] - self.line_spacing };
+            }
+
+            for (word) |c| {
+                defer index += 1;
+                if (c == '\n') {
+                    start = .{ self.transform.translation[0], start[1] - self.line_spacing };
+                    continue;
+                }
+
+                var char = try Character.init(scene, self, .{
+                    .char = c,
+                    .shaders = info.shaders,
+                    .count = self.count,
+                    .index = index,
+                });
+                try self.characters.append(char);
+
+                if (char.advance + start[0] > self.bounding_width + self.transform.translation[0]) {
+                    start = .{ self.transform.translation[0], start[1] - self.line_spacing };
+                }
+
+                char.sprite.transform.translation = start + char.offset;
+                char.sprite.updateTransform();
+                start += .{ char.advance, 0 };
+            }
+            if (it.peek() != null) {
+                index += 1;
+                start += .{ space_width, 0 };
+            }
+        }
+
+        self.cursor_pos = start - self.transform.translation;
     }
 
     pub fn deinit(self: *Text) void {
@@ -218,11 +237,11 @@ pub const Text = struct {
             .face = face,
             .line_spacing = size * line_spacing,
             .characters = std.ArrayList(Character).init(common.allocator),
-            .cursor_pos = .{ 0, 100 },
+            .cursor_pos = .{ 0, 0 },
             .transform = .{
                 .scale = .{ 1, 1 },
                 .rotation = .{ .angle = 0, .center = .{ 0.5, 0.5 } },
-                .translation = .{ 0, 100 },
+                .translation = .{ 0, 0 },
             },
         };
     }

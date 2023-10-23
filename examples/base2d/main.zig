@@ -71,8 +71,9 @@ pub fn main() !void {
 
     try text.initUniform();
 
-    var char_test = try graphics.TextFt.init("resources/cmunrm.ttf", 50, 1, 200);
-    try char_test.print(&state.flat_scene, .{ .text = "hello world!" });
+    var char_test = try graphics.TextFt.init("resources/cmunrm.ttf", 50, 1, 250);
+    char_test.transform.translation = .{ 0, 200 };
+    try char_test.print(&state.flat_scene, .{ .text = "hello world! " });
     try char_test.print(&state.flat_scene, .{ .text = "I'm here!" });
     char_test.setOpacity(0.5);
     defer char_test.deinit();
