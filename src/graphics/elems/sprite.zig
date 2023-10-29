@@ -36,8 +36,6 @@ pub const Sprite = struct {
         const w: f32 = @floatFromInt(tex.width);
         const h: f32 = @floatFromInt(tex.height);
 
-        drawing.shader.setUniformMat3("transform", Mat3.identity());
-
         drawing.bindVertex(&.{
             .{ 0, 0, 1, 0, 0 },
             .{ w, 0, 1, 1, 0 },
