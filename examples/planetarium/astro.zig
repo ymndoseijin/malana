@@ -347,8 +347,6 @@ pub const VsopPlanet = struct {
         venus_pos = math.rotationY(f64, TAU / 4.0).dot(venus_pos);
         self.pos = venus_pos;
 
-        //std.debug.print("{d:.4} {s} POR QUE\n", .{ @reduce(.Add, og_pos * og_pos), self.name });
-
         venus_pos *= @splat(SCALE);
 
         var pos = Vec3{ @floatCast(venus_pos[0]), @floatCast(venus_pos[1]), @floatCast(venus_pos[2]) };

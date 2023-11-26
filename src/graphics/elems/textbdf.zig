@@ -81,7 +81,7 @@ pub const Text = struct {
 
     pub fn printFmt(self: *Text, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
-        var str = try std.fmt.bufPrint(&buf, fmt, fmt_args);
+        const str = try std.fmt.bufPrint(&buf, fmt, fmt_args);
         try self.print(str);
     }
 
@@ -176,13 +176,13 @@ pub const Text = struct {
         var drawing = try scene.new(graphics.FlatPipeline);
         drawing.* = graphics.Drawing(graphics.FlatPipeline).init(try graphics.Shader.setupShader(@embedFile("shaders/text/vertex.glsl"), @embedFile("shaders/text/fragment.glsl")));
 
-        var atlas = try makeAtlas(bdf);
+        const atlas = try makeAtlas(bdf);
 
         var tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
         try tex.setFromRgba(atlas, true);
         try drawing.addTexture(tex);
 
-        var res = Text{
+        const res = Text{
             .bdf = bdf,
             .pos = pos,
             .drawing = drawing,

@@ -9,20 +9,20 @@
 
     .dependencies = .{
         .zigimg = .{
-            .url = "https://github.com/zigimg/zigimg/archive/130e63c0ad1e753204ee0c5675b6efde67b6ab3f.tar.gz",
-            .hash = "122020bfa2caf1bef0d1eeb9e8874f9578e93300cedb57e548f87d94d0e2f0833e0e",
+            .url = "https://github.com/zigimg/zigimg/archive/bb4dd9854c64cec6d810e1f9fa858ec308ac260c.tar.gz",
+            .hash = "12201813d83afa600cdbd68bbe5daf90c4b05edea8a99bded98217472760b425ec96",
         },
         .glfw = .{
             .url = "https://github.com/hexops/glfw/archive/49d153ebfc4f45eacc757ec2b063decbf5bb1779.tar.gz",
             .hash = "122020d1ba277ff9e4b5ffff3e3bf4a3c98eeaec821e2a497d031070b05f7814b91f",
         },
         .freetype = .{
-            .url = "https://github.com/hexops/mach-freetype/archive/a6d971285dfe731e49f82e81c81da2b7f5c6a442.tar.gz",
-            .hash = "1220e0de43cacb583b8f9efddcbe359398cfca17a39e265b56c8f2a10314eb8f7a5f",
+            .url = "https://github.com/ymndoseijin/mach-freetype/archive/master.tar.gz",
+            .hash = "1220172814006da1b1b8eeaefcbe7973e90809323318817e712d2cbf7eb548bac920",
         },
         .zilliam = .{
             .url = "https://github.com/ymndoseijin/zilliam/archive/master.tar.gz",
-            .hash = "1220f831de13fce911db48eca37c61d25cdd7e58d34662614c44b1508c236f0c35b6",
+            .hash = "122098f1b45240aff4f842eaf273fee62c63b14e08a7ff22576595853059ee2b5f26",
         },
     },
 }

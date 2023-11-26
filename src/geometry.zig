@@ -40,8 +40,8 @@ pub const HalfEdge = struct {
     face: *Face,
 
     pub fn makeTri(mut: *HalfEdge, allocator: std.mem.Allocator, tri: []const *Vertex) !void {
-        var b = try allocator.create(HalfEdge);
-        var c = try allocator.create(HalfEdge);
+        const b = try allocator.create(HalfEdge);
+        const c = try allocator.create(HalfEdge);
 
         mut.* = HalfEdge{
             .vertex = tri[0],
@@ -66,8 +66,8 @@ pub const HalfEdge = struct {
 
     pub fn halfVert(self: HalfEdge) Vertex {
         if (self.next) |next_edge| {
-            var a = self.vertex;
-            var b = next_edge.vertex;
+            const a = self.vertex;
+            const b = next_edge.vertex;
             const pos = Vec3Utils.interpolate(a.pos, b.pos, 0.5);
             const norm = Vec3Utils.interpolate(a.norm, b.norm, 0.5);
             const uv = Vec2Utils.interpolate(a.uv, b.uv, 0.5);
@@ -82,7 +82,7 @@ pub const Mesh = struct {
     first_half: ?*HalfEdge,
 
     pub fn init(alloc: std.mem.Allocator) Mesh {
-        var arena = std.heap.ArenaAllocator.init(alloc);
+        const arena = std.heap.ArenaAllocator.init(alloc);
         return Mesh{
             .arena = arena,
             .first_half = null,
@@ -143,7 +143,7 @@ pub const Mesh = struct {
         var b_vert: *Vertex = undefined;
         var c_vert: *Vertex = undefined;
 
-        var new_verts = .{ &a_vert, &b_vert, &c_vert };
+        const new_verts = .{ &a_vert, &b_vert, &c_vert };
 
         inline for (new_verts, 0..) |vert, i| {
             vert.* = try allocator.create(Vertex);
@@ -199,25 +199,25 @@ pub const Mesh = struct {
     pub fn makeFrom(self: *Mesh, vertices: []const f32, in_indices: []const u32, comptime format: Format, comptime n: comptime_int) !void {
         const allocator = self.arena.allocator();
 
-        var indices = try allocator.dupe(u32, in_indices);
+        const indices = try allocator.dupe(u32, in_indices);
 
         var converted = std.ArrayList(Vertex).init(self.arena.allocator());
         defer converted.deinit();
 
         for (0..@divExact(vertices.len, format.length)) |i| {
-            var pos: Vec3 = .{
+            const pos: Vec3 = .{
                 vertices[i * format.length + format.pos_offset],
                 vertices[i * format.length + format.pos_offset + 1],
                 vertices[i * format.length + format.pos_offset + 2],
             };
 
-            var norm: Vec3 = .{
+            const norm: Vec3 = .{
                 vertices[i * format.length + format.norm_offset],
                 vertices[i * format.length + format.norm_offset + 1],
                 vertices[i * format.length + format.norm_offset + 2],
             };
 
-            var uv: Vec2 = .{
+            const uv: Vec2 = .{
                 vertices[i * format.length + format.uv_offset],
                 vertices[i * format.length + format.uv_offset + 1],
             };
@@ -229,7 +229,7 @@ pub const Mesh = struct {
             });
         }
 
-        var res = try self.makeNgon(converted.items, indices, n);
+        const res = try self.makeNgon(converted.items, indices, n);
         self.first_half = res;
     }
 
@@ -254,9 +254,9 @@ pub const Mesh = struct {
         defer seen.deinit();
 
         for (indices, 0..) |index, i| {
-            var current_vertex = &vertices[index];
+            const current_vertex = &vertices[index];
 
-            var next_index: ?usize = if (i < indices.len - 1) indices[i + 1] else null;
+            const next_index: ?usize = if (i < indices.len - 1) indices[i + 1] else null;
             var next_or: ?*Vertex = if (next_index) |id| &vertices[id] else null;
 
             var previous_edge = half_edge;
@@ -297,11 +297,11 @@ pub const Mesh = struct {
             }
 
             if (next_or) |next_vertex| {
-                var a = [2]Vec3{ current_vertex.pos, next_vertex.pos };
+                const a = [2]Vec3{ current_vertex.pos, next_vertex.pos };
 
                 var not_found = true;
                 for (seen.items) |candidate| {
-                    var b = candidate[0];
+                    const b = candidate[0];
                     if (@reduce(.And, a[0] == b[1]) and @reduce(.And, a[1] == b[0])) {
                         var half_twin = candidate[1];
 
@@ -339,12 +339,12 @@ pub const Mesh = struct {
         try stack.append(self.first_half);
 
         while (stack.items.len > 0) {
-            var edge_or = stack.pop();
+            const edge_or = stack.pop();
             if (edge_or) |edge| {
                 if (set.get(edge)) |_| continue;
                 try set.put(edge, void{});
 
-                var position = &edge.vertex.pos;
+                const position = &edge.vertex.pos;
 
                 position.* /= @splat(@sqrt(@reduce(.Add, position.* * position.*)));
 

@@ -332,7 +332,7 @@ pub fn Scene(comptime pipelines_union: anytype) type {
 
         pub fn new(self: *Self, comptime pipeline: RenderPipeline) !*Drawing(pipeline) {
             const render = comptime fieldFromPipeline(pipeline);
-            var val = try common.allocator.create(@typeInfo(DrawingList.FieldType(render)).Pointer.child);
+            const val = try common.allocator.create(@typeInfo(DrawingList.FieldType(render)).Pointer.child);
             try self.drawing_array.array(render).append(val);
             return val;
         }
@@ -718,7 +718,7 @@ pub fn getGlfwCursorPos(win_or: ?*glfw.GLFWwindow, xpos: f64, ypos: f64) callcon
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
-        var win = map[1];
+        const win = map[1];
         if (win.events.cursor_func) |fun| {
             fun(map[0], xpos, ypos) catch |err| {
                 printError(err);
@@ -737,7 +737,7 @@ pub fn getGlfwMouseButton(win_or: ?*glfw.GLFWwindow, button: c_int, action: c_in
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
-        var win = map[1];
+        const win = map[1];
         if (win.events.mouse_func) |fun| {
             fun(map[0], button, @enumFromInt(action), mods) catch |err| {
                 printError(err);
@@ -750,7 +750,7 @@ pub fn getGlfwKey(win_or: ?*glfw.GLFWwindow, key: c_int, scancode: c_int, action
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
-        var win = map[1];
+        const win = map[1];
         if (win.events.key_func) |fun| {
             fun(map[0], key, scancode, @enumFromInt(action), mods) catch |err| {
                 printError(err);
@@ -763,7 +763,7 @@ pub fn getGlfwChar(win_or: ?*glfw.GLFWwindow, codepoint: c_uint) callconv(.C) vo
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
-        var win = map[1];
+        const win = map[1];
         if (win.events.char_func) |fun| {
             fun(map[0], codepoint) catch |err| {
                 printError(err);
@@ -794,7 +794,7 @@ pub fn getScroll(win_or: ?*glfw.GLFWwindow, xoffset: f64, yoffset: f64) callconv
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
-        var win = map[1];
+        const win = map[1];
         if (win.events.scroll_func) |fun| {
             fun(map[0], xoffset, yoffset) catch |err| {
                 printError(err);

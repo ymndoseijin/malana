@@ -74,7 +74,7 @@ pub const Character = struct {
 
         for (0..bitmap.rows()) |i| {
             for (0..bitmap.width()) |j| {
-                var s: u8 = bitmap.buffer().?[i * bitmap.width() + j];
+                const s: u8 = bitmap.buffer().?[i * bitmap.width() + j];
                 image.data[i * image.width + j] = .{ .r = 255, .g = 255, .b = 255, .a = s };
             }
         }
@@ -127,7 +127,7 @@ pub const Text = struct {
 
     pub fn printFmt(self: *Text, scene: anytype, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
-        var str = try std.fmt.bufPrint(&buf, fmt, fmt_args);
+        const str = try std.fmt.bufPrint(&buf, fmt, fmt_args);
         try self.print(scene, .{ .text = str });
     }
 

@@ -74,8 +74,8 @@ pub fn keplerToCart(elem: KeplerElements, t: f64, mu: f64) [2]@Vector(3, f64) {
     const v_factor: @Vector(3, f64) = @splat(@sqrt(mu * a));
     const ot_v = v_factor / rc * @Vector(3, f64){ -sin(et), @sqrt(1 - e * e) * cos(et), 0 };
 
-    var rt = math.rotationZ(f64, -long).mul(math.rotationX(f64, -i).mul(math.rotationZ(f64, -arg))).dot(ot);
-    var rt_v = math.rotationZ(f64, -long).mul(math.rotationX(f64, -i).mul(math.rotationZ(f64, -arg))).dot(ot_v);
+    const rt = math.rotationZ(f64, -long).mul(math.rotationX(f64, -i).mul(math.rotationZ(f64, -arg))).dot(ot);
+    const rt_v = math.rotationZ(f64, -long).mul(math.rotationX(f64, -i).mul(math.rotationZ(f64, -arg))).dot(ot_v);
 
     return .{ rt, rt_v };
 }

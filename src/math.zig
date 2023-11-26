@@ -147,7 +147,7 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
 
         pub fn gramschmidt(self: @This()) @This() {
             var res: @This() = undefined;
-            for (res.columns, self.columns, 0..) |res_column, vn, i| {
+            for (&res.columns, self.columns, 0..) |*res_column, vn, i| {
                 res_column = vn;
                 for (0..i) |j| {
                     res_column -= Vec(T, height).proj(res_column[j], vn);
@@ -160,7 +160,7 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
             const R = @TypeOf(other);
             var res: Mat(T, R.WIDTH, HEIGHT) = undefined;
             inline for (other.columns, 0..) |prev_column, i| {
-                var column: @Vector(HEIGHT, T) = .{0} ** HEIGHT;
+                var column: @Vector(HEIGHT, T) = @splat(0);
 
                 inline for (0..width) |j| {
                     const mask = ([1]i32{@intCast(j)}) ** HEIGHT;
@@ -254,8 +254,8 @@ test "rot" {
 pub fn perspectiveMatrix(fovy: f32, aspect: f32, nearZ: f32, farZ: f32) Mat4 {
     var res = Mat4.zero();
 
-    var f = 1.0 / std.math.tan(fovy * 0.5);
-    var f_n = 1.0 / (nearZ - farZ);
+    const f = 1.0 / std.math.tan(fovy * 0.5);
+    const f_n = 1.0 / (nearZ - farZ);
 
     res.columns[0][0] = f / aspect;
     res.columns[1][1] = f;

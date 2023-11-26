@@ -27,7 +27,7 @@ pub const Sprite = struct {
         var drawing = try scene.new(graphics.FlatPipeline);
 
         const vert, const frag = if (info.shaders) |pair| pair else .{ @embedFile("shaders/sprite/vertex.glsl"), @embedFile("shaders/sprite/fragment.glsl") };
-        var shader = try graphics.Shader.setupShader(vert, frag);
+        const shader = try graphics.Shader.setupShader(vert, frag);
 
         drawing.* = graphics.Drawing(graphics.FlatPipeline).init(shader);
 

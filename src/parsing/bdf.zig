@@ -78,13 +78,13 @@ pub const BdfParse = struct {
                     if (std.mem.startsWith(u8, line, "ENDCHAR")) {
                         self.state = .normal;
                         glyph_i = 0;
-                        var por_que = Search{ id, try allocator.dupe(bool, glyph), bbx_width };
+                        const por_que = Search{ id, try allocator.dupe(bool, glyph), bbx_width };
                         try self.map.append(por_que);
                     } else {
                         const val = try std.fmt.parseInt(u32, line, 16);
                         const char_width = width;
                         for (0..char_width) |x| {
-                            var i = char_width - x - 1;
+                            const i = char_width - x - 1;
                             glyph[glyph_i] = ((val >> @intCast(i)) & 1) == 1;
                             glyph_i += 1;
                         }

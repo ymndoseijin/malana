@@ -72,7 +72,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    var ui_info: std.Build.CreateModuleOptions = .{
+    const ui_info: std.Build.CreateModuleOptions = .{
         .source_file = .{ .path = "src/ui.zig" },
         .dependencies = &.{
             .{ .name = "img", .module = zigimg_dep.module("zigimg") },

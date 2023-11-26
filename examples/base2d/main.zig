@@ -48,7 +48,7 @@ pub fn main() !void {
     var arg_it = std.process.args();
     _ = arg_it.next();
 
-    var image_path = arg_it.next() orelse return error.NotEnoughArguments;
+    const image_path = arg_it.next() orelse return error.NotEnoughArguments;
 
     var tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
     try tex.setFromPath(image_path);

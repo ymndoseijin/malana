@@ -19,7 +19,7 @@ const Mat4 = math.Mat4;
 
 pub const ColoredRect = struct {
     pub fn init(scene: anytype, color: math.Vec4) !ColoredRect {
-        var shader = try graphics.Shader.setupShader(@embedFile("shaders/color_rect/vertex.glsl"), @embedFile("shaders/color_rect/fragment.glsl"));
+        const shader = try graphics.Shader.setupShader(@embedFile("shaders/color_rect/vertex.glsl"), @embedFile("shaders/color_rect/fragment.glsl"));
 
         var drawing = try scene.new(graphics.FlatPipeline);
         drawing.* = graphics.Drawing(graphics.FlatPipeline).init(shader);

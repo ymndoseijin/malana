@@ -117,7 +117,7 @@ pub const State = struct {
         try graphics.initGraphics();
         _ = graphics.glfw.glfwWindowHint(graphics.glfw.GLFW_SAMPLES, 4);
 
-        var state = try common.allocator.create(State);
+        const state = try common.allocator.create(State);
 
         var main_win = try common.allocator.create(graphics.Window);
         main_win.* = try graphics.Window.initBare(info);
