@@ -35,78 +35,6 @@ pub fn bdfToRgba(res: []bool) ![fs * fs]img.color.Rgba32 {
 
 const Image = graphics.Image;
 
-const CharacterInfo = struct {
-    char: u32,
-    index: usize,
-    count: usize,
-    shaders: ?[2][:0]const u8 = null,
-};
-
-pub const Character = struct {
-    image: Image,
-    sprite: graphics.Sprite,
-    offset: math.Vec2,
-    advance: f32,
-    parent: *Text,
-
-    pub fn setOpacity(self: *Character, opacity: f32) void {
-        self.sprite.setOpacity(opacity);
-    }
-
-    pub fn init(scene: anytype, parent: *Text, info: CharacterInfo) !Character {
-        try parent.face.loadChar(info.char, .{ .render = true });
-        const glyph = parent.face.glyph();
-        const bitmap = glyph.bitmap();
-
-        var image: Image = .{
-            .data = try common.allocator.alloc(img.color.Rgba32, bitmap.rows() * bitmap.width()),
-            .width = bitmap.width(),
-            .height = bitmap.rows(),
-        };
-
-        const metrics = glyph.metrics();
-        var offset: math.Vec2 = .{ @floatFromInt(metrics.horiBearingX), @floatFromInt(-metrics.height + metrics.horiBearingY) };
-
-        const metrics_scale: math.Vec2 = @splat(1.0 / 64.0);
-        offset *= metrics_scale;
-
-        const advance: f32 = @floatFromInt(metrics.horiAdvance);
-
-        for (0..bitmap.rows()) |i| {
-            for (0..bitmap.width()) |j| {
-                const s: u8 = bitmap.buffer().?[i * bitmap.width() + j];
-                image.data[i * image.width + j] = .{ .r = 255, .g = 255, .b = 255, .a = s };
-            }
-        }
-
-        var tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
-        try tex.setFromRgba(image, true);
-
-        var sprite = try graphics.Sprite.init(scene, tex, .{ .shaders = info.shaders });
-        sprite.drawing.shader.setUniformInt("index", @intCast(info.index));
-        sprite.drawing.shader.setUniformInt("count", @intCast(info.count));
-
-        sprite.drawing.shader.setUniformFloat("opacity", parent.opacity);
-
-        return .{
-            .image = image,
-            .parent = parent,
-            .sprite = sprite,
-            .offset = offset,
-            .advance = advance / 64,
-        };
-    }
-
-    pub fn deinit(self: Character) void {
-        common.allocator.free(self.image.data);
-    }
-};
-
-const TextInfo = struct {
-    text: []const u8,
-    shaders: ?[2][:0]const u8 = null,
-};
-
 pub const Text = struct {
     characters: std.ArrayList(Character),
     face: freetype.Face,
@@ -124,6 +52,94 @@ pub const Text = struct {
     count: usize = 0,
 
     cursor_pos: math.Vec2,
+
+    const CharacterInfo = struct {
+        char: u32,
+        index: usize,
+        count: usize,
+        shaders: ?[]graphics.Shader = null,
+    };
+
+    pub const Character = struct {
+        image: Image,
+        sprite: graphics.Sprite(Pipeline),
+        offset: math.Vec2,
+        advance: f32,
+        parent: *Text,
+
+        pub const Pipeline = graphics.RenderPipeline{
+            .vertex_attrib = &[_]graphics.VertexAttribute{ .{ .size = 3 }, .{ .size = 2 } },
+            .render_type = .triangle,
+            .depth_test = false,
+            .cull_face = false,
+            .uniform_types = &[_]type{ extern struct { time: f32, in_resolution: math.Vec2 }, extern struct {
+                transform: math.Mat4,
+                opacity: f32,
+                index: u32,
+                count: u32,
+            } },
+            .samplers = 1,
+            .global_ubo = true,
+        };
+
+        pub fn setOpacity(self: *Character, opacity: f32) void {
+            self.sprite.setOpacity(opacity);
+        }
+
+        pub fn init(scene: anytype, parent: *Text, info: CharacterInfo) !Character {
+            try parent.face.loadChar(info.char, .{ .render = true });
+            const glyph = parent.face.glyph();
+            const bitmap = glyph.bitmap();
+
+            var image: Image = .{
+                .data = try common.allocator.alloc(img.color.Rgba32, bitmap.rows() * bitmap.width()),
+                .width = bitmap.width(),
+                .height = bitmap.rows(),
+            };
+
+            const metrics = glyph.metrics();
+            var offset: math.Vec2 = .{ @floatFromInt(metrics.horiBearingX), @floatFromInt(-metrics.height + metrics.horiBearingY) };
+            offset[1] *= -1;
+
+            const metrics_scale: math.Vec2 = @splat(1.0 / 64.0);
+            offset *= metrics_scale;
+
+            const advance: f32 = @floatFromInt(metrics.horiAdvance);
+
+            for (0..bitmap.rows()) |i| {
+                for (0..bitmap.width()) |j| {
+                    const s: u8 = bitmap.buffer().?[i * bitmap.width() + j];
+                    image.data[i * image.width + j] = .{ .r = 255, .g = 255, .b = 255, .a = s };
+                }
+            }
+
+            var tex = try graphics.Texture.init(scene.window, image.width, image.height, .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
+            try tex.setFromRgba(image);
+
+            var sprite = try graphics.Sprite(Pipeline).init(scene, .{ .tex = tex, .shaders = info.shaders });
+            sprite.drawing.setUniformField(1, .index, @as(u32, @intCast(info.index)));
+            sprite.drawing.setUniformField(1, .count, @as(u32, @intCast(info.count)));
+
+            sprite.drawing.setUniformField(1, .opacity, parent.opacity);
+
+            return .{
+                .image = image,
+                .parent = parent,
+                .sprite = sprite,
+                .offset = offset,
+                .advance = advance / 64,
+            };
+        }
+
+        pub fn deinit(self: Character) void {
+            common.allocator.free(self.image.data);
+        }
+    };
+
+    const TextInfo = struct {
+        text: []const u8,
+        shaders: ?[]graphics.Shader = null,
+    };
 
     pub fn printFmt(self: *Text, scene: anytype, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
@@ -176,7 +192,7 @@ pub const Text = struct {
         self.count += codepoints.items.len;
 
         for (self.characters.items) |c| {
-            c.sprite.drawing.shader.setUniformInt("count", @intCast(self.count));
+            c.sprite.drawing.setUniformField(1, .count, @as(u32, @intCast(self.count)));
         }
 
         var start: math.Vec2 = self.transform.translation + self.cursor_pos;
@@ -193,7 +209,7 @@ pub const Text = struct {
             for (word) |c| {
                 defer index += 1;
                 if (c == '\n') {
-                    start = .{ self.transform.translation[0], start[1] - self.line_spacing };
+                    start = .{ self.transform.translation[0], start[1] + self.line_spacing };
                     continue;
                 }
 
@@ -206,10 +222,10 @@ pub const Text = struct {
                 try self.characters.append(char);
 
                 if (char.advance + start[0] > self.bounding_width + self.transform.translation[0]) {
-                    start = .{ self.transform.translation[0], start[1] - self.line_spacing };
+                    start = .{ self.transform.translation[0], start[1] + self.line_spacing };
                 }
 
-                char.sprite.transform.translation = start + char.offset;
+                char.sprite.transform.translation = start + char.offset - math.Vec2{ 0, @floatFromInt(char.image.height) };
                 char.sprite.updateTransform();
                 start += .{ char.advance, 0 };
             }

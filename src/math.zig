@@ -59,7 +59,7 @@ pub const Vec3Utils = struct {
 };
 
 pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type {
-    return struct {
+    return extern struct {
         pub const WIDTH: usize = width;
         pub const HEIGHT: usize = height;
 

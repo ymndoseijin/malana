@@ -20,6 +20,8 @@ const Vec3Utils = math.Vec3Utils;
 
 const fs = 15;
 
+const elem_shaders = @import("elem_shaders");
+
 pub fn bdfToRgba(res: []bool) ![fs * fs]img.color.Rgba32 {
     var buf: [fs * fs]img.color.Rgba32 = undefined;
     for (res, 0..) |val, i| {
@@ -39,16 +41,22 @@ pub const Image = struct {
 };
 
 pub const Text = struct {
-    drawing: *Drawing(graphics.FlatPipeline),
+    drawing: *Drawing(Pipeline),
     bdf: BdfParse,
     atlas: Image,
     pos: Vec3,
     width: f32,
     height: f32,
 
-    pub fn updatePos(self: *Text, pos: Vec3) void {
-        self.drawing.uniform3f_array[0].value = pos;
-    }
+    pub const Pipeline = graphics.RenderPipeline{
+        .vertex_attrib = &[_]graphics.VertexAttribute{ .{ .size = 3 }, .{ .size = 2 } },
+        .render_type = .triangle,
+        .depth_test = false,
+        .cull_face = false,
+        .uniform_types = &[_]type{ extern struct { time: f32, in_resolution: math.Vec2 }, extern struct { pos: math.Vec3 } },
+        .samplers = 1,
+        .global_ubo = true,
+    };
 
     pub fn makeAtlas(bdf: BdfParse) !Image {
         const count = bdf.map.items.len;
@@ -132,10 +140,10 @@ pub const Text = struct {
                     const atlas_y: f32 = @floatFromInt(@divFloor(i, size) + 1);
 
                     const c_vert = [_]Drawing(graphics.FlatPipeline).Attribute{
-                        .{ x, y, 0, atlas_x, size_f - atlas_y },
-                        .{ x + width, y, 0, atlas_x + 1, size_f - atlas_y },
-                        .{ x + width, y + width, 0, atlas_x + 1, size_f - atlas_y + 1 },
-                        .{ x, y + width, 0, atlas_x, size_f - atlas_y + 1 },
+                        .{ .{ x, y, 0 }, .{ atlas_x, size_f - atlas_y } },
+                        .{ .{ x + width, y, 0 }, .{ atlas_x + 1, size_f - atlas_y } },
+                        .{ .{ x + width, y + width, 0 }, .{ atlas_x + 1, size_f - atlas_y + 1 } },
+                        .{ .{ x, y + width, 0 }, .{ atlas_x, size_f - atlas_y + 1 } },
                     };
 
                     final_width = x + width;
@@ -161,26 +169,22 @@ pub const Text = struct {
         self.width = final_width;
         self.height = final_height;
 
-        self.drawing.bindVertex(vertices.items, indices.items);
+        try self.drawing.bindVertex(vertices.items, indices.items);
     }
 
     pub fn deinit(self: *Text) void {
         common.allocator.free(self.atlas.data);
     }
 
-    pub fn initUniform(self: *Text) !void {
-        try self.drawing.addUniformVec3("pos", &self.pos);
-    }
-
     pub fn init(scene: anytype, bdf: BdfParse, pos: Vec3) !Text {
-        var drawing = try scene.new(graphics.FlatPipeline);
-        drawing.* = graphics.Drawing(graphics.FlatPipeline).init(try graphics.Shader.setupShader(@embedFile("shaders/text/vertex.glsl"), @embedFile("shaders/text/fragment.glsl")));
-
         const atlas = try makeAtlas(bdf);
 
-        var tex = graphics.Texture.init(.{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
-        try tex.setFromRgba(atlas, true);
-        try drawing.addTexture(tex);
+        var tex = try graphics.Texture.init(scene.window, atlas.width, atlas.height, .{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
+        try tex.setFromRgba(atlas);
+
+        var drawing = try scene.new(Pipeline);
+
+        try drawing.init(scene.window, &scene.window.text_shaders, .{ .samplers = .{tex} });
 
         const res = Text{
             .bdf = bdf,

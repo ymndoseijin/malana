@@ -9,8 +9,8 @@
 
     .dependencies = .{
         .zigimg = .{
-            .url = "https://github.com/zigimg/zigimg/archive/bb4dd9854c64cec6d810e1f9fa858ec308ac260c.tar.gz",
-            .hash = "12201813d83afa600cdbd68bbe5daf90c4b05edea8a99bded98217472760b425ec96",
+            .url = "https://github.com/zigimg/zigimg/archive/cd2b219e0d3c29d573905b22346371246d9075f3.tar.gz",
+            .hash = "122023134b103363f1d1d2a6038f366edc3b8b623cc38e7aff5dea14d5ae3ba8cb03",
         },
         .glfw = .{
             .url = "https://github.com/hexops/glfw/archive/49d153ebfc4f45eacc757ec2b063decbf5bb1779.tar.gz",

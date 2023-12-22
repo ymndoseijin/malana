@@ -1,5 +1,6 @@
 // TODO: remove pub
 pub const glfw = @cImport({
+    @cDefine("GLFW_INCLUDE_NONE", {});
     @cInclude("GLFW/glfw3.h");
 });
 
@@ -7,10 +8,15 @@ const AREA_SIZE = 512;
 
 const img = @import("img");
 const common = @import("common");
-const gl = @import("gl");
 const std = @import("std");
 const math = @import("math");
 const freetype = @import("freetype");
+
+const vk = @import("vk.zig");
+
+pub extern fn glfwGetInstanceProcAddress(instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction;
+pub extern fn glfwGetPhysicalDevicePresentationSupport(instance: vk.Instance, pdev: vk.PhysicalDevice, queuefamily: u32) c_int;
+pub extern fn glfwCreateWindowSurface(instance: vk.Instance, window: *glfw.GLFWwindow, allocation_callbacks: ?*const vk.AllocationCallbacks, surface: *vk.SurfaceKHR) vk.Result;
 
 pub const Cube = @import("elems/cube.zig").Cube;
 pub const Line = @import("elems/line.zig").Line;
@@ -27,46 +33,721 @@ pub const SpatialMesh = @import("spatialmesh.zig").SpatialMesh;
 pub const ObjParse = @import("obj.zig").ObjParse;
 pub const ComptimeMeshBuilder = @import("comptime_meshbuilder.zig").ComptimeMeshBuilder;
 
-pub const Transform2D = struct {
-    scale: math.Vec2,
-    rotation: struct { angle: f32, center: math.Vec2 },
-    translation: math.Vec2,
-    pub fn getMat(self: Transform2D) math.Mat3 {
-        return math.transform2D(f32, self.scale, self.rotation, self.translation);
+const elem_shaders = @import("elem_shaders");
+
+// vulkan stuff copy pasted
+const required_device_extensions = [_][*:0]const u8{vk.extension_info.khr_swapchain.name};
+
+const BaseDispatch = vk.BaseWrapper(.{
+    .createInstance = true,
+    .enumerateInstanceLayerProperties = true,
+    .getInstanceProcAddr = true,
+});
+
+const InstanceDispatch = vk.InstanceWrapper(.{
+    .destroyInstance = true,
+    .createDevice = true,
+    .destroySurfaceKHR = true,
+    .enumeratePhysicalDevices = true,
+    .getPhysicalDeviceProperties = true,
+    .enumerateDeviceExtensionProperties = true,
+    .getPhysicalDeviceSurfaceFormatsKHR = true,
+    .getPhysicalDeviceSurfacePresentModesKHR = true,
+    .getPhysicalDeviceSurfaceCapabilitiesKHR = true,
+    .getPhysicalDeviceQueueFamilyProperties = true,
+    .getPhysicalDeviceSurfaceSupportKHR = true,
+    .getPhysicalDeviceMemoryProperties = true,
+    .getDeviceProcAddr = true,
+});
+
+const DeviceDispatch = vk.DeviceWrapper(.{
+    .destroyDevice = true,
+    .getDeviceQueue = true,
+    .createSemaphore = true,
+    .createFence = true,
+    .createImageView = true,
+    .destroyImageView = true,
+    .destroySemaphore = true,
+    .destroyFence = true,
+    .getSwapchainImagesKHR = true,
+    .createSwapchainKHR = true,
+    .destroySwapchainKHR = true,
+    .acquireNextImageKHR = true,
+    .deviceWaitIdle = true,
+    .waitForFences = true,
+    .resetFences = true,
+    .queueSubmit = true,
+    .queuePresentKHR = true,
+    .createCommandPool = true,
+    .destroyCommandPool = true,
+    .allocateCommandBuffers = true,
+    .freeCommandBuffers = true,
+    .queueWaitIdle = true,
+    .createShaderModule = true,
+    .destroyShaderModule = true,
+    .createPipelineLayout = true,
+    .destroyPipelineLayout = true,
+    .createRenderPass = true,
+    .destroyRenderPass = true,
+    .createGraphicsPipelines = true,
+    .destroyPipeline = true,
+    .createFramebuffer = true,
+    .destroyFramebuffer = true,
+    .beginCommandBuffer = true,
+    .endCommandBuffer = true,
+    .allocateMemory = true,
+    .freeMemory = true,
+    .createBuffer = true,
+    .destroyBuffer = true,
+    .getBufferMemoryRequirements = true,
+    .mapMemory = true,
+    .unmapMemory = true,
+    .bindBufferMemory = true,
+    .cmdBeginRenderPass = true,
+    .cmdEndRenderPass = true,
+    .cmdBindPipeline = true,
+    .cmdDraw = true,
+    .cmdDrawIndexed = true,
+    .cmdSetViewport = true,
+    .cmdSetScissor = true,
+    .cmdBindVertexBuffers = true,
+    .cmdBindIndexBuffer = true,
+    .cmdCopyBuffer = true,
+    .cmdPipelineBarrier = true,
+    .cmdCopyBufferToImage = true,
+    .createImage = true,
+    .getImageMemoryRequirements = true,
+    .bindImageMemory = true,
+    .createDescriptorPool = true,
+    .allocateDescriptorSets = true,
+    .updateDescriptorSets = true,
+    .cmdBindDescriptorSets = true,
+    .createDescriptorSetLayout = true,
+    .resetCommandBuffer = true,
+    .createSampler = true,
+});
+
+pub const GraphicsContext = struct {
+    vkb: BaseDispatch,
+    vki: InstanceDispatch,
+    vkd: DeviceDispatch,
+
+    instance: vk.Instance,
+    surface: vk.SurfaceKHR,
+    pdev: vk.PhysicalDevice,
+    props: vk.PhysicalDeviceProperties,
+    mem_props: vk.PhysicalDeviceMemoryProperties,
+
+    dev: vk.Device,
+    graphics_queue: Queue,
+    present_queue: Queue,
+
+    pub fn init(allocator: std.mem.Allocator, app_name: [*:0]const u8, window: *glfw.GLFWwindow) !GraphicsContext {
+        var self: GraphicsContext = undefined;
+        self.vkb = try BaseDispatch.load(glfwGetInstanceProcAddress);
+
+        if (!try checkValidationLayerSupport(self.vkb)) return error.NoValidationLayers;
+
+        var glfw_exts_count: u32 = 0;
+        const glfw_exts = glfw.glfwGetRequiredInstanceExtensions(&glfw_exts_count);
+
+        const app_info = vk.ApplicationInfo{
+            .p_application_name = app_name,
+            .application_version = vk.makeApiVersion(0, 0, 0, 0),
+            .p_engine_name = app_name,
+            .engine_version = vk.makeApiVersion(0, 0, 0, 0),
+            .api_version = vk.API_VERSION_1_2,
+        };
+
+        self.instance = try self.vkb.createInstance(&.{
+            .p_application_info = &app_info,
+            .enabled_extension_count = glfw_exts_count,
+            .pp_enabled_extension_names = @as([*]const [*:0]const u8, @ptrCast(glfw_exts)),
+            .enabled_layer_count = @intCast(validation_layers.len),
+            .pp_enabled_layer_names = @as([*]const [*:0]const u8, @ptrCast(&validation_layers)),
+        }, null);
+
+        self.vki = try InstanceDispatch.load(self.instance, self.vkb.dispatch.vkGetInstanceProcAddr);
+        errdefer self.vki.destroyInstance(self.instance, null);
+
+        self.surface = try createSurface(self.instance, window);
+        errdefer self.vki.destroySurfaceKHR(self.instance, self.surface, null);
+
+        const candidate = try pickPhysicalDevice(self.vki, self.instance, allocator, self.surface);
+        self.pdev = candidate.pdev;
+        self.props = candidate.props;
+        self.dev = try initializeCandidate(self.vki, candidate);
+        self.vkd = try DeviceDispatch.load(self.dev, self.vki.dispatch.vkGetDeviceProcAddr);
+        errdefer self.vkd.destroyDevice(self.dev, null);
+
+        self.graphics_queue = Queue.init(self.vkd, self.dev, candidate.queues.graphics_family);
+        self.present_queue = Queue.init(self.vkd, self.dev, candidate.queues.present_family);
+
+        self.mem_props = self.vki.getPhysicalDeviceMemoryProperties(self.pdev);
+
+        return self;
     }
-    pub fn getInverseMat(self: Transform2D) math.Mat3 {
-        return math.transform2D(f32, math.Vec2{ 1, 1 } / self.scale, .{ .angle = -self.rotation.angle, .center = self.rotation.center }, math.Vec2{ -1, -1 } * self.translation);
+
+    pub fn deinit(self: GraphicsContext) void {
+        self.vkd.destroyDevice(self.dev, null);
+        self.vki.destroySurfaceKHR(self.instance, self.surface, null);
+        self.vki.destroyInstance(self.instance, null);
     }
-    pub fn apply(self: Transform2D, v: math.Vec2) math.Vec2 {
-        var res: [3]f32 = self.getMat().dot(.{ v[0], v[1], 1 });
-        return res[0..2].*;
+
+    pub fn deviceName(self: *const GraphicsContext) []const u8 {
+        return std.mem.sliceTo(&self.props.device_name, 0);
     }
 
-    pub fn reverse(self: Transform2D, v: math.Vec2) math.Vec2 {
-        var res: [3]f32 = self.getInverseMat().dot(.{ v[0], v[1], 1 });
-        return res[0..2].*;
+    pub fn findMemoryTypeIndex(self: GraphicsContext, memory_type_bits: u32, flags: vk.MemoryPropertyFlags) !u32 {
+        for (self.mem_props.memory_types[0..self.mem_props.memory_type_count], 0..) |mem_type, i| {
+            if (memory_type_bits & (@as(u32, 1) << @truncate(i)) != 0 and mem_type.property_flags.contains(flags)) {
+                return @truncate(i);
+            }
+        }
+
+        return error.NoSuitableMemoryType;
+    }
+
+    pub fn allocate(self: GraphicsContext, requirements: vk.MemoryRequirements, flags: vk.MemoryPropertyFlags) !vk.DeviceMemory {
+        return try self.vkd.allocateMemory(self.dev, &.{
+            .allocation_size = requirements.size,
+            .memory_type_index = try self.findMemoryTypeIndex(requirements.memory_type_bits, flags),
+        }, null);
+    }
+
+    pub fn createStagingBuffer(gc: *GraphicsContext, size: usize) !BufferMemory {
+        const staging_buffer = try gc.vkd.createBuffer(gc.dev, &.{
+            .size = size,
+            .usage = .{ .transfer_src_bit = true },
+            .sharing_mode = .exclusive,
+        }, null);
+
+        const staging_mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, staging_buffer);
+        const staging_memory = try gc.allocate(staging_mem_reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
+        try gc.vkd.bindBufferMemory(gc.dev, staging_buffer, staging_memory, 0);
+
+        return .{ .buffer = staging_buffer, .memory = staging_memory };
     }
 };
 
-const Uniform1f = struct {
-    name: [:0]const u8,
-    value: *f32,
+pub const BufferMemory = struct {
+    pub fn deinit(buff: BufferMemory, gc: *GraphicsContext) void {
+        gc.vkd.destroyBuffer(gc.dev, buff.buffer, null);
+        gc.vkd.freeMemory(gc.dev, buff.memory, null);
+    }
+    buffer: vk.Buffer,
+    memory: vk.DeviceMemory,
 };
 
-const Uniform3f = struct {
-    name: [:0]const u8,
-    value: *math.Vec3,
+pub const Queue = struct {
+    handle: vk.Queue,
+    family: u32,
+
+    fn init(vkd: DeviceDispatch, dev: vk.Device, family: u32) Queue {
+        return .{
+            .handle = vkd.getDeviceQueue(dev, family, 0),
+            .family = family,
+        };
+    }
 };
 
-const Uniform3fv = struct {
-    name: [:0]const u8,
-    value: *math.Mat3,
+fn createSurface(instance: vk.Instance, window: *glfw.GLFWwindow) !vk.SurfaceKHR {
+    var surface: vk.SurfaceKHR = undefined;
+    if (glfwCreateWindowSurface(instance, window, null, &surface) != .success) {
+        return error.SurfaceInitFailed;
+    }
+
+    return surface;
+}
+
+fn initializeCandidate(vki: InstanceDispatch, candidate: DeviceCandidate) !vk.Device {
+    const priority = [_]f32{1};
+    const qci = [_]vk.DeviceQueueCreateInfo{
+        .{
+            .queue_family_index = candidate.queues.graphics_family,
+            .queue_count = 1,
+            .p_queue_priorities = &priority,
+        },
+        .{
+            .queue_family_index = candidate.queues.present_family,
+            .queue_count = 1,
+            .p_queue_priorities = &priority,
+        },
+    };
+
+    const queue_count: u32 = if (candidate.queues.graphics_family == candidate.queues.present_family)
+        1
+    else
+        2;
+
+    const features: vk.PhysicalDeviceFeatures = .{ .sampler_anisotropy = vk.TRUE };
+
+    return try vki.createDevice(candidate.pdev, &.{
+        .queue_create_info_count = queue_count,
+        .p_queue_create_infos = &qci,
+        .enabled_extension_count = required_device_extensions.len,
+        .pp_enabled_extension_names = @as([*]const [*:0]const u8, @ptrCast(&required_device_extensions)),
+        .p_enabled_features = &features,
+    }, null);
+}
+
+const DeviceCandidate = struct {
+    pdev: vk.PhysicalDevice,
+    props: vk.PhysicalDeviceProperties,
+    queues: QueueAllocation,
 };
 
-const Uniform4fv = struct {
-    name: [:0]const u8,
-    value: *math.Mat4,
+const QueueAllocation = struct {
+    graphics_family: u32,
+    present_family: u32,
 };
+
+fn pickPhysicalDevice(
+    vki: InstanceDispatch,
+    instance: vk.Instance,
+    allocator: std.mem.Allocator,
+    surface: vk.SurfaceKHR,
+) !DeviceCandidate {
+    var device_count: u32 = undefined;
+    _ = try vki.enumeratePhysicalDevices(instance, &device_count, null);
+
+    const pdevs = try allocator.alloc(vk.PhysicalDevice, device_count);
+    defer allocator.free(pdevs);
+
+    _ = try vki.enumeratePhysicalDevices(instance, &device_count, pdevs.ptr);
+
+    for (pdevs) |pdev| {
+        if (try checkSuitable(vki, pdev, allocator, surface)) |candidate| {
+            return candidate;
+        }
+    }
+
+    return error.NoSuitableDevice;
+}
+
+fn checkSuitable(
+    vki: InstanceDispatch,
+    pdev: vk.PhysicalDevice,
+    allocator: std.mem.Allocator,
+    surface: vk.SurfaceKHR,
+) !?DeviceCandidate {
+    const props = vki.getPhysicalDeviceProperties(pdev);
+
+    if (!try checkExtensionSupport(vki, pdev, allocator)) {
+        return null;
+    }
+
+    if (!try checkSurfaceSupport(vki, pdev, surface)) {
+        return null;
+    }
+
+    if (try allocateQueues(vki, pdev, allocator, surface)) |allocation| {
+        return DeviceCandidate{
+            .pdev = pdev,
+            .props = props,
+            .queues = allocation,
+        };
+    }
+
+    return null;
+}
+
+fn allocateQueues(vki: InstanceDispatch, pdev: vk.PhysicalDevice, allocator: std.mem.Allocator, surface: vk.SurfaceKHR) !?QueueAllocation {
+    var family_count: u32 = undefined;
+    vki.getPhysicalDeviceQueueFamilyProperties(pdev, &family_count, null);
+
+    const families = try allocator.alloc(vk.QueueFamilyProperties, family_count);
+    defer allocator.free(families);
+    vki.getPhysicalDeviceQueueFamilyProperties(pdev, &family_count, families.ptr);
+
+    var graphics_family: ?u32 = null;
+    var present_family: ?u32 = null;
+
+    for (families, 0..) |properties, i| {
+        const family: u32 = @intCast(i);
+
+        if (graphics_family == null and properties.queue_flags.graphics_bit) {
+            graphics_family = family;
+        }
+
+        if (present_family == null and (try vki.getPhysicalDeviceSurfaceSupportKHR(pdev, family, surface)) == vk.TRUE) {
+            present_family = family;
+        }
+    }
+
+    if (graphics_family != null and present_family != null) {
+        return QueueAllocation{
+            .graphics_family = graphics_family.?,
+            .present_family = present_family.?,
+        };
+    }
+
+    return null;
+}
+
+fn checkSurfaceSupport(vki: InstanceDispatch, pdev: vk.PhysicalDevice, surface: vk.SurfaceKHR) !bool {
+    var format_count: u32 = undefined;
+    _ = try vki.getPhysicalDeviceSurfaceFormatsKHR(pdev, surface, &format_count, null);
+
+    var present_mode_count: u32 = undefined;
+    _ = try vki.getPhysicalDeviceSurfacePresentModesKHR(pdev, surface, &present_mode_count, null);
+
+    return format_count > 0 and present_mode_count > 0;
+}
+
+fn checkExtensionSupport(
+    vki: InstanceDispatch,
+    pdev: vk.PhysicalDevice,
+    allocator: std.mem.Allocator,
+) !bool {
+    var count: u32 = undefined;
+    _ = try vki.enumerateDeviceExtensionProperties(pdev, null, &count, null);
+
+    const propsv = try allocator.alloc(vk.ExtensionProperties, count);
+    defer allocator.free(propsv);
+
+    _ = try vki.enumerateDeviceExtensionProperties(pdev, null, &count, propsv.ptr);
+
+    for (required_device_extensions) |ext| {
+        for (propsv) |props| {
+            if (std.mem.eql(u8, std.mem.span(ext), std.mem.sliceTo(&props.extension_name, 0))) {
+                break;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    return true;
+}
+fn createRenderPass(gc: *const GraphicsContext, swapchain: Swapchain) !vk.RenderPass {
+    const color_attachment = vk.AttachmentDescription{
+        .format = swapchain.surface_format.format,
+        .samples = .{ .@"1_bit" = true },
+        .load_op = .clear,
+        .store_op = .store,
+        .stencil_load_op = .dont_care,
+        .stencil_store_op = .dont_care,
+        .initial_layout = .undefined,
+        .final_layout = .present_src_khr,
+    };
+
+    const color_attachment_ref = vk.AttachmentReference{
+        .attachment = 0,
+        .layout = .color_attachment_optimal,
+    };
+
+    const subpass = vk.SubpassDescription{
+        .pipeline_bind_point = .graphics,
+        .color_attachment_count = 1,
+        .p_color_attachments = @ptrCast(&color_attachment_ref),
+    };
+
+    return try gc.vkd.createRenderPass(gc.dev, &.{
+        .attachment_count = 1,
+        .p_attachments = @as([*]const vk.AttachmentDescription, @ptrCast(&color_attachment)),
+        .subpass_count = 1,
+        .p_subpasses = @as([*]const vk.SubpassDescription, @ptrCast(&subpass)),
+    }, null);
+}
+
+const Allocator = std.mem.Allocator;
+
+pub const Swapchain = struct {
+    pub const PresentState = enum {
+        optimal,
+        suboptimal,
+    };
+
+    allocator: Allocator,
+
+    surface_format: vk.SurfaceFormatKHR,
+    present_mode: vk.PresentModeKHR,
+    extent: vk.Extent2D,
+    handle: vk.SwapchainKHR,
+
+    swap_images: []SwapImage,
+
+    pub fn init(gc: *const GraphicsContext, allocator: Allocator, extent: vk.Extent2D) !Swapchain {
+        return try initRecycle(gc, allocator, extent, .null_handle);
+    }
+
+    pub fn initRecycle(gc: *const GraphicsContext, allocator: Allocator, extent: vk.Extent2D, old_handle: vk.SwapchainKHR) !Swapchain {
+        const caps = try gc.vki.getPhysicalDeviceSurfaceCapabilitiesKHR(gc.pdev, gc.surface);
+        const actual_extent = findActualExtent(caps, extent);
+        if (actual_extent.width == 0 or actual_extent.height == 0) {
+            return error.InvalidSurfaceDimensions;
+        }
+
+        const surface_format = try findSurfaceFormat(gc, allocator);
+        const present_mode = try findPresentMode(gc, allocator);
+
+        var image_count = caps.min_image_count + 1;
+        if (caps.max_image_count > 0) {
+            image_count = @min(image_count, caps.max_image_count);
+        }
+
+        const qfi = [_]u32{ gc.graphics_queue.family, gc.present_queue.family };
+        const sharing_mode: vk.SharingMode = if (gc.graphics_queue.family != gc.present_queue.family)
+            .concurrent
+        else
+            .exclusive;
+
+        const handle = try gc.vkd.createSwapchainKHR(gc.dev, &.{
+            .surface = gc.surface,
+            .min_image_count = image_count,
+            .image_format = surface_format.format,
+            .image_color_space = surface_format.color_space,
+            .image_extent = actual_extent,
+            .image_array_layers = 1,
+            .image_usage = .{ .color_attachment_bit = true, .transfer_dst_bit = true },
+            .image_sharing_mode = sharing_mode,
+            .queue_family_index_count = qfi.len,
+            .p_queue_family_indices = &qfi,
+            .pre_transform = caps.current_transform,
+            .composite_alpha = .{ .opaque_bit_khr = true },
+            .present_mode = present_mode,
+            .clipped = vk.TRUE,
+            .old_swapchain = old_handle,
+        }, null);
+        errdefer gc.vkd.destroySwapchainKHR(gc.dev, handle, null);
+
+        if (old_handle != .null_handle) {
+            gc.vkd.destroySwapchainKHR(gc.dev, old_handle, null);
+        }
+
+        const swap_images = try initSwapchainImages(gc, handle, surface_format.format, allocator);
+        errdefer {
+            for (swap_images) |si| si.deinit(gc);
+            allocator.free(swap_images);
+        }
+        //errdefer gc.vkd.destroySemaphore(gc.dev, next_image_acquired, null);
+
+        return Swapchain{
+            .allocator = allocator,
+            .surface_format = surface_format,
+            .present_mode = present_mode,
+            .extent = actual_extent,
+            .handle = handle,
+            .swap_images = swap_images,
+        };
+    }
+
+    fn deinitExceptSwapchain(self: Swapchain, gc: *GraphicsContext) void {
+        for (self.swap_images) |si| si.deinit(gc);
+        self.allocator.free(self.swap_images);
+    }
+
+    pub fn deinit(self: Swapchain, gc: *GraphicsContext) void {
+        self.deinitExceptSwapchain(gc);
+        gc.vkd.destroySwapchainKHR(gc.dev, self.handle, null);
+    }
+
+    pub fn recreate(self: *Swapchain, gc: *GraphicsContext, new_extent: vk.Extent2D) !void {
+        const allocator = self.allocator;
+        const old_handle = self.handle;
+        self.deinitExceptSwapchain(gc);
+        self.* = try initRecycle(gc, allocator, new_extent, old_handle);
+    }
+};
+
+const SwapImage = struct {
+    image: vk.Image,
+    view: vk.ImageView,
+    image_acquired: vk.Semaphore,
+    render_finished: vk.Semaphore,
+    frame_fence: vk.Fence,
+
+    fn init(gc: *const GraphicsContext, image: vk.Image, format: vk.Format) !SwapImage {
+        const view = try gc.vkd.createImageView(gc.dev, &.{
+            .image = image,
+            .view_type = .@"2d",
+            .format = format,
+            .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
+            .subresource_range = .{
+                .aspect_mask = .{ .color_bit = true },
+                .base_mip_level = 0,
+                .level_count = 1,
+                .base_array_layer = 0,
+                .layer_count = 1,
+            },
+        }, null);
+        errdefer gc.vkd.destroyImageView(gc.dev, view, null);
+
+        const image_acquired = try gc.vkd.createSemaphore(gc.dev, &.{}, null);
+        errdefer gc.vkd.destroySemaphore(gc.dev, image_acquired, null);
+
+        const render_finished = try gc.vkd.createSemaphore(gc.dev, &.{}, null);
+        errdefer gc.vkd.destroySemaphore(gc.dev, render_finished, null);
+
+        const frame_fence = try gc.vkd.createFence(gc.dev, &.{ .flags = .{ .signaled_bit = true } }, null);
+        errdefer gc.vkd.destroyFence(gc.dev, frame_fence, null);
+
+        return SwapImage{
+            .image = image,
+            .view = view,
+            .image_acquired = image_acquired,
+            .render_finished = render_finished,
+            .frame_fence = frame_fence,
+        };
+    }
+
+    fn deinit(self: SwapImage, gc: *const GraphicsContext) void {
+        self.waitForFence(gc) catch return;
+        gc.vkd.destroyImageView(gc.dev, self.view, null);
+        gc.vkd.destroySemaphore(gc.dev, self.image_acquired, null);
+        gc.vkd.destroySemaphore(gc.dev, self.render_finished, null);
+        gc.vkd.destroyFence(gc.dev, self.frame_fence, null);
+    }
+
+    fn waitForFence(self: SwapImage, gc: *const GraphicsContext) !void {
+        _ = try gc.vkd.waitForFences(gc.dev, 1, @ptrCast(&self.frame_fence), vk.TRUE, std.math.maxInt(u64));
+    }
+};
+
+fn initSwapchainImages(gc: *const GraphicsContext, swapchain: vk.SwapchainKHR, format: vk.Format, allocator: Allocator) ![]SwapImage {
+    var count: u32 = undefined;
+    _ = try gc.vkd.getSwapchainImagesKHR(gc.dev, swapchain, &count, null);
+    const images = try allocator.alloc(vk.Image, count);
+    defer allocator.free(images);
+    _ = try gc.vkd.getSwapchainImagesKHR(gc.dev, swapchain, &count, images.ptr);
+
+    const swap_images = try allocator.alloc(SwapImage, count);
+    errdefer allocator.free(swap_images);
+
+    var i: usize = 0;
+    errdefer for (swap_images[0..i]) |si| si.deinit(gc);
+
+    for (images) |image| {
+        swap_images[i] = try SwapImage.init(gc, image, format);
+        i += 1;
+    }
+
+    return swap_images;
+}
+
+fn findSurfaceFormat(gc: *const GraphicsContext, allocator: Allocator) !vk.SurfaceFormatKHR {
+    const preferred = vk.SurfaceFormatKHR{
+        .format = .b8g8r8a8_srgb,
+        .color_space = .srgb_nonlinear_khr,
+    };
+
+    var count: u32 = undefined;
+    _ = try gc.vki.getPhysicalDeviceSurfaceFormatsKHR(gc.pdev, gc.surface, &count, null);
+    const surface_formats = try allocator.alloc(vk.SurfaceFormatKHR, count);
+    defer allocator.free(surface_formats);
+    _ = try gc.vki.getPhysicalDeviceSurfaceFormatsKHR(gc.pdev, gc.surface, &count, surface_formats.ptr);
+
+    for (surface_formats) |sfmt| {
+        if (std.meta.eql(sfmt, preferred)) {
+            return preferred;
+        }
+    }
+
+    return surface_formats[0]; // There must always be at least one supported surface format
+}
+
+fn findPresentMode(gc: *const GraphicsContext, allocator: Allocator) !vk.PresentModeKHR {
+    var count: u32 = undefined;
+    _ = try gc.vki.getPhysicalDeviceSurfacePresentModesKHR(gc.pdev, gc.surface, &count, null);
+    const present_modes = try allocator.alloc(vk.PresentModeKHR, count);
+    defer allocator.free(present_modes);
+    _ = try gc.vki.getPhysicalDeviceSurfacePresentModesKHR(gc.pdev, gc.surface, &count, present_modes.ptr);
+
+    const preferred = [_]vk.PresentModeKHR{
+        .mailbox_khr,
+        .immediate_khr,
+    };
+
+    for (preferred) |mode| {
+        if (std.mem.indexOfScalar(vk.PresentModeKHR, present_modes, mode) != null) {
+            return mode;
+        }
+    }
+
+    return .fifo_khr;
+}
+
+fn findActualExtent(caps: vk.SurfaceCapabilitiesKHR, extent: vk.Extent2D) vk.Extent2D {
+    if (caps.current_extent.width != 0xFFFF_FFFF) {
+        return caps.current_extent;
+    } else {
+        return .{
+            .width = std.math.clamp(extent.width, caps.min_image_extent.width, caps.max_image_extent.width),
+            .height = std.math.clamp(extent.height, caps.min_image_extent.height, caps.max_image_extent.height),
+        };
+    }
+}
+
+// eventually make a helper struct for any sized command buffers
+fn createSingleCommandBuffer(gc: *const GraphicsContext, pool: vk.CommandPool) !vk.CommandBuffer {
+    var cmdbuf: vk.CommandBuffer = undefined;
+    try gc.vkd.allocateCommandBuffers(gc.dev, &.{
+        .command_pool = pool,
+        .level = .primary,
+        .command_buffer_count = 1,
+    }, @ptrCast(&cmdbuf));
+    try gc.vkd.beginCommandBuffer(cmdbuf, &.{
+        .flags = .{ .one_time_submit_bit = true },
+    });
+    return cmdbuf;
+}
+
+fn freeSingleCommandBuffer(cmdbuf: vk.CommandBuffer, gc: *const GraphicsContext, pool: vk.CommandPool) void {
+    gc.vkd.freeCommandBuffers(gc.dev, pool, 1, @ptrCast(&cmdbuf));
+}
+
+fn finishSingleCommandBuffer(cmdbuf: vk.CommandBuffer, gc: *const GraphicsContext) !void {
+    try gc.vkd.endCommandBuffer(cmdbuf);
+
+    const si = vk.SubmitInfo{
+        .command_buffer_count = 1,
+        .p_command_buffers = @ptrCast(&cmdbuf),
+        .p_wait_dst_stage_mask = undefined,
+    };
+    try gc.vkd.queueSubmit(gc.graphics_queue.handle, 1, @ptrCast(&si), .null_handle);
+    try gc.vkd.queueWaitIdle(gc.graphics_queue.handle);
+}
+
+fn copyBuffer(gc: *const GraphicsContext, pool: vk.CommandPool, dst: vk.Buffer, src: vk.Buffer, size: vk.DeviceSize) !void {
+    const cmdbuf = try createSingleCommandBuffer(gc, pool);
+    defer freeSingleCommandBuffer(cmdbuf, gc, pool);
+
+    const region = vk.BufferCopy{
+        .src_offset = 0,
+        .dst_offset = 0,
+        .size = size,
+    };
+    gc.vkd.cmdCopyBuffer(cmdbuf, src, dst, 1, @ptrCast(&region));
+
+    try finishSingleCommandBuffer(cmdbuf, gc);
+}
+
+const validation_layers = [_][]const u8{"VK_LAYER_KHRONOS_validation"};
+
+fn checkValidationLayerSupport(vkb: BaseDispatch) !bool {
+    var layer_count: u32 = 0;
+    _ = try vkb.enumerateInstanceLayerProperties(&layer_count, null);
+
+    const available_layers = try common.allocator.alloc(vk.LayerProperties, layer_count);
+    _ = try vkb.enumerateInstanceLayerProperties(&layer_count, available_layers.ptr);
+    defer common.allocator.free(available_layers);
+
+    for (validation_layers) |layer_name| {
+        var layer_found = false;
+        for (available_layers) |prop| {
+            if (std.mem.eql(u8, layer_name, prop.layer_name[0..layer_name.len])) {
+                layer_found = true;
+                break;
+            }
+        }
+        if (!layer_found) return false;
+    }
+
+    return true;
+}
+
+// end
 
 pub const Image = struct {
     width: u32,
@@ -79,25 +760,9 @@ pub const TextureInfo = struct {
         nearest,
         linear,
         mipmap,
-
-        pub fn getGL(self: FilterEnum) i32 {
-            switch (self) {
-                .nearest => return gl.NEAREST,
-                .linear => return gl.LINEAR,
-                .mipmap => return gl.LINEAR_MIPMAP_LINEAR,
-            }
-        }
     };
     const TextureType = enum {
-        cubemap,
         flat,
-
-        pub fn getGL(self: TextureType) u32 {
-            switch (self) {
-                .cubemap => return gl.TEXTURE_CUBE_MAP,
-                .flat => return gl.TEXTURE_2D,
-            }
-        }
     };
 
     texture_type: TextureType,
@@ -106,41 +771,54 @@ pub const TextureInfo = struct {
 };
 
 pub const Texture = struct {
-    texture_id: u32,
     info: TextureInfo,
 
     width: u32,
     height: u32,
 
-    pub fn init(info: TextureInfo) Texture {
-        var texture_id: u32 = undefined;
-        gl.genTextures(1, &texture_id);
+    // vulkan
+    image: vk.Image,
+    window: *Window,
+    sampler: vk.Sampler,
+    image_view: vk.ImageView,
 
-        const texture_type = info.texture_type.getGL();
+    pub fn init(win: *Window, width: u32, height: u32, info: TextureInfo) !Texture {
+        const image_info: vk.ImageCreateInfo = .{
+            .image_type = .@"2d",
+            .extent = .{ .width = width, .height = height, .depth = 1 },
+            .mip_levels = 1,
+            .array_layers = 1,
+            .format = .r8g8b8a8_srgb,
+            .tiling = .linear,
+            .initial_layout = .undefined,
+            .usage = .{ .transfer_dst_bit = true, .sampled_bit = true },
+            .samples = .{ .@"1_bit" = true },
+            .sharing_mode = .exclusive,
+        };
 
-        gl.bindTexture(texture_type, texture_id);
+        const image = try win.gc.vkd.createImage(win.gc.dev, &image_info, null);
 
-        gl.texParameteri(texture_type, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
-        gl.texParameteri(texture_type, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
+        const mem_reqs = win.gc.vkd.getImageMemoryRequirements(win.gc.dev, image);
 
-        gl.texParameteri(texture_type, gl.TEXTURE_MAG_FILTER, info.mag_filter.getGL());
-        gl.texParameteri(texture_type, gl.TEXTURE_MIN_FILTER, info.min_filter.getGL());
+        const image_memory = try win.gc.allocate(mem_reqs, .{ .device_local_bit = true });
+
+        try win.gc.vkd.bindImageMemory(win.gc.dev, image, image_memory, 0);
 
         return .{
-            .texture_id = texture_id,
             .info = info,
-            .width = 0,
-            .height = 0,
+            .image = image,
+            .window = win,
+            .width = width,
+            .height = height,
+            .sampler = undefined,
+            .image_view = undefined,
         };
     }
 
-    pub fn setFromMemory(tex: *Texture, buffer: []const u8) !void {
+    pub fn setFromMemory(tex: *Texture, buffer: []const u8) !Texture {
         var read_image = try img.Image.fromMemory(common.allocator, buffer);
         defer read_image.deinit();
 
-        tex.width = @intCast(read_image.width);
-        tex.height = @intCast(read_image.height);
-
         switch (read_image.pixels) {
             .rgba32 => |data| {
                 try tex.setFromRgba(.{
@@ -153,516 +831,604 @@ pub const Texture = struct {
         }
     }
 
-    pub fn setFromPath(tex: *Texture, path: []const u8) !void {
+    pub fn initFromPath(win: *Window, path: []const u8, info: TextureInfo) !Texture {
         var read_image = try img.Image.fromFilePath(common.allocator, path);
         defer read_image.deinit();
 
-        tex.width = @intCast(read_image.width);
-        tex.height = @intCast(read_image.height);
-
         switch (read_image.pixels) {
             .rgba32 => |data| {
+                var tex = try Texture.init(win, @intCast(read_image.width), @intCast(read_image.height), info);
                 try tex.setFromRgba(.{
                     .width = read_image.width,
                     .height = read_image.height,
                     .data = data,
-                }, true);
+                });
+                return tex;
             },
             else => return error.InvalidImage,
         }
     }
 
-    pub fn setFromRgba(self: *Texture, rgba: anytype, flip: bool) !void {
-        const texture_type = self.info.texture_type.getGL();
-        gl.bindTexture(texture_type, self.texture_id);
+    fn createTextureSampler(tex: *Texture) !void {
+        const gc = &tex.window.gc;
+        const properties = gc.vki.getPhysicalDeviceProperties(gc.pdev);
 
-        self.width = @intCast(rgba.width);
-        self.height = @intCast(rgba.height);
+        const sampler_info: vk.SamplerCreateInfo = .{
+            .mag_filter = .linear,
+            .min_filter = .linear,
+            .address_mode_u = .repeat,
+            .address_mode_v = .repeat,
+            .address_mode_w = .repeat,
+            .anisotropy_enable = vk.TRUE,
+            .max_anisotropy = properties.limits.max_sampler_anisotropy,
+            .border_color = .int_opaque_black,
+            .unnormalized_coordinates = vk.FALSE,
+            .compare_enable = vk.FALSE,
+            .compare_op = .always,
+            .mipmap_mode = .linear,
+            .mip_lod_bias = 0,
+            .min_lod = 0,
+            .max_lod = 0,
+        };
 
-        if (flip) {
-            var flipped: @TypeOf(rgba.data) = try common.allocator.dupe(@TypeOf(rgba.data[0]), rgba.data);
-            defer common.allocator.free(flipped);
-            for (0..rgba.height) |i| {
-                for (0..rgba.width) |j| {
-                    const pix = rgba.data[(rgba.height - i - 1) * rgba.width + j];
-                    flipped[i * rgba.width + j] = pix;
-                }
-            }
+        tex.sampler = try gc.vkd.createSampler(gc.dev, &sampler_info, null);
+    }
 
-            gl.texImage2D(texture_type, 0, gl.RGBA8, @intCast(rgba.width), @intCast(rgba.height), 0, gl.RGBA, gl.UNSIGNED_BYTE, &flipped[0]);
-        } else {
-            gl.texImage2D(texture_type, 0, gl.RGBA8, @intCast(rgba.width), @intCast(rgba.height), 0, gl.RGBA, gl.UNSIGNED_BYTE, &rgba.data[0]);
+    fn createImageView(tex: *Texture) !void {
+        const gc = &tex.window.gc;
+
+        const view_info: vk.ImageViewCreateInfo = .{
+            .image = tex.image,
+            .view_type = .@"2d",
+            .format = .r8g8b8a8_srgb,
+            .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
+            .subresource_range = .{
+                .aspect_mask = .{ .color_bit = true },
+                .base_mip_level = 0,
+                .level_count = 1,
+                .base_array_layer = 0,
+                .layer_count = 1,
+            },
+        };
+
+        tex.image_view = try gc.vkd.createImageView(gc.dev, &view_info, null);
+    }
+
+    fn copyBufferToImage(tex: Texture, buffer: vk.Buffer) !void {
+        const cmdbuf = try createSingleCommandBuffer(&tex.window.gc, tex.window.pool);
+        defer freeSingleCommandBuffer(cmdbuf, &tex.window.gc, tex.window.pool);
+
+        const region: vk.BufferImageCopy = .{
+            .buffer_offset = 0,
+            .buffer_row_length = 0,
+            .buffer_image_height = 0,
+            .image_subresource = .{
+                .aspect_mask = .{ .color_bit = true },
+                .mip_level = 0,
+                .base_array_layer = 0,
+                .layer_count = 1,
+            },
+            .image_offset = .{ .x = 0, .y = 0, .z = 0 },
+            .image_extent = .{ .width = tex.width, .height = tex.height, .depth = 1 },
+        };
+
+        tex.window.gc.vkd.cmdCopyBufferToImage(cmdbuf, buffer, tex.image, .transfer_dst_optimal, 1, @ptrCast(&region));
+
+        try finishSingleCommandBuffer(cmdbuf, &tex.window.gc);
+    }
+
+    pub fn transitionImageLayout(tex: Texture, is_first: bool) !void {
+        const cmdbuf = try createSingleCommandBuffer(&tex.window.gc, tex.window.pool);
+        defer freeSingleCommandBuffer(cmdbuf, &tex.window.gc, tex.window.pool);
+
+        const barrier: vk.ImageMemoryBarrier = .{
+            .old_layout = if (is_first) .undefined else .transfer_dst_optimal,
+            .new_layout = if (is_first) .transfer_dst_optimal else .shader_read_only_optimal,
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .image = tex.image,
+            .subresource_range = .{
+                .aspect_mask = .{ .color_bit = true },
+                .base_mip_level = 0,
+                .level_count = 1,
+                .base_array_layer = 0,
+                .layer_count = 1,
+            },
+            .src_access_mask = if (is_first) .{} else .{ .transfer_write_bit = true },
+            .dst_access_mask = if (is_first) .{ .transfer_write_bit = true } else .{ .shader_read_bit = true },
+        };
+
+        tex.window.gc.vkd.cmdPipelineBarrier(
+            cmdbuf,
+            if (is_first) .{ .top_of_pipe_bit = true } else .{ .transfer_bit = true },
+            if (is_first) .{ .transfer_bit = true } else .{ .fragment_shader_bit = true },
+            .{},
+            0,
+            null,
+            0,
+            null,
+            1,
+            @ptrCast(&barrier),
+        );
+
+        try finishSingleCommandBuffer(cmdbuf, &tex.window.gc);
+    }
+
+    pub fn createImage(tex: Texture, rgba: anytype) !void {
+        const PixelFormat = @TypeOf(rgba.data[0]);
+
+        const staging_buff = try tex.window.gc.createStagingBuffer(@sizeOf(PixelFormat) * rgba.data.len);
+        defer staging_buff.deinit(&tex.window.gc);
+
+        {
+            const data = try tex.window.gc.vkd.mapMemory(tex.window.gc.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
+            defer tex.window.gc.vkd.unmapMemory(tex.window.gc.dev, staging_buff.memory);
+
+            for (@as([*]PixelFormat, @ptrCast(data))[0..rgba.data.len], 0..) |*p, i| p.* = rgba.data[i];
         }
-        if (self.info.min_filter == .mipmap) gl.generateMipmap(texture_type);
+
+        try tex.transitionImageLayout(true);
+        try tex.copyBufferToImage(staging_buff.buffer);
+        try tex.transitionImageLayout(false);
+    }
+
+    pub fn setFromRgba(self: *Texture, rgba: anytype) !void {
+        try self.createImage(rgba);
+        try self.createImageView();
+        try self.createTextureSampler();
     }
 };
 
-pub fn embedProcess(comptime source: [:0]const u8) [:0]const u8 {
-    const version_idx = comptime std.mem.indexOf(u8, source, "\n").?;
-    const processed_source = source[0..version_idx] ++ "\n" ++ @embedFile("common.glsl") ++ source[version_idx..];
-    return processed_source;
-}
+const ShaderType = enum {
+    vertex,
+    fragment,
+    compute,
+};
 
 pub const Shader = struct {
-    program: u32,
-    const Self = Shader;
+    module: vk.ShaderModule,
+    type: ShaderType,
 
-    pub fn setUniformInt(self: *Self, name: [:0]const u8, value: i32) void {
-        gl.useProgram(self.program);
-        const loc: i32 = gl.getUniformLocation(self.program, name);
-        gl.uniform1i(loc, value);
-    }
-
-    pub fn setUniformFloat(self: *Self, name: [:0]const u8, value: f32) void {
-        gl.useProgram(self.program);
-        const loc: i32 = gl.getUniformLocation(self.program, name);
-        gl.uniform1f(loc, value);
-    }
-
-    pub fn setUniformVec3(self: *Self, name: [:0]const u8, value: math.Vec3) void {
-        gl.useProgram(self.program);
-        const loc: i32 = gl.getUniformLocation(self.program, name);
-        gl.uniform3f(loc, value[0], value[1], value[2]);
-    }
-
-    pub fn setUniformVec4(self: *Self, name: [:0]const u8, value: math.Vec4) void {
-        gl.useProgram(self.program);
-        const loc: i32 = gl.getUniformLocation(self.program, name);
-        gl.uniform4f(loc, value[0], value[1], value[2], value[3]);
-    }
-
-    pub fn setUniformMat3(self: *Self, name: [:0]const u8, value: math.Mat3) void {
-        gl.useProgram(self.program);
-        const loc: i32 = gl.getUniformLocation(self.program, name);
-
-        gl.uniformMatrix3fv(loc, 1, gl.FALSE, &value.columns[0][0]);
-    }
-
-    pub fn setUniformMat4(self: *Self, name: [:0]const u8, value: math.Mat4) void {
-        gl.useProgram(self.program);
-        const loc: i32 = gl.getUniformLocation(self.program, name);
-        gl.uniformMatrix4fv(loc, 1, gl.FALSE, &value.columns[0][0]);
-    }
-
-    pub fn compileShader(source: [:0]const u8, shader_type: gl.Enum) !Shader {
-        const shader: u32 = gl.createShader(shader_type);
-
-        gl.shaderSource(shader, 1, @ptrCast(&source), null);
-        gl.compileShader(shader);
-        var response: i32 = 1;
-        gl.getShaderiv(shader, gl.COMPILE_STATUS, &response);
-
-        var infoLog: [512]u8 = undefined;
-        if (response <= 0) {
-            gl.getShaderInfoLog(shader, 512, null, &infoLog[0]);
-            std.debug.print("Couldn't compile {s} from source: {s} file\n", .{ source, infoLog });
-            std.os.exit(255);
-        }
-
-        return .{
-            .program = shader,
+    pub fn init(gc: GraphicsContext, file_src: []align(@alignOf(u32)) const u8, shader_enum: ShaderType) !Shader {
+        const module = try gc.vkd.createShaderModule(gc.dev, &.{
+            .code_size = file_src.len,
+            .p_code = std.mem.bytesAsSlice(u32, file_src).ptr,
+        }, null);
+        return Shader{
+            .module = module,
+            .type = shader_enum,
         };
     }
-
-    pub fn linkShaders(shaders: []const Shader) !Shader {
-        const program: u32 = gl.createProgram();
-
-        for (shaders) |shader| {
-            gl.attachShader(program, shader.program);
-        }
-
-        gl.linkProgram(program);
-
-        var response: i32 = 1;
-        gl.getShaderiv(program, gl.LINK_STATUS, &response);
-        var infoLog: [4096]u8 = undefined;
-        if (response <= 0) {
-            gl.getShaderInfoLog(program, 512, null, &infoLog[0]);
-            std.debug.print("Couldn't compile from source: {s}\n", .{infoLog});
-            std.os.exit(255);
-        }
-
-        for (shaders) |shader| {
-            gl.deleteShader(shader.program);
-        }
-
-        return .{
-            .program = program,
-        };
+    pub fn deinit(self: *Shader, gc: GraphicsContext) void {
+        gc.vkd.destroyShaderModule(gc.dev, self.module, null);
     }
-
-    pub fn setupShader(vertex_path: [:0]const u8, fragment_path: [:0]const u8) !Shader {
-        const vertex = try compileShader(vertex_path, gl.VERTEX_SHADER);
-        const fragment = try compileShader(fragment_path, gl.FRAGMENT_SHADER);
-
-        return try linkShaders(&[_]Shader{ vertex, fragment });
-    }
-};
-
-pub fn Scene(comptime pipelines_union: anytype) type {
-    const DrawingList = common.FieldArrayList(pipelines_union);
-    return struct {
-        drawing_array: DrawingList,
-
-        const Self = @This();
-        pub fn init() !Self {
-            return Self{
-                .drawing_array = try DrawingList.init(common.allocator),
-            };
-        }
-
-        pub fn deinit(self: *Self) void {
-            inline for (DrawingList.Enums) |field| {
-                for (self.drawing_array.array(field).items) |elem| {
-                    elem.deinit();
-                    common.allocator.destroy(elem);
-                }
-            }
-
-            self.drawing_array.deinit(common.allocator);
-        }
-
-        pub fn fieldFromPipeline(comptime pipeline: RenderPipeline) DrawingList.Field {
-            for (DrawingList.Enums) |field| {
-                const res = comptime std.meta.eql(@typeInfo(DrawingList.FieldType(field)).Pointer.child.Pipeline, pipeline);
-                if (res) return field;
-            }
-            @compileError("Pipeline not in Scene.");
-        }
-
-        pub fn new(self: *Self, comptime pipeline: RenderPipeline) !*Drawing(pipeline) {
-            const render = comptime fieldFromPipeline(pipeline);
-            const val = try common.allocator.create(@typeInfo(DrawingList.FieldType(render)).Pointer.child);
-            try self.drawing_array.array(render).append(val);
-            return val;
-        }
-
-        pub fn delete(self: *Self, drawing: anytype) !void {
-            const T = @TypeOf(drawing);
-            const field = comptime fieldFromPipeline(@typeInfo(T).Pointer.child.Pipeline);
-            var arr = self.drawing_array.array(field);
-            const idx = std.mem.indexOfScalar(T, arr.items, drawing) orelse return error.DeletedDrawingNotInScene;
-
-            var rem = arr.swapRemove(idx);
-
-            rem.deinit();
-            common.allocator.destroy(rem);
-
-            return;
-        }
-
-        pub fn draw(self: *Self, win: Window) !void {
-            inline for (DrawingList.Enums) |field| {
-                for (self.drawing_array.array(field).items) |*elem| {
-                    try elem.*.draw(win);
-                }
-            }
-        }
-    };
-}
-
-pub fn getTime() f64 {
-    return glfw.glfwGetTime();
-}
-
-const RenderType = enum {
-    line,
-    triangle,
-};
-
-const VertexAttribute = struct {
-    attribute: enum {
-        float,
-        short,
-
-        pub fn getType(comptime self: @This()) type {
-            switch (self) {
-                .float => return f32,
-                .short => return i16,
-            }
-        }
-
-        pub fn getGL(self: @This()) c_uint {
-            switch (self) {
-                .float => return gl.FLOAT,
-                .short => return gl.SHORT,
-            }
-        }
-    } = .float,
-    size: comptime_int,
-};
-
-const CullType = enum {
-    front,
-    back,
-    front_and_back,
-};
-
-const Framebuffer = struct {
-    framebuffer_id: u32,
-    shader_id: u32,
-};
-
-const RenderPipeline = struct {
-    vertex_attrib: []const VertexAttribute,
-    render_type: RenderType,
-    depth_test: bool,
-    cull_face: bool,
-    cull_type: CullType = .back,
-    framebuffer: ?[]Framebuffer = null,
-
-    pub fn getAttributeType(comptime pipeline: RenderPipeline) type {
-        var types: []const type = &.{};
-        for (pipeline.vertex_attrib) |attrib| {
-            const t = attrib.attribute.getType();
-            for (0..attrib.size) |_| types = types ++ .{t};
-        }
-        return std.meta.Tuple(types);
-    }
-};
-
-pub const FlatPipeline = RenderPipeline{
-    .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 } },
-    .render_type = .triangle,
-    .depth_test = false,
-    .cull_face = false,
-};
-
-pub const SpatialPipeline = RenderPipeline{
-    .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
-    .render_type = .triangle,
-    .depth_test = true,
-    .cull_face = false,
-};
-
-pub const LinePipeline = RenderPipeline{
-    .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 3 } },
-    .render_type = .line,
-    .depth_test = true,
-    .cull_face = false,
 };
 
 pub fn Drawing(comptime pipeline: RenderPipeline) type {
     return struct {
-        vao: u32,
-        vbo: u32,
-        ebo: u32,
-        shader: Shader,
-
-        uniform1f_array: std.ArrayList(Uniform1f),
-        uniform3f_array: std.ArrayList(Uniform3f),
-
-        uniform3fv_array: std.ArrayList(Uniform3fv),
-        uniform4fv_array: std.ArrayList(Uniform4fv),
-
-        textures: std.ArrayList(Texture),
-        cube_textures: std.ArrayList(u32),
+        //textures: std.ArrayList(Texture),
+        //cube_textures: std.ArrayList(u32),
 
         vert_count: usize,
 
+        // vulkan
+        vertex_buffer: ?BufferMemory,
+        index_buffer: ?BufferMemory,
+        vk_pipeline: vk.Pipeline,
+
+        uniform_buffers: [pipeline.uniform_types.len][]UniformBuffer,
+        //uniform_buffers: [pipeline.samplers][]UniformBuffer,
+        descriptor_sets: []vk.DescriptorSet,
+
+        descriptor_pool: ?vk.DescriptorPool,
+        descriptor_layout: vk.DescriptorSetLayout,
+
+        layout: vk.PipelineLayout,
+
+        window: *Window,
+
+        const UniformBuffer = struct {
+            buff_mem: BufferMemory,
+            data: *anyopaque,
+        };
         const Self = @This();
         pub const Pipeline = pipeline;
         pub const Attribute = pipeline.getAttributeType();
 
-        pub fn addUniformFloat(self: *Self, name: [:0]const u8, f: *f32) !void {
-            try self.uniform1f_array.append(.{ .name = name, .value = f });
+        pub fn init(drawing: *Self, win: *Window, shaders: []Shader, pipeline_init: pipeline.getInitType()) !void {
+            const gc = &win.gc;
+
+            const ubo_layout_binding = comptime blk: {
+                const length = pipeline.uniform_types.len;
+                var loop: [length]vk.DescriptorSetLayoutBinding = undefined;
+                inline for (0..length) |i| {
+                    loop[i] = vk.DescriptorSetLayoutBinding{
+                        .binding = i,
+                        .descriptor_count = 1,
+                        .descriptor_type = .uniform_buffer,
+                        .p_immutable_samplers = null,
+                        .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
+                    };
+                }
+                break :blk loop;
+            };
+
+            const sampler_layout_binding = comptime blk: {
+                const length = pipeline.samplers;
+                var loop: [length]vk.DescriptorSetLayoutBinding = undefined;
+                inline for (0..length) |i| {
+                    loop[i] = vk.DescriptorSetLayoutBinding{
+                        .binding = ubo_layout_binding.len + i,
+                        .descriptor_count = 1,
+                        .descriptor_type = .combined_image_sampler,
+                        .p_immutable_samplers = null,
+                        .stage_flags = .{ .fragment_bit = true },
+                    };
+                }
+                break :blk loop;
+            };
+
+            const bindings = ubo_layout_binding ++ sampler_layout_binding;
+
+            const layout_info: vk.DescriptorSetLayoutCreateInfo = .{
+                .binding_count = bindings.len,
+                .p_bindings = @ptrCast(&bindings),
+            };
+
+            const descriptor_layout = try gc.vkd.createDescriptorSetLayout(gc.dev, &layout_info, null);
+            const pipeline_layout = try gc.vkd.createPipelineLayout(gc.dev, &.{
+                .flags = .{},
+                .set_layout_count = 1,
+                .p_set_layouts = @ptrCast(&descriptor_layout),
+                .push_constant_range_count = 0,
+                .p_push_constant_ranges = undefined,
+            }, null);
+
+            var pssci = try common.allocator.alloc(vk.PipelineShaderStageCreateInfo, shaders.len);
+            for (shaders, 0..) |shader, i| {
+                pssci[i] = .{
+                    .stage = .{
+                        .fragment_bit = shader.type == .fragment,
+                        .vertex_bit = shader.type == .vertex,
+                        .compute_bit = shader.type == .compute,
+                    },
+                    .module = shader.module,
+                    .p_name = "main",
+                };
+            }
+
+            const attribute_desc = pipeline.getAttributeDescription();
+            const binding_description = pipeline.getBindingDescription();
+
+            const dynstate = [_]vk.DynamicState{ .viewport, .scissor };
+
+            var vk_pipeline: vk.Pipeline = undefined;
+            _ = try gc.vkd.createGraphicsPipelines(
+                gc.dev,
+                .null_handle,
+                1,
+                @ptrCast(&vk.GraphicsPipelineCreateInfo{
+                    .flags = .{},
+                    .stage_count = @intCast(pssci.len),
+                    .p_stages = @ptrCast(pssci),
+                    .p_vertex_input_state = &vk.PipelineVertexInputStateCreateInfo{
+                        .vertex_binding_description_count = 1,
+                        .p_vertex_binding_descriptions = @ptrCast(&binding_description),
+                        .vertex_attribute_description_count = attribute_desc.len,
+                        .p_vertex_attribute_descriptions = &attribute_desc,
+                    },
+                    .p_input_assembly_state = &vk.PipelineInputAssemblyStateCreateInfo{
+                        .topology = .triangle_list,
+                        .primitive_restart_enable = vk.FALSE,
+                    },
+                    .p_tessellation_state = null,
+                    .p_viewport_state = &vk.PipelineViewportStateCreateInfo{
+                        .viewport_count = 1,
+                        .p_viewports = undefined,
+                        .scissor_count = 1,
+                        .p_scissors = undefined,
+                    },
+                    .p_rasterization_state = &vk.PipelineRasterizationStateCreateInfo{
+                        .depth_clamp_enable = vk.FALSE,
+                        .rasterizer_discard_enable = vk.FALSE,
+                        .polygon_mode = .fill,
+                        .cull_mode = .{ .back_bit = true },
+                        .front_face = .clockwise,
+                        .depth_bias_enable = vk.FALSE,
+                        .depth_bias_constant_factor = 0,
+                        .depth_bias_clamp = 0,
+                        .depth_bias_slope_factor = 0,
+                        .line_width = 1,
+                    },
+                    .p_multisample_state = &vk.PipelineMultisampleStateCreateInfo{
+                        .rasterization_samples = .{ .@"1_bit" = true },
+                        .sample_shading_enable = vk.FALSE,
+                        .min_sample_shading = 1,
+                        .alpha_to_coverage_enable = vk.FALSE,
+                        .alpha_to_one_enable = vk.FALSE,
+                    },
+                    .p_depth_stencil_state = null,
+                    .p_color_blend_state = &vk.PipelineColorBlendStateCreateInfo{
+                        .logic_op_enable = vk.FALSE,
+                        .logic_op = .clear,
+                        .attachment_count = 1,
+                        .p_attachments = @ptrCast(&vk.PipelineColorBlendAttachmentState{
+                            .blend_enable = vk.TRUE,
+                            .src_color_blend_factor = .src_alpha,
+                            .dst_color_blend_factor = .one_minus_src_alpha,
+                            .color_blend_op = .add,
+                            .src_alpha_blend_factor = .one,
+                            .dst_alpha_blend_factor = .one_minus_src_alpha,
+                            .alpha_blend_op = .add,
+                            .color_write_mask = .{ .r_bit = true, .g_bit = true, .b_bit = true, .a_bit = true },
+                        }),
+                        .blend_constants = [_]f32{ 0, 0, 0, 0 },
+                    },
+                    .p_dynamic_state = &vk.PipelineDynamicStateCreateInfo{
+                        .flags = .{},
+                        .dynamic_state_count = dynstate.len,
+                        .p_dynamic_states = &dynstate,
+                    },
+                    .layout = pipeline_layout,
+                    .render_pass = win.render_pass,
+                    .subpass = 0,
+                    .base_pipeline_handle = .null_handle,
+                    .base_pipeline_index = -1,
+                }),
+                null,
+                @ptrCast(&vk_pipeline),
+            );
+
+            const frames: u32 = frames_in_flight;
+
+            comptime var pool_sizes: [bindings.len]vk.DescriptorPoolSize = undefined;
+
+            comptime for (&pool_sizes, bindings) |*pool_size, binding| {
+                pool_size.* = .{
+                    .type = binding.descriptor_type,
+                    //.descriptor_count = binding.descriptor_count * max_sets,
+                    .descriptor_count = frames,
+                };
+            };
+
+            const pool_info = vk.DescriptorPoolCreateInfo{
+                .max_sets = frames,
+                .p_pool_sizes = @ptrCast(&pool_sizes),
+                .pool_size_count = bindings.len,
+            };
+
+            drawing.* = .{
+                //.cube_textures = std.ArrayList(u32).init(common.allocator),
+                .vert_count = 0,
+                .vk_pipeline = vk_pipeline,
+                .layout = pipeline_layout,
+                .vertex_buffer = null,
+                .index_buffer = null,
+                .descriptor_pool = if (bindings.len != 0) try gc.vkd.createDescriptorPool(gc.dev, &pool_info, null) else null,
+                .uniform_buffers = .{&.{}} ** ubo_layout_binding.len,
+                .descriptor_sets = &.{},
+                .descriptor_layout = descriptor_layout,
+                .window = win,
+                //.shader = shader,
+                //.textures = std.ArrayList(Texture).init(common.allocator),
+            };
+
+            try drawing.createUniformBuffers();
+            try drawing.createDescriptorSets(pipeline_init);
         }
 
-        pub fn addUniformVec3(self: *Self, name: [:0]const u8, v: *math.Vec3) !void {
-            try self.uniform3f_array.append(.{ .name = name, .value = v });
-        }
-
-        pub fn addUniformMat4(self: *Self, name: [:0]const u8, m: *math.Mat4) !void {
-            try self.uniform4fv_array.append(.{ .name = name, .value = m });
-        }
-
-        pub fn addUniformMat3(self: *Self, name: [:0]const u8, m: *math.Mat3) !void {
-            try self.uniform3fv_array.append(.{ .name = name, .value = m });
-        }
-
-        pub fn init(shader: Shader) Self {
-            var drawing: Self = undefined;
-
-            drawing.shader = shader;
-
-            gl.genVertexArrays(1, &drawing.vao);
-            gl.genBuffers(1, &drawing.vbo);
-            gl.genBuffers(1, &drawing.ebo);
-
-            drawing.uniform1f_array = std.ArrayList(Uniform1f).init(common.allocator);
-            drawing.uniform3f_array = std.ArrayList(Uniform3f).init(common.allocator);
-            drawing.uniform3fv_array = std.ArrayList(Uniform3fv).init(common.allocator);
-            drawing.uniform4fv_array = std.ArrayList(Uniform4fv).init(common.allocator);
-
-            drawing.cube_textures = std.ArrayList(u32).init(common.allocator);
-            drawing.textures = std.ArrayList(Texture).init(common.allocator);
-
-            drawing.vert_count = 0;
-
-            return drawing;
-        }
-
-        pub fn deinit(self: *Self) void {
-            self.uniform1f_array.deinit();
-            self.uniform3f_array.deinit();
-            self.uniform3fv_array.deinit();
-            self.uniform4fv_array.deinit();
-
-            self.textures.deinit();
-            self.cube_textures.deinit();
+        pub fn deinit(_: *Self) void {
+            //self.textures.deinit();
+            //self.cube_textures.deinit();
+            //self.vertex_buffer.deinit(&self.window.gc);
+            //self.index_buffer.deinit(&self.window.gc);
         }
 
         const cubemapOrientation = enum { xp, yp, zp, xm, ym, zm };
-
-        pub fn cubemapFromRgba(self: *Self, sides: anytype, width: usize, height: usize) !void {
-            var texture_id: u32 = undefined;
-            gl.genTextures(1, &texture_id);
-            gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture_id);
-
-            gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
-            gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
-            gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-            gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-
-            inline for (sides, 0..) |data, i| {
-                gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, gl.RGBA8, @intCast(width), @intCast(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, &data.data[0]);
-            }
-
-            //gl.generateMipmap(gl.TEXTURE_2D);
-
-            try self.cube_textures.append(texture_id);
-        }
 
         pub fn getIthTexture(comptime T: type, i: usize) !T {
             if (i > 31) return error.TooManyTextures;
             return @intCast(0x84C0 + i);
         }
 
-        pub fn addTexture(self: *Self, texture: Texture) !void {
-            try self.textures.append(texture);
+        pub fn createDescriptorSets(self: *Self, pipeline_init: pipeline.getInitType()) !void {
+            if (pipeline.uniform_types.len != 0) {
+                var gc = &self.window.gc;
+                const layouts = try common.allocator.alloc(vk.DescriptorSetLayout, frames_in_flight);
+                for (layouts) |*l| l.* = self.descriptor_layout;
+
+                const frames: u32 = @intCast(frames_in_flight);
+                const allocate_info = vk.DescriptorSetAllocateInfo{
+                    .descriptor_pool = self.descriptor_pool.?,
+                    .descriptor_set_count = frames,
+                    .p_set_layouts = layouts.ptr,
+                };
+
+                self.descriptor_sets = try common.allocator.alloc(vk.DescriptorSet, frames_in_flight);
+
+                try gc.vkd.allocateDescriptorSets(gc.dev, &allocate_info, self.descriptor_sets.ptr);
+
+                for (0..frames_in_flight) |i| {
+                    var descriptor_writes: [pipeline.samplers + pipeline.uniform_types.len]vk.WriteDescriptorSet = undefined;
+                    inline for (0.., &self.uniform_buffers, pipeline.uniform_types) |binding_i, *uniform, uniform_type| {
+                        const buffer_info = vk.DescriptorBufferInfo{
+                            .buffer = uniform.*[i].buff_mem.buffer,
+                            .offset = 0,
+                            .range = @sizeOf(uniform_type),
+                        };
+
+                        descriptor_writes[binding_i] = vk.WriteDescriptorSet{
+                            .dst_set = self.descriptor_sets[i],
+                            .dst_binding = binding_i,
+                            .dst_array_element = 0,
+                            .descriptor_type = .uniform_buffer,
+                            .descriptor_count = 1,
+                            .p_buffer_info = @ptrCast(&buffer_info),
+                            .p_image_info = undefined,
+                            .p_texel_buffer_view = undefined,
+                        };
+                    }
+
+                    inline for (0.., pipeline_init.samplers) |texture_i, texture| {
+                        const image_info = vk.DescriptorImageInfo{
+                            .image_layout = .shader_read_only_optimal,
+                            .image_view = texture.image_view,
+                            .sampler = texture.sampler,
+                        };
+
+                        descriptor_writes[pipeline.uniform_types.len + texture_i] = vk.WriteDescriptorSet{
+                            .dst_set = self.descriptor_sets[i],
+                            .dst_binding = pipeline.uniform_types.len + texture_i,
+                            .dst_array_element = 0,
+                            .descriptor_type = .combined_image_sampler,
+                            .descriptor_count = 1,
+                            .p_buffer_info = undefined,
+                            .p_image_info = @ptrCast(&image_info),
+                            .p_texel_buffer_view = undefined,
+                        };
+                    }
+
+                    gc.vkd.updateDescriptorSets(gc.dev, descriptor_writes.len, @ptrCast(&descriptor_writes), 0, null);
+                }
+            }
         }
 
-        pub fn bindVertex(self: *Self, vertices: []const Attribute, indices: []const u32) void {
-            gl.bindVertexArray(self.vao);
+        pub fn setUniform(self: *Self, comptime binding_idx: usize, ubo: anytype) void {
+            const uniform_type = pipeline.uniform_types[binding_idx];
+            for (self.uniform_buffers[binding_idx]) |mapped_buff| {
+                @as(*uniform_type, @alignCast(@ptrCast(mapped_buff.data))).* = ubo;
+            }
+        }
 
-            gl.bindBuffer(gl.ARRAY_BUFFER, self.vbo);
-            gl.bufferData(gl.ARRAY_BUFFER, @intCast(@sizeOf(Attribute) * vertices.len), &vertices[0], gl.STATIC_DRAW);
+        pub fn setUniformField(self: *Self, comptime binding_idx: usize, comptime field: std.meta.FieldEnum(pipeline.uniform_types[binding_idx]), target: anytype) void {
+            const uniform_type = pipeline.uniform_types[binding_idx];
+            for (self.uniform_buffers[binding_idx]) |mapped_buff| {
+                @field(@as(*uniform_type, @alignCast(@ptrCast(mapped_buff.data))), @tagName(field)) = target;
+            }
+        }
 
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, self.ebo);
-            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, @intCast(@sizeOf(u32) * indices.len), &indices[0], gl.STATIC_DRAW);
+        pub fn createUniformBuffers(self: *Self) !void {
+            inline for (pipeline.uniform_types, &self.uniform_buffers) |uniform_type, *uniform_buffer| {
+                var gc = &self.window.gc;
 
+                uniform_buffer.* = try common.allocator.alloc(UniformBuffer, frames_in_flight);
+
+                for (uniform_buffer.*) |*mapped_buff| {
+                    const buffer = try gc.vkd.createBuffer(gc.dev, &.{
+                        .size = @sizeOf(uniform_type),
+                        .usage = .{ .uniform_buffer_bit = true },
+                        .sharing_mode = .exclusive,
+                    }, null);
+
+                    const mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, buffer);
+                    const memory = try gc.allocate(mem_reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
+                    try gc.vkd.bindBufferMemory(gc.dev, buffer, memory, 0);
+
+                    const data = try gc.vkd.mapMemory(gc.dev, memory, 0, vk.WHOLE_SIZE, .{});
+
+                    mapped_buff.buff_mem = .{ .buffer = buffer, .memory = memory };
+                    mapped_buff.data = data.?;
+                }
+            }
+        }
+
+        //pub fn addTexture(self: *Self, texture: Texture) !void {
+        //    try self.textures.append(texture);
+        //}
+
+        pub fn bindIndexBuffer(self: *Self, indices: []const u32) !void {
+            var gc = &self.window.gc;
+            const pool = self.window.pool;
+
+            const buffer = try gc.vkd.createBuffer(gc.dev, &.{
+                .size = @sizeOf(u32) * indices.len,
+                .usage = .{ .transfer_dst_bit = true, .index_buffer_bit = true },
+                .sharing_mode = .exclusive,
+            }, null);
+
+            const mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, buffer);
+            const memory = try gc.allocate(mem_reqs, .{ .device_local_bit = true });
+            try gc.vkd.bindBufferMemory(gc.dev, buffer, memory, 0);
+
+            const staging_buff = try gc.createStagingBuffer(@sizeOf(u32) * indices.len);
+            defer staging_buff.deinit(gc);
+
+            {
+                const data = try gc.vkd.mapMemory(gc.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
+                defer gc.vkd.unmapMemory(gc.dev, staging_buff.memory);
+
+                const gpu_indices: [*]u32 = @ptrCast(@alignCast(data));
+                for (indices, 0..) |index, i| {
+                    gpu_indices[i] = index;
+                }
+            }
+
+            try copyBuffer(&self.window.gc, pool, buffer, staging_buff.buffer, @sizeOf(u32) * indices.len);
+
+            self.index_buffer = .{ .buffer = buffer, .memory = memory };
+        }
+
+        pub fn bindVertexBuffer(self: *Self, vertices: []const Attribute) !void {
+            var gc = &self.window.gc;
+            const pool = self.window.pool;
+
+            const buffer = try gc.vkd.createBuffer(gc.dev, &.{
+                .size = @sizeOf(Attribute) * vertices.len,
+                .usage = .{ .transfer_dst_bit = true, .vertex_buffer_bit = true },
+                .sharing_mode = .exclusive,
+            }, null);
+
+            const mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, buffer);
+            const memory = try gc.allocate(mem_reqs, .{ .device_local_bit = true });
+            try gc.vkd.bindBufferMemory(gc.dev, buffer, memory, 0);
+
+            const staging_buff = try gc.createStagingBuffer(@sizeOf(Attribute) * vertices.len);
+            defer staging_buff.deinit(gc);
+
+            {
+                const data = try gc.vkd.mapMemory(gc.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
+                defer gc.vkd.unmapMemory(gc.dev, staging_buff.memory);
+
+                const gpu_vertices: [*]Attribute = @ptrCast(@alignCast(data));
+                for (vertices, 0..) |vertex, i| {
+                    gpu_vertices[i] = vertex;
+                }
+            }
+
+            try copyBuffer(&self.window.gc, pool, buffer, staging_buff.buffer, @sizeOf(Attribute) * vertices.len);
+
+            self.vertex_buffer = .{ .buffer = buffer, .memory = memory };
+        }
+
+        pub fn bindVertex(self: *Self, vertices: []const Attribute, indices: []const u32) !void {
             self.vert_count = indices.len;
 
-            gl.bindVertexArray(self.vao);
-
-            var sum_size: usize = 0;
-            inline for (pipeline.vertex_attrib) |attrib| {
-                sum_size += attrib.size * @sizeOf(attrib.attribute.getType());
-            }
-
-            var offset: usize = 0;
-            inline for (pipeline.vertex_attrib, 0..) |attrib, i| {
-                gl.vertexAttribPointer(i, attrib.size, attrib.attribute.getGL(), gl.FALSE, @intCast(sum_size), @ptrFromInt(offset));
-                gl.enableVertexAttribArray(i);
-                offset += attrib.size * @sizeOf(attrib.attribute.getType());
-            }
+            try self.bindVertexBuffer(vertices);
+            try self.bindIndexBuffer(indices);
         }
 
-        pub fn draw(self: *Self, window: Window) !void {
-            if (pipeline.depth_test) {
-                gl.enable(gl.DEPTH_TEST);
-            } else {
-                gl.disable(gl.DEPTH_TEST);
-            }
+        pub fn draw(self: *Self, frame_id: usize, command_buffer: vk.CommandBuffer) !void {
+            const gc = &self.window.gc;
 
-            if (pipeline.cull_face) {
-                gl.enable(gl.CULL_FACE);
-                switch (pipeline.cull_type) {
-                    .back => gl.cullFace(gl.BACK),
-                    .front => gl.cullFace(gl.FRONT),
-                    .front_and_back => gl.cullFace(gl.FRONT_AND_BACK),
-                }
-            } else {
-                gl.disable(gl.CULL_FACE);
-            }
-
-            if (pipeline.framebuffer) |framebuffer| {
-                gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer.id);
-            } else {
-                gl.bindFramebuffer(gl.FRAMEBUFFER, 0);
-            }
-
-            gl.useProgram(self.shader.program);
-            const time = @as(f32, @floatCast(glfw.glfwGetTime()));
-            const now: f32 = time;
-
-            const resolutionLoc: i32 = gl.getUniformLocation(self.shader.program, "in_resolution");
-            gl.uniform2f(resolutionLoc, @floatFromInt(window.viewport_width), @floatFromInt(window.viewport_height));
-
-            const timeUniformLoc: i32 = gl.getUniformLocation(self.shader.program, "time");
-            gl.uniform1f(timeUniformLoc, now);
-
-            for (self.uniform1f_array.items) |uni| {
-                const loc: i32 = gl.getUniformLocation(self.shader.program, uni.name);
-                gl.uniform1f(loc, uni.value.*);
-            }
-
-            for (self.uniform3f_array.items) |uni| {
-                const loc: i32 = gl.getUniformLocation(self.shader.program, uni.name);
-                gl.uniform3f(loc, uni.value[0], uni.value[1], uni.value[2]);
-            }
-
-            for (self.uniform4fv_array.items) |uni| {
-                const loc: i32 = gl.getUniformLocation(self.shader.program, uni.name);
-                gl.uniformMatrix4fv(loc, 1, gl.FALSE, &uni.value.columns[0][0]);
-            }
-
-            for (self.uniform3fv_array.items) |uni| {
-                const loc: i32 = gl.getUniformLocation(self.shader.program, uni.name);
-
-                gl.uniformMatrix3fv(loc, 1, gl.FALSE, &uni.value.columns[0][0]);
-            }
-
-            for (self.cube_textures.items, 0..) |texture, index| {
-                gl.activeTexture(try getIthTexture(c_uint, index));
-                gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture);
-
-                //const textureUniformLoc: i32 = gl.getUniformLocation(self.shader.program, "texture0");
-                //gl.uniform1i(textureUniformLoc, 0);
-            }
-
-            for (self.textures.items, 0..) |texture, index| {
-                gl.activeTexture(try getIthTexture(c_uint, index));
-                gl.bindTexture(texture.info.texture_type.getGL(), texture.texture_id);
-
-                if (texture.info.texture_type == .flat) {
-                    var buff: [64]u8 = undefined;
-                    const res = try std.fmt.bufPrintZ(&buff, "texture{}", .{index});
-                    const textureUniformLoc: i32 = gl.getUniformLocation(self.shader.program, res);
-                    gl.uniform1i(textureUniformLoc, @intCast(index));
-                }
-            }
-
-            gl.bindVertexArray(self.vao);
-
-            switch (pipeline.render_type) {
-                .triangle => gl.drawElements(gl.TRIANGLES, @intCast(self.vert_count), gl.UNSIGNED_INT, null),
-                .line => gl.drawElements(gl.LINES, @intCast(self.vert_count), gl.UNSIGNED_INT, null),
-            }
-
-            inline for (0..pipeline.vertex_attrib.len) |i| {
-                gl.bindVertexArray(i);
-            }
+            gc.vkd.cmdBindPipeline(command_buffer, .graphics, self.vk_pipeline);
+            const offset = [_]vk.DeviceSize{0};
+            if (self.vertex_buffer) |vb| gc.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&vb.buffer), &offset);
+            gc.vkd.cmdBindDescriptorSets(
+                command_buffer,
+                .graphics,
+                self.layout,
+                0,
+                1,
+                @ptrCast(&self.descriptor_sets[frame_id]),
+                0,
+                null,
+            );
+            if (self.index_buffer) |ib| {
+                gc.vkd.cmdBindIndexBuffer(command_buffer, ib.buffer, 0, .uint32);
+                gc.vkd.cmdDrawIndexed(command_buffer, @intCast(self.vert_count), 1, 0, 0, 0);
+            } else gc.vkd.cmdDraw(command_buffer, @intCast(self.vert_count), 1, 0, 0);
         }
     };
-}
-
-var gl_dispatch_table: gl.DispatchTable = undefined;
-
-pub const GLProc = *const fn () callconv(.C) void;
-pub fn getProcAddress(proc_name: [*:0]const u8) callconv(.C) ?GLProc {
-    if (glfw.glfwGetProcAddress(proc_name)) |proc_address| return proc_address;
-    return null;
 }
 
 const MapType = struct {
@@ -670,12 +1436,17 @@ const MapType = struct {
     *Window,
 };
 
+// global var
 var windowMap: ?std.AutoHashMap(*glfw.GLFWwindow, MapType) = null;
-
 pub var ft_lib: freetype.Library = undefined;
 
 pub fn initGraphics() !void {
     if (glfw.glfwInit() == glfw.GLFW_FALSE) return GlfwError.FailedGlfwInit;
+
+    if (glfw.glfwVulkanSupported() != glfw.GLFW_TRUE) {
+        std.log.err("GLFW could not find libvulkan", .{});
+        return error.NoVulkan;
+    }
 
     windowMap = std.AutoHashMap(*glfw.GLFWwindow, MapType).init(common.allocator);
 
@@ -773,14 +1544,24 @@ pub fn getGlfwChar(win_or: ?*glfw.GLFWwindow, codepoint: c_uint) callconv(.C) vo
 }
 
 pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int) callconv(.C) void {
+    //std.debug.print("{} {}\n", .{ width, height });
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
-        gl.viewport(0, 0, width, height);
+        win.swapchain.recreate(&win.gc, .{ .width = @intCast(width), .height = @intCast(height) }) catch |err| {
+            printError(err);
+        };
+
+        win.destroyFramebuffers();
+        win.framebuffers = Window.createFramebuffers(&win.gc, common.allocator, win.render_pass, win.swapchain) catch |err| {
+            printError(err);
+        };
+
+        //gl.viewport(0, 0, width, height);
 
         win.frame_width = width;
-        win.frame_height = 1080;
+        win.frame_height = height;
 
         if (win.events.frame_func) |fun| {
             fun(map[0], width, height) catch |err| {
@@ -834,6 +1615,16 @@ pub const Window = struct {
 
     events: EventTable,
 
+    gc: GraphicsContext,
+    swapchain: Swapchain,
+    render_pass: vk.RenderPass,
+    pool: vk.CommandPool,
+    framebuffers: []vk.Framebuffer,
+
+    sprite_shaders: [2]Shader,
+    color_shaders: [2]Shader,
+    text_shaders: [2]Shader,
+
     pub fn setScrollCallback(self: *Window, fun: *const fn (*anyopaque, f64, f64) anyerror!void) void {
         self.events.scroll_func = fun;
     }
@@ -866,6 +1657,32 @@ pub const Window = struct {
         glfw.glfwSetWindowSize(self.glfw_win, @intCast(width), @intCast(height));
     }
 
+    fn destroyFramebuffers(self: Window) void {
+        for (self.framebuffers) |fb| self.gc.vkd.destroyFramebuffer(self.gc.dev, fb, null);
+    }
+
+    fn createFramebuffers(gc: *const GraphicsContext, allocator: Allocator, render_pass: vk.RenderPass, swapchain: Swapchain) ![]vk.Framebuffer {
+        const framebuffers = try allocator.alloc(vk.Framebuffer, swapchain.swap_images.len);
+        errdefer allocator.free(framebuffers);
+
+        var i: usize = 0;
+        errdefer for (framebuffers[0..i]) |fb| gc.vkd.destroyFramebuffer(gc.dev, fb, null);
+
+        for (framebuffers) |*fb| {
+            fb.* = try gc.vkd.createFramebuffer(gc.dev, &.{
+                .render_pass = render_pass,
+                .attachment_count = 1,
+                .p_attachments = @as([*]const vk.ImageView, @ptrCast(&swapchain.swap_images[i].view)),
+                .width = swapchain.extent.width,
+                .height = swapchain.extent.height,
+                .layers = 1,
+            }, null);
+            i += 1;
+        }
+
+        return framebuffers;
+    }
+
     pub fn init(info: WindowInfo) !*Window {
         var win = try common.allocator.create(Window);
         win.* = try initBare(info);
@@ -875,6 +1692,7 @@ pub const Window = struct {
 
     pub fn initBare(info: WindowInfo) !Window {
         glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, if (info.resizable) glfw.GLFW_TRUE else glfw.GLFW_FALSE);
+        glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
         const win_or = glfw.glfwCreateWindow(info.width, info.height, info.name, null, null);
 
         const glfw_win = win_or orelse return GlfwError.FailedGlfwWindow;
@@ -888,14 +1706,18 @@ pub const Window = struct {
         _ = glfw.glfwSetCursorPosCallback(glfw_win, getGlfwCursorPos);
         _ = glfw.glfwSetScrollCallback(glfw_win, getScroll);
 
-        if (!gl_dispatch_table.init(getProcAddress)) return error.GlInitFailed;
+        const gc = try GraphicsContext.init(common.allocator, info.name, glfw_win);
 
-        gl.makeDispatchTableCurrent(&gl_dispatch_table);
+        const swapchain = try Swapchain.init(&gc, common.allocator, .{ .width = @intCast(info.width), .height = @intCast(info.height) });
 
-        gl.enable(gl.BLEND);
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        const render_pass = try createRenderPass(&gc, swapchain);
+
+        const pool = try gc.vkd.createCommandPool(gc.dev, &.{
+            .queue_family_index = gc.graphics_queue.family,
+            .flags = .{ .reset_command_buffer_bit = true },
+        }, null);
+
+        const framebuffers = try createFramebuffers(&gc, common.allocator, render_pass, swapchain);
 
         const events: EventTable = .{
             .key_func = null,
@@ -906,6 +1728,15 @@ pub const Window = struct {
             .cursor_func = null,
         };
 
+        const sprite_vert = try Shader.init(gc, &elem_shaders.sprite_vert, .vertex);
+        const sprite_frag = try Shader.init(gc, &elem_shaders.sprite_frag, .fragment);
+
+        const color_vert = try Shader.init(gc, &elem_shaders.color_vert, .vertex);
+        const color_frag = try Shader.init(gc, &elem_shaders.color_frag, .fragment);
+
+        const text_vert = try Shader.init(gc, &elem_shaders.text_vert, .vertex);
+        const text_frag = try Shader.init(gc, &elem_shaders.text_frag, .fragment);
+
         return Window{
             .glfw_win = glfw_win,
             .events = events,
@@ -914,13 +1745,375 @@ pub const Window = struct {
             .frame_width = info.width,
             .viewport_height = info.height,
             .frame_height = info.height,
+
+            // vulkan
+            .gc = gc,
+            .swapchain = swapchain,
+            .render_pass = render_pass,
+            .pool = pool,
+            .framebuffers = framebuffers,
+
+            // default shaders
+            .sprite_shaders = .{ sprite_vert, sprite_frag },
+            .color_shaders = .{ color_vert, color_frag },
+            .text_shaders = .{ text_vert, text_frag },
         };
     }
 
     pub fn deinit(self: *Window) void {
+        self.gc.vkd.destroyCommandPool(self.gc.dev, self.pool, null);
+        self.swapchain.deinit(&self.gc);
+        self.gc.deinit();
         glfw.glfwDestroyWindow(self.glfw_win);
-        gl.makeDispatchTableCurrent(null);
+        //gl.makeDispatchTableCurrent(null);
         glfw.glfwTerminate();
         common.allocator.destroy(self);
     }
+};
+
+pub const Transform2D = struct {
+    scale: math.Vec2,
+    rotation: struct { angle: f32, center: math.Vec2 },
+    translation: math.Vec2,
+    pub fn getMat(self: Transform2D) math.Mat3 {
+        return math.transform2D(f32, self.scale, self.rotation, self.translation);
+    }
+    pub fn getInverseMat(self: Transform2D) math.Mat3 {
+        return math.transform2D(f32, math.Vec2{ 1, 1 } / self.scale, .{ .angle = -self.rotation.angle, .center = self.rotation.center }, math.Vec2{ -1, -1 } * self.translation);
+    }
+    pub fn apply(self: Transform2D, v: math.Vec2) math.Vec2 {
+        var res: [3]f32 = self.getMat().dot(.{ v[0], v[1], 1 });
+        return res[0..2].*;
+    }
+
+    pub fn reverse(self: Transform2D, v: math.Vec2) math.Vec2 {
+        var res: [3]f32 = self.getInverseMat().dot(.{ v[0], v[1], 1 });
+        return res[0..2].*;
+    }
+};
+
+const Uniform1f = struct {
+    name: [:0]const u8,
+    value: *f32,
+};
+
+const Uniform3f = struct {
+    name: [:0]const u8,
+    value: *math.Vec3,
+};
+
+const Uniform3fv = struct {
+    name: [:0]const u8,
+    value: *math.Mat3,
+};
+
+const Uniform4fv = struct {
+    name: [:0]const u8,
+    value: *math.Mat4,
+};
+
+pub fn embedProcess(comptime source: [:0]const u8) [:0]const u8 {
+    const version_idx = comptime std.mem.indexOf(u8, source, "\n").?;
+    const processed_source = source[0..version_idx] ++ "\n" ++ @embedFile("common.glsl") ++ source[version_idx..];
+    return processed_source;
+}
+
+const frames_in_flight = 2;
+
+pub fn Scene(comptime pipelines_union: anytype) type {
+    const DrawingList = common.FieldArrayList(pipelines_union);
+    return struct {
+        drawing_array: DrawingList,
+
+        // vulkan
+        command_buffers: []vk.CommandBuffer,
+        window: *Window,
+
+        frame_id: usize,
+
+        const Self = @This();
+        pub fn init(win: *Window) !Self {
+            const cmd_buffs = try common.allocator.alloc(vk.CommandBuffer, frames_in_flight);
+
+            try win.gc.vkd.allocateCommandBuffers(win.gc.dev, &.{
+                .command_pool = win.pool,
+                .level = .primary,
+                .command_buffer_count = @as(u32, @truncate(cmd_buffs.len)),
+            }, cmd_buffs.ptr);
+
+            return Self{
+                .drawing_array = try DrawingList.init(common.allocator),
+                .command_buffers = cmd_buffs,
+                .window = win,
+                .frame_id = 0,
+            };
+        }
+
+        pub fn update(self: *Self) !void {
+            const time = @as(f32, @floatCast(glfw.glfwGetTime()));
+            const now: f32 = time;
+            const resolution: math.Vec2 = .{ @floatFromInt(self.window.frame_width), @floatFromInt(self.window.frame_height) };
+
+            const gc = &self.window.gc;
+            const swapchain = &self.window.swapchain;
+
+            const clear = vk.ClearValue{
+                .color = .{ .float_32 = .{ 0, 0, 0, 1 } },
+            };
+
+            const extent = self.window.swapchain.extent;
+            //std.debug.print("{} {}\n", .{ extent.width, extent.height });
+
+            const cmdbuf = self.command_buffers[self.frame_id];
+
+            const current = &swapchain.swap_images[self.frame_id];
+
+            try current.waitForFence(gc);
+
+            const result = try gc.vkd.acquireNextImageKHR(
+                gc.dev,
+                swapchain.handle,
+                std.math.maxInt(u64),
+                current.image_acquired,
+                .null_handle,
+            );
+
+            try gc.vkd.resetFences(gc.dev, 1, @ptrCast(&current.frame_fence));
+            try gc.vkd.resetCommandBuffer(cmdbuf, .{});
+
+            try gc.vkd.beginCommandBuffer(cmdbuf, &.{});
+            gc.vkd.cmdSetViewport(cmdbuf, 0, 1, @ptrCast(&vk.Viewport{
+                .x = 0,
+                .y = 0,
+                .width = @as(f32, @floatFromInt(extent.width)),
+                .height = @as(f32, @floatFromInt(extent.height)),
+                .min_depth = 0,
+                .max_depth = 1,
+            }));
+            gc.vkd.cmdSetScissor(cmdbuf, 0, 1, @ptrCast(&vk.Rect2D{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = extent,
+            }));
+
+            const render_area = vk.Rect2D{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = extent,
+            };
+
+            gc.vkd.cmdBeginRenderPass(cmdbuf, &.{
+                .render_pass = self.window.render_pass,
+                .framebuffer = self.window.framebuffers[result.image_index],
+                .render_area = render_area,
+                .clear_value_count = 1,
+                .p_clear_values = @as([*]const vk.ClearValue, @ptrCast(&clear)),
+            }, .@"inline");
+
+            inline for (DrawingList.Enums) |field| {
+                for (self.drawing_array.array(field).items) |elem| {
+                    const Draw = @TypeOf(elem.*);
+                    if (Draw.Pipeline.global_ubo) elem.setUniform(0, .{ .time = now, .in_resolution = resolution });
+                    try elem.draw(self.frame_id, cmdbuf);
+                }
+            }
+            gc.vkd.cmdEndRenderPass(cmdbuf);
+            try gc.vkd.endCommandBuffer(cmdbuf);
+
+            const wait_stage = [_]vk.PipelineStageFlags{.{ .color_attachment_output_bit = true }};
+            try gc.vkd.queueSubmit(gc.graphics_queue.handle, 1, &[_]vk.SubmitInfo{.{
+                .wait_semaphore_count = 1,
+                .p_wait_semaphores = @ptrCast(&current.image_acquired),
+                .p_wait_dst_stage_mask = &wait_stage,
+                .command_buffer_count = 1,
+                .p_command_buffers = @ptrCast(&cmdbuf),
+                .signal_semaphore_count = 1,
+                .p_signal_semaphores = @ptrCast(&current.render_finished),
+            }}, current.frame_fence);
+
+            _ = try gc.vkd.queuePresentKHR(gc.present_queue.handle, &.{
+                .wait_semaphore_count = 1,
+                .p_wait_semaphores = @as([*]const vk.Semaphore, @ptrCast(&current.render_finished)),
+                .swapchain_count = 1,
+                .p_swapchains = @as([*]const vk.SwapchainKHR, @ptrCast(&swapchain.handle)),
+                .p_image_indices = @as([*]const u32, @ptrCast(&result.image_index)),
+            });
+
+            self.frame_id = (self.frame_id + 1) % frames_in_flight;
+        }
+
+        pub fn deinit(self: *Self) void {
+            inline for (DrawingList.Enums) |field| {
+                for (self.drawing_array.array(field).items) |elem| {
+                    elem.deinit();
+                    common.allocator.destroy(elem);
+                }
+            }
+
+            self.drawing_array.deinit(common.allocator);
+
+            self.win.gc.vkd.freeCommandBuffers(self.win.gc.dev, self.win.pool, 1, self.command_buffer);
+            common.allocator.destroy(self.command_buffer);
+        }
+
+        pub fn fieldFromPipeline(comptime pipeline: RenderPipeline) DrawingList.Field {
+            for (DrawingList.Enums) |field| {
+                const res = comptime std.meta.eql(@typeInfo(DrawingList.FieldType(field)).Pointer.child.Pipeline, pipeline);
+                if (res) return field;
+            }
+            @compileError("Pipeline not in Scene.");
+        }
+
+        pub fn new(self: *Self, comptime pipeline: RenderPipeline) !*Drawing(pipeline) {
+            const render = comptime fieldFromPipeline(pipeline);
+            const val = try common.allocator.create(@typeInfo(DrawingList.FieldType(render)).Pointer.child);
+            try self.drawing_array.array(render).append(val);
+            return val;
+        }
+
+        pub fn delete(self: *Self, drawing: anytype) !void {
+            const T = @TypeOf(drawing);
+            const field = comptime fieldFromPipeline(@typeInfo(T).Pointer.child.Pipeline);
+            var arr = self.drawing_array.array(field);
+            const idx = std.mem.indexOfScalar(T, arr.items, drawing) orelse return error.DeletedDrawingNotInScene;
+
+            var rem = arr.swapRemove(idx);
+
+            rem.deinit();
+            common.allocator.destroy(rem);
+
+            return;
+        }
+
+        pub fn draw(self: *Self) !void {
+            try self.update();
+        }
+    };
+}
+
+pub fn getTime() f64 {
+    return glfw.glfwGetTime();
+}
+
+const RenderType = enum {
+    line,
+    triangle,
+};
+
+pub const VertexAttribute = struct {
+    attribute: enum {
+        float,
+        short,
+    } = .float,
+
+    size: comptime_int,
+
+    pub fn getType(comptime self: @This()) type {
+        switch (self.attribute) {
+            .float => return [self.size]f32,
+            .short => return [self.size]i16,
+        }
+    }
+
+    pub fn getVK(comptime self: @This()) vk.Format {
+        switch (self.attribute) {
+            .float => {
+                if (self.size == 2) {
+                    return .r32g32_sfloat;
+                } else if (self.size == 3) {
+                    return .r32g32b32_sfloat;
+                } else {
+                    @compileError("Unsupported vertex size used");
+                }
+            },
+            .short => return .r16g16_sint,
+        }
+    }
+};
+
+const CullType = enum {
+    front,
+    back,
+    front_and_back,
+};
+
+pub const RenderPipeline = struct {
+    vertex_attrib: []const VertexAttribute,
+    render_type: RenderType,
+    depth_test: bool,
+    cull_face: bool,
+    cull_type: CullType = .back,
+
+    uniform_types: []const type = &.{},
+    samplers: u32 = 0,
+    // assume DefaultUbo at index 0
+    global_ubo: bool = false,
+
+    pub fn getInitType(comptime pipeline: RenderPipeline) type {
+        return struct {
+            samplers: [pipeline.samplers]Texture,
+        };
+    }
+
+    pub fn getBindingDescription(comptime pipeline: RenderPipeline) vk.VertexInputBindingDescription {
+        return .{
+            .binding = 0,
+            .stride = @sizeOf(pipeline.getAttributeType()),
+            .input_rate = .vertex,
+        };
+    }
+
+    pub fn getAttributeDescription(comptime pipeline: RenderPipeline) [pipeline.vertex_attrib.len]vk.VertexInputAttributeDescription {
+        var loop: [pipeline.vertex_attrib.len]vk.VertexInputAttributeDescription = undefined;
+        var off: u32 = 0;
+        inline for (pipeline.vertex_attrib, 0..) |attrib, i| {
+            loop[i] = .{
+                .binding = 0,
+                .location = i,
+                .format = attrib.getVK(),
+                .offset = off,
+            };
+            off += @sizeOf(attrib.getType());
+        }
+
+        return loop;
+    }
+
+    pub fn getAttributeType(comptime pipeline: RenderPipeline) type {
+        var types: []const type = &.{};
+        for (pipeline.vertex_attrib) |attrib| {
+            const t = attrib.getType();
+            types = types ++ .{t};
+        }
+        return std.meta.Tuple(types);
+    }
+};
+
+pub const FlatPipeline = RenderPipeline{
+    .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 } },
+    .render_type = .triangle,
+    .depth_test = false,
+    .cull_face = false,
+};
+
+pub const SpatialPipeline = RenderPipeline{
+    .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
+    .render_type = .triangle,
+    .depth_test = true,
+    .cull_face = false,
+};
+
+pub const LinePipeline = RenderPipeline{
+    .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 3 } },
+    .render_type = .line,
+    .depth_test = true,
+    .cull_face = false,
+};
+
+pub const SpritePipeline = RenderPipeline{
+    .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 } },
+    .render_type = .triangle,
+    .depth_test = false,
+    .cull_face = false,
+    .uniform_types = &[_]type{ extern struct { time: f32, in_resolution: math.Vec2 }, extern struct { transform: math.Mat4, opacity: f32 } },
+    .samplers = 1,
+    .global_ubo = true,
 };
