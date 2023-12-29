@@ -815,17 +815,19 @@ pub const Texture = struct {
         };
     }
 
-    pub fn setFromMemory(tex: *Texture, buffer: []const u8) !Texture {
+    pub fn initFromMemory(win: *Window, buffer: []const u8, info: TextureInfo) !Texture {
         var read_image = try img.Image.fromMemory(common.allocator, buffer);
         defer read_image.deinit();
 
         switch (read_image.pixels) {
             .rgba32 => |data| {
+                var tex = try Texture.init(win, @intCast(read_image.width), @intCast(read_image.height), info);
                 try tex.setFromRgba(.{
                     .width = read_image.width,
                     .height = read_image.height,
                     .data = data,
-                }, true);
+                });
+                return tex;
             },
             else => return error.InvalidImage,
         }
