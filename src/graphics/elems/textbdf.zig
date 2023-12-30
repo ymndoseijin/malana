@@ -40,23 +40,26 @@ pub const Image = struct {
     data: []img.color.Rgba32,
 };
 
+pub const BdfUniform: graphics.UniformDescription = .{ .type = extern struct { pod: math.Vec3 } };
+
+pub const BdfPipeline = graphics.RenderPipeline{
+    .vertex_description = .{
+        .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 } },
+    },
+    .render_type = .triangle,
+    .depth_test = false,
+    .cull_face = false,
+    .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), BdfUniform.getSize() },
+    .global_ubo = true,
+};
+
 pub const Text = struct {
-    drawing: *Drawing(Pipeline),
+    drawing: *Drawing,
     bdf: BdfParse,
     atlas: Image,
     pos: Vec3,
     width: f32,
     height: f32,
-
-    pub const Pipeline = graphics.RenderPipeline{
-        .vertex_attrib = &[_]graphics.VertexAttribute{ .{ .size = 3 }, .{ .size = 2 } },
-        .render_type = .triangle,
-        .depth_test = false,
-        .cull_face = false,
-        .uniform_types = &[_]type{ extern struct { time: f32, in_resolution: math.Vec2 }, extern struct { pos: math.Vec3 } },
-        .samplers = 1,
-        .global_ubo = true,
-    };
 
     pub fn makeAtlas(bdf: BdfParse) !Image {
         const count = bdf.map.items.len;
@@ -96,7 +99,8 @@ pub const Text = struct {
     pub fn print(self: *Text, text: []const u8) !void {
         if (text.len == 0) return;
 
-        var vertices = std.ArrayList(Drawing(graphics.FlatPipeline).Attribute).init(common.allocator);
+        const Attribute = BdfPipeline.getAttributeType();
+        var vertices = std.ArrayList(Attribute).init(common.allocator);
         var indices = std.ArrayList(u32).init(common.allocator);
         defer vertices.deinit();
         defer indices.deinit();
@@ -139,7 +143,7 @@ pub const Text = struct {
                     const atlas_x: f32 = @floatFromInt(i % size);
                     const atlas_y: f32 = @floatFromInt(@divFloor(i, size) + 1);
 
-                    const c_vert = [_]Drawing(graphics.FlatPipeline).Attribute{
+                    const c_vert = [_]Attribute{
                         .{ .{ x, y, 0 }, .{ atlas_x, size_f - atlas_y } },
                         .{ .{ x + width, y, 0 }, .{ atlas_x + 1, size_f - atlas_y } },
                         .{ .{ x + width, y + width, 0 }, .{ atlas_x + 1, size_f - atlas_y + 1 } },
@@ -169,7 +173,7 @@ pub const Text = struct {
         self.width = final_width;
         self.height = final_height;
 
-        try self.drawing.bindVertex(vertices.items, indices.items);
+        try BdfPipeline.vertex_description.bindVertex(self.drawing, vertices.items, indices.items);
     }
 
     pub fn deinit(self: *Text) void {
@@ -182,9 +186,12 @@ pub const Text = struct {
         var tex = try graphics.Texture.init(scene.window, atlas.width, atlas.height, .{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
         try tex.setFromRgba(atlas);
 
-        var drawing = try scene.new(Pipeline);
+        var drawing = try scene.new();
 
-        try drawing.init(scene.window, &scene.window.text_shaders, .{ .samplers = .{tex} });
+        var pipeline = BdfPipeline;
+        pipeline.samplers = &.{tex};
+
+        try drawing.init(scene.window, &scene.window.text_shaders, pipeline);
 
         const res = Text{
             .bdf = bdf,

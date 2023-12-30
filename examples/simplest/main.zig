@@ -15,12 +15,12 @@ const gl = ui.gl;
 pub fn main() !void {
     defer _ = common.gpa_instance.deinit();
 
-    var state = try display.State(union { sprite: *graphics.Drawing(graphics.SpritePipeline) }).init(.{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
+    var state = try display.State.init(.{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
     defer state.deinit();
 
     const tex = try graphics.Texture.initFromPath(state.main_win, "resources/ear.qoi", .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
 
-    var sprite = try graphics.Sprite(graphics.SpritePipeline).init(&state.scene, .{ .tex = tex });
+    var sprite = try graphics.Sprite.init(&state.scene, .{ .tex = tex });
 
     while (true) {
         try state.updateEvents();

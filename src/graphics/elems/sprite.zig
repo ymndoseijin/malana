@@ -20,79 +20,82 @@ const Vec3Utils = math.Vec3Utils;
 
 const elem_shaders = @import("elem_shaders");
 
+const SpriteUniform: graphics.UniformDescription = .{ .type = extern struct { transform: math.Mat4, opacity: f32 } };
+
 const SpriteInfo = struct {
     shaders: ?[]graphics.Shader = null,
     tex: graphics.Texture,
+    pipeline: graphics.RenderPipeline = graphics.SpritePipeline,
 };
 
-pub fn Sprite(comptime Pipeline: graphics.RenderPipeline) type {
-    return struct {
-        pub const Self = @This();
-        pub fn init(scene: anytype, info: SpriteInfo) !Self {
-            const w: f32 = @floatFromInt(info.tex.width);
-            const h: f32 = @floatFromInt(info.tex.height);
+pub const Sprite = struct {
+    pub const Self = @This();
+    pub fn init(scene: anytype, info: SpriteInfo) !Self {
+        const w: f32 = @floatFromInt(info.tex.width);
+        const h: f32 = @floatFromInt(info.tex.height);
 
-            const default_transform: graphics.Transform2D = .{
-                .scale = .{ 1, 1 },
-                .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
-                .translation = .{ 0, 0 },
-            };
+        const default_transform: graphics.Transform2D = .{
+            .scale = .{ 1, 1 },
+            .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
+            .translation = .{ 0, 0 },
+        };
 
-            var drawing = try scene.new(Pipeline);
+        var drawing = try scene.new();
 
-            try drawing.init(scene.window, &scene.window.sprite_shaders, .{ .samplers = .{info.tex} });
+        var actual_pipeline = info.pipeline;
 
-            try drawing.bindVertex(&.{
-                .{ .{ 0, 0, 1 }, .{ 0, 0 } },
-                .{ .{ w, 0, 1 }, .{ 1, 0 } },
-                .{ .{ w, h, 1 }, .{ 1, 1 } },
-                .{ .{ 0, h, 1 }, .{ 0, 1 } },
-            }, &.{ 0, 1, 2, 2, 3, 0 });
+        actual_pipeline.samplers = &.{info.tex};
+        try drawing.init(scene.window, &scene.window.sprite_shaders, actual_pipeline);
 
-            drawing.setUniformField(1, .transform, default_transform.getMat().cast(4, 4));
-            drawing.setUniformField(1, .opacity, 1);
-            drawing.setUniform(0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+        try graphics.SpritePipeline.vertex_description.bindVertex(drawing, &.{
+            .{ .{ 0, 0, 1 }, .{ 0, 0 } },
+            .{ .{ w, 0, 1 }, .{ 1, 0 } },
+            .{ .{ w, h, 1 }, .{ 1, 1 } },
+            .{ .{ 0, h, 1 }, .{ 0, 1 } },
+        }, &.{ 0, 1, 2, 2, 3, 0 });
 
-            return Self{
-                .drawing = drawing,
-                .width = w,
-                .height = h,
-                .opacity = 1.0,
-                .transform = default_transform,
-            };
-        }
+        SpriteUniform.setUniform(drawing, 1, .{ .transform = default_transform.getMat().cast(4, 4), .opacity = 1 });
+        graphics.GlobalUniform.setUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
-        pub fn textureFromPath(self: *Self, path: []const u8) !Self {
-            const wi, const hi = try self.drawing.textureFromPath(path);
+        return Self{
+            .drawing = drawing,
+            .width = w,
+            .height = h,
+            .opacity = 1.0,
+            .transform = default_transform,
+        };
+    }
 
-            const w: f32 = @floatFromInt(wi);
-            const h: f32 = @floatFromInt(hi);
+    pub fn textureFromPath(self: *Self, path: []const u8) !Self {
+        const wi, const hi = try self.drawing.textureFromPath(path);
 
-            self.drawing.bindVertex(&.{
-                0, 0, 1, 0, 0,
-                w, 0, 1, 1, 0,
-                w, h, 1, 1, 1,
-                0, h, 1, 0, 1,
-            }, &.{ 0, 1, 2, 2, 3, 0 });
+        const w: f32 = @floatFromInt(wi);
+        const h: f32 = @floatFromInt(hi);
 
-            self.width = w;
-            self.height = h;
-        }
+        self.drawing.bindVertex(&.{
+            0, 0, 1, 0, 0,
+            w, 0, 1, 1, 0,
+            w, h, 1, 1, 1,
+            0, h, 1, 0, 1,
+        }, &.{ 0, 1, 2, 2, 3, 0 });
 
-        pub fn updateTransform(self: Self) void {
-            self.drawing.setUniformField(1, .transform, self.transform.getMat().cast(4, 4));
-        }
+        self.width = w;
+        self.height = h;
+    }
 
-        pub fn setOpacity(self: *Self, opacity: f32) void {
-            self.opacity = opacity;
-            self.drawing.setUniformField(1, .opacity, opacity);
-        }
+    pub fn updateTransform(self: Self) void {
+        SpriteUniform.setUniformField(self.drawing, 1, .transform, self.transform.getMat().cast(4, 4));
+    }
 
-        width: f32,
-        height: f32,
-        opacity: f32,
-        transform: graphics.Transform2D,
+    pub fn setOpacity(self: *Self, opacity: f32) void {
+        self.opacity = opacity;
+        SpriteUniform.setUniformField(self.drawing, 1, .opacity, opacity);
+    }
 
-        drawing: *Drawing(Pipeline),
-    };
-}
+    width: f32,
+    height: f32,
+    opacity: f32,
+    transform: graphics.Transform2D,
+
+    drawing: *Drawing,
+};

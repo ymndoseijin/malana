@@ -58,29 +58,33 @@ pub const Text = struct {
         index: usize,
         count: usize,
         shaders: ?[]graphics.Shader = null,
+        pipeline: graphics.RenderPipeline = CharacterPipeline,
+    };
+
+    const CharacterUniform: graphics.UniformDescription = .{ .type = extern struct {
+        transform: math.Mat4,
+        opacity: f32,
+        index: u32,
+        count: u32,
+    } };
+
+    const CharacterPipeline = graphics.RenderPipeline{
+        .vertex_description = .{
+            .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 } },
+        },
+        .render_type = .triangle,
+        .depth_test = false,
+        .cull_face = false,
+        .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), CharacterUniform.getSize() },
+        .global_ubo = true,
     };
 
     pub const Character = struct {
         image: Image,
-        sprite: graphics.Sprite(Pipeline),
+        sprite: graphics.Sprite,
         offset: math.Vec2,
         advance: f32,
         parent: *Text,
-
-        pub const Pipeline = graphics.RenderPipeline{
-            .vertex_attrib = &[_]graphics.VertexAttribute{ .{ .size = 3 }, .{ .size = 2 } },
-            .render_type = .triangle,
-            .depth_test = false,
-            .cull_face = false,
-            .uniform_types = &[_]type{ extern struct { time: f32, in_resolution: math.Vec2 }, extern struct {
-                transform: math.Mat4,
-                opacity: f32,
-                index: u32,
-                count: u32,
-            } },
-            .samplers = 1,
-            .global_ubo = true,
-        };
 
         pub fn setOpacity(self: *Character, opacity: f32) void {
             self.sprite.setOpacity(opacity);
@@ -116,11 +120,10 @@ pub const Text = struct {
             var tex = try graphics.Texture.init(scene.window, image.width, image.height, .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
             try tex.setFromRgba(image);
 
-            var sprite = try graphics.Sprite(Pipeline).init(scene, .{ .tex = tex, .shaders = info.shaders });
-            sprite.drawing.setUniformField(1, .index, @as(u32, @intCast(info.index)));
-            sprite.drawing.setUniformField(1, .count, @as(u32, @intCast(info.count)));
-
-            sprite.drawing.setUniformField(1, .opacity, parent.opacity);
+            const sprite = try graphics.Sprite.init(scene, .{ .tex = tex, .shaders = info.shaders, .pipeline = info.pipeline });
+            CharacterUniform.setUniformField(sprite.drawing, 1, .index, @as(u32, @intCast(info.index)));
+            CharacterUniform.setUniformField(sprite.drawing, 1, .count, @as(u32, @intCast(info.count)));
+            CharacterUniform.setUniformField(sprite.drawing, 1, .opacity, parent.opacity);
 
             return .{
                 .image = image,
@@ -192,7 +195,7 @@ pub const Text = struct {
         self.count += codepoints.items.len;
 
         for (self.characters.items) |c| {
-            c.sprite.drawing.setUniformField(1, .count, @as(u32, @intCast(self.count)));
+            CharacterUniform.setUniformField(c.sprite.drawing, 1, .count, @as(u32, @intCast(self.count)));
         }
 
         var start: math.Vec2 = self.transform.translation + self.cursor_pos;

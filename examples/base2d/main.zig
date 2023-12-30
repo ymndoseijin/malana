@@ -10,14 +10,7 @@ const display = ui.display;
 
 const math = ui.math;
 
-const DrawingList = union {
-    sprite: *graphics.Drawing(graphics.SpritePipeline),
-    color: *graphics.Drawing(graphics.ColoredRect.Pipeline),
-    bdf: *graphics.Drawing(graphics.TextBdf.Pipeline),
-    character: *graphics.Drawing(graphics.TextFt.Character.Pipeline),
-};
-
-var state: *display.State(DrawingList) = undefined;
+var state: *display.State = undefined;
 
 var num_clicked: u32 = 0;
 
@@ -46,7 +39,7 @@ pub fn main() !void {
     defer bdf.deinit();
     try bdf.parse("b12.bdf");
 
-    state = try display.State(DrawingList).init(.{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
+    state = try display.State.init(.{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
     defer state.deinit();
 
     state.main_win.setSize(1920, 1080);
@@ -58,7 +51,7 @@ pub fn main() !void {
 
     const tex = try graphics.Texture.initFromPath(state.main_win, image_path, .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
 
-    var sprite = try graphics.Sprite(graphics.SpritePipeline).init(&state.scene, .{ .tex = tex });
+    var sprite = try graphics.Sprite.init(&state.scene, .{ .tex = tex });
 
     color = try graphics.ColoredRect.init(&state.scene, .{ 0.3, 0.3, 1, 1 });
     color.transform.scale = .{ 200, 200 };
