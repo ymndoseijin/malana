@@ -142,6 +142,7 @@ pub const Text = struct {
     const TextInfo = struct {
         text: []const u8,
         shaders: ?[]graphics.Shader = null,
+        pipeline: graphics.RenderPipeline = CharacterPipeline,
     };
 
     pub fn printFmt(self: *Text, scene: anytype, comptime fmt: []const u8, fmt_args: anytype) !void {
@@ -221,6 +222,7 @@ pub const Text = struct {
                     .shaders = info.shaders,
                     .count = self.count,
                     .index = index,
+                    .pipeline = info.pipeline,
                 });
                 try self.characters.append(char);
 
