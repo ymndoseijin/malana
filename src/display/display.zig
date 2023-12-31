@@ -194,8 +194,8 @@ pub const State = struct {
 
     pub fn deinit(self: *Self) void {
         self.ui.deinit();
+        self.scene.deinit();
         self.main_win.deinit();
-        //self.scene.deinit();
         self.bdf.deinit();
         graphics.deinitGraphics();
         common.allocator.destroy(self);

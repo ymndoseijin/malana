@@ -191,7 +191,7 @@ pub const Text = struct {
         var pipeline = BdfPipeline;
         pipeline.samplers = &.{tex};
 
-        try drawing.init(scene.window, &scene.window.text_shaders, pipeline);
+        try drawing.init(scene.window, &scene.window.default_shaders.text_shaders, pipeline);
 
         const res = Text{
             .bdf = bdf,

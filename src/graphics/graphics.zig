@@ -125,6 +125,10 @@ const DeviceDispatch = vk.DeviceWrapper(.{
     .createDescriptorSetLayout = true,
     .resetCommandBuffer = true,
     .createSampler = true,
+    .destroyDescriptorSetLayout = true,
+    .destroyDescriptorPool = true,
+    .destroySampler = true,
+    .destroyImage = true,
 });
 
 pub const GraphicsContext = struct {
@@ -767,6 +771,7 @@ pub const Texture = struct {
     window: *Window,
     sampler: vk.Sampler,
     image_view: vk.ImageView,
+    memory: vk.DeviceMemory,
 
     pub fn init(win: *Window, width: u32, height: u32, info: TextureInfo) !Texture {
         const image_info: vk.ImageCreateInfo = .{
@@ -795,7 +800,16 @@ pub const Texture = struct {
             .height = height,
             .sampler = undefined,
             .image_view = undefined,
+            .memory = image_memory,
         };
+    }
+
+    pub fn deinit(self: *Texture) void {
+        const win = self.window;
+        win.gc.vkd.destroySampler(win.gc.dev, self.sampler, null);
+        win.gc.vkd.destroyImageView(win.gc.dev, self.image_view, null);
+        win.gc.vkd.destroyImage(win.gc.dev, self.image, null);
+        win.gc.vkd.freeMemory(win.gc.dev, self.memory, null);
     }
 
     pub fn initFromMemory(win: *Window, buffer: []const u8, info: TextureInfo) !Texture {
@@ -989,7 +1003,8 @@ pub const Shader = struct {
             .type = shader_enum,
         };
     }
-    pub fn deinit(self: *Shader, gc: GraphicsContext) void {
+
+    pub fn deinit(self: *const Shader, gc: GraphicsContext) void {
         gc.vkd.destroyShaderModule(gc.dev, self.module, null);
     }
 };
@@ -1009,7 +1024,7 @@ pub const Drawing = struct {
     //uniform_buffers: [pipeline.samplers][]UniformBuffer,
     descriptor_sets: []vk.DescriptorSet,
 
-    descriptor_pool: ?vk.DescriptorPool,
+    descriptor_pool: vk.DescriptorPool,
     descriptor_layout: vk.DescriptorSetLayout,
 
     layout: vk.PipelineLayout,
@@ -1028,6 +1043,7 @@ pub const Drawing = struct {
         const gc = &win.gc;
 
         var bindings = try common.allocator.alloc(vk.DescriptorSetLayoutBinding, pipeline.uniform_sizes.len + pipeline.samplers.len);
+        defer common.allocator.free(bindings);
         for (0..pipeline.uniform_sizes.len) |i| {
             bindings[i] = vk.DescriptorSetLayoutBinding{
                 .binding = @intCast(i),
@@ -1062,6 +1078,7 @@ pub const Drawing = struct {
         }, null);
 
         var pssci = try common.allocator.alloc(vk.PipelineShaderStageCreateInfo, shaders.len);
+        defer common.allocator.free(pssci);
         for (shaders, 0..) |shader, i| {
             pssci[i] = .{
                 .stage = .{
@@ -1075,6 +1092,7 @@ pub const Drawing = struct {
         }
 
         var attribute_desc = try common.allocator.alloc(vk.VertexInputAttributeDescription, pipeline.vertex_description.vertex_attribs.len);
+        defer common.allocator.free(attribute_desc);
         {
             var off: u32 = 0;
             for (pipeline.vertex_description.vertex_attribs, 0..) |attrib, i| {
@@ -1172,6 +1190,7 @@ pub const Drawing = struct {
         const frames: u32 = frames_in_flight;
 
         const pool_sizes = try common.allocator.alloc(vk.DescriptorPoolSize, bindings.len);
+        defer common.allocator.free(pool_sizes);
 
         for (pool_sizes, bindings) |*pool_size, binding| {
             pool_size.* = .{
@@ -1198,7 +1217,7 @@ pub const Drawing = struct {
             .layout = pipeline_layout,
             .vertex_buffer = null,
             .index_buffer = null,
-            .descriptor_pool = if (bindings.len != 0) try gc.vkd.createDescriptorPool(gc.dev, &pool_info, null) else null,
+            .descriptor_pool = try gc.vkd.createDescriptorPool(gc.dev, &pool_info, null),
             .uniform_buffers = uniforms,
             .descriptor_sets = &.{},
             .descriptor_layout = descriptor_layout,
@@ -1212,11 +1231,46 @@ pub const Drawing = struct {
         try drawing.createDescriptorSets(pipeline);
     }
 
-    pub fn deinit(_: *Self) void {
+    pub fn deinit(self: *Self) void {
         //self.textures.deinit();
         //self.cube_textures.deinit();
         //self.vertex_buffer.deinit(&self.window.gc);
         //self.index_buffer.deinit(&self.window.gc);
+        const win = self.window;
+        win.gc.vkd.destroyPipeline(win.gc.dev, self.vk_pipeline, null);
+        win.gc.vkd.destroyPipelineLayout(win.gc.dev, self.layout, null);
+
+        for (self.uniform_buffers) |ubs| {
+            for (ubs) |ub| ub.buff_mem.deinit(&win.gc);
+            common.allocator.free(ubs);
+        }
+        common.allocator.free(self.uniform_buffers);
+
+        win.gc.vkd.destroyDescriptorPool(win.gc.dev, self.descriptor_pool, null);
+
+        win.gc.vkd.destroyDescriptorSetLayout(win.gc.dev, self.descriptor_layout, null);
+
+        common.allocator.free(self.descriptor_sets);
+
+        if (self.index_buffer) |ib| ib.deinit(&win.gc);
+        if (self.vertex_buffer) |vb| vb.deinit(&win.gc);
+
+        // for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        //     vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
+        //     vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+        //     vkDestroyFence(device, inFlightFences[i], nullptr);
+        // }
+
+        // vkDestroyCommandPool(device, commandPool, nullptr);
+
+        // vkDestroyDevice(device, nullptr);
+
+        // if (enableValidationLayers) {
+        //     DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+        // }
+
+        // vkDestroySurfaceKHR(instance, surface, nullptr);
+        // vkDestroyInstance(instance, nullptr);
     }
 
     const cubemapOrientation = enum { xp, yp, zp, xm, ym, zm };
@@ -1229,11 +1283,12 @@ pub const Drawing = struct {
     pub fn createDescriptorSets(self: *Self, pipeline: RenderPipeline) !void {
         var gc = &self.window.gc;
         const layouts = try common.allocator.alloc(vk.DescriptorSetLayout, frames_in_flight);
+        defer common.allocator.free(layouts);
         for (layouts) |*l| l.* = self.descriptor_layout;
 
         const frames: u32 = @intCast(frames_in_flight);
         const allocate_info = vk.DescriptorSetAllocateInfo{
-            .descriptor_pool = self.descriptor_pool.?,
+            .descriptor_pool = self.descriptor_pool,
             .descriptor_set_count = frames,
             .p_set_layouts = layouts.ptr,
         };
@@ -1568,10 +1623,36 @@ pub const Window = struct {
     framebuffers: []vk.Framebuffer,
 
     //depth_buffer: DepthBuffer,
+    default_shaders: DefaultShaders,
 
-    sprite_shaders: [2]Shader,
-    color_shaders: [2]Shader,
-    text_shaders: [2]Shader,
+    const DefaultShaders = struct {
+        sprite_shaders: [2]Shader,
+        color_shaders: [2]Shader,
+        text_shaders: [2]Shader,
+
+        pub fn init(gc: GraphicsContext) !DefaultShaders {
+            const sprite_vert = try Shader.init(gc, &elem_shaders.sprite_vert, .vertex);
+            const sprite_frag = try Shader.init(gc, &elem_shaders.sprite_frag, .fragment);
+
+            const color_vert = try Shader.init(gc, &elem_shaders.color_vert, .vertex);
+            const color_frag = try Shader.init(gc, &elem_shaders.color_frag, .fragment);
+
+            const text_vert = try Shader.init(gc, &elem_shaders.text_vert, .vertex);
+            const text_frag = try Shader.init(gc, &elem_shaders.text_frag, .fragment);
+
+            return .{
+                .sprite_shaders = .{ sprite_vert, sprite_frag },
+                .color_shaders = .{ color_vert, color_frag },
+                .text_shaders = .{ text_vert, text_frag },
+            };
+        }
+
+        pub fn deinit(self: DefaultShaders, gc: GraphicsContext) void {
+            for (self.sprite_shaders) |s| s.deinit(gc);
+            for (self.color_shaders) |s| s.deinit(gc);
+            for (self.text_shaders) |s| s.deinit(gc);
+        }
+    };
 
     const DepthBuffer = struct {
         image: vk.Image,
@@ -1755,15 +1836,6 @@ pub const Window = struct {
             .cursor_func = null,
         };
 
-        const sprite_vert = try Shader.init(gc, &elem_shaders.sprite_vert, .vertex);
-        const sprite_frag = try Shader.init(gc, &elem_shaders.sprite_frag, .fragment);
-
-        const color_vert = try Shader.init(gc, &elem_shaders.color_vert, .vertex);
-        const color_frag = try Shader.init(gc, &elem_shaders.color_frag, .fragment);
-
-        const text_vert = try Shader.init(gc, &elem_shaders.text_vert, .vertex);
-        const text_frag = try Shader.init(gc, &elem_shaders.text_frag, .fragment);
-
         return Window{
             .glfw_win = glfw_win,
             .events = events,
@@ -1780,15 +1852,19 @@ pub const Window = struct {
             .pool = pool,
             .framebuffers = framebuffers,
 
-            // default shaders
-            .sprite_shaders = .{ sprite_vert, sprite_frag },
-            .color_shaders = .{ color_vert, color_frag },
-            .text_shaders = .{ text_vert, text_frag },
+            .default_shaders = try DefaultShaders.init(gc),
         };
     }
 
     pub fn deinit(self: *Window) void {
+        self.default_shaders.deinit(self.gc);
         self.gc.vkd.destroyCommandPool(self.gc.dev, self.pool, null);
+
+        for (self.framebuffers) |fb| self.gc.vkd.destroyFramebuffer(self.gc.dev, fb, null);
+        common.allocator.free(self.framebuffers);
+
+        self.gc.vkd.destroyRenderPass(self.gc.dev, self.render_pass, null);
+
         self.swapchain.deinit(&self.gc);
         self.gc.deinit();
         glfw.glfwDestroyWindow(self.glfw_win);
@@ -1969,10 +2045,10 @@ pub const Scene = struct {
             common.allocator.destroy(elem);
         }
 
-        self.drawing_array.deinit(common.allocator);
+        self.drawing_array.deinit();
 
-        self.win.gc.vkd.freeCommandBuffers(self.win.gc.dev, self.win.pool, 1, self.command_buffer);
-        common.allocator.destroy(self.command_buffer);
+        self.window.gc.vkd.freeCommandBuffers(self.window.gc.dev, self.window.pool, @intCast(self.command_buffers.len), self.command_buffers.ptr);
+        common.allocator.free(self.command_buffers);
     }
 
     pub fn new(self: *Self) !*Drawing {
