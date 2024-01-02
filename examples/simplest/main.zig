@@ -8,14 +8,14 @@ const Vec3 = ui.Vec3;
 const Vertex = ui.Vertex;
 const common = ui.common;
 
-const display = ui.display;
+const Ui = ui.Ui;
 
 const math = ui.math;
 const gl = ui.gl;
 
-var state: *display.State = undefined;
+var state: *Ui = undefined;
 
-fn keyDown(key_state: display.KeyState, mods: i32, dt: f32) !void {
+fn keyDown(key_state: ui.KeyState, mods: i32, dt: f32) !void {
     _ = mods;
     _ = dt;
     if (key_state.pressed_table[graphics.glfw.GLFW_KEY_Q]) {
@@ -26,7 +26,7 @@ fn keyDown(key_state: display.KeyState, mods: i32, dt: f32) !void {
 pub fn main() !void {
     defer _ = common.gpa_instance.deinit();
 
-    state = try display.State.init(.{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
+    state = try Ui.init(.{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
     defer state.deinit();
     state.key_down = keyDown;
 

@@ -7,7 +7,10 @@ pub const geometry = @import("geometry");
 pub const graphics = @import("graphics");
 pub const common = @import("common");
 pub const parsing = @import("parsing");
-pub const display = @import("display/display.zig");
+pub const Ui = @import("ui/ui.zig").Ui;
+pub const Callback = @import("ui/ui.zig").Callback;
+pub const Region = @import("ui/ui.zig").Region;
+pub const KeyState = @import("ui/ui.zig").KeyState;
 
 pub const Mesh = geometry.Mesh;
 pub const Vertex = geometry.Vertex;

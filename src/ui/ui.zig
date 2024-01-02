@@ -3,8 +3,8 @@ const math = @import("math");
 const numericals = @import("numericals");
 const img = @import("img");
 
-pub const Ui = @import("ui.zig").Ui;
-pub const Region = @import("ui.zig").Region;
+pub const Callback = @import("callback.zig").Callback;
+pub const Region = @import("callback.zig").Region;
 
 const geometry = @import("geometry");
 const graphics = @import("graphics");
@@ -72,7 +72,7 @@ pub const KeyState = struct {
     last_interact_table: []f64,
 };
 
-pub const State = struct {
+pub const Ui = struct {
     main_win: *graphics.Window,
     scene: graphics.Scene,
 
@@ -89,7 +89,7 @@ pub const State = struct {
     last_time: f32,
     dt: f32,
 
-    ui: Ui,
+    callback: Callback,
     bdf: BdfParse,
 
     key_down: *const fn (KeyState, i32, f32) anyerror!void = defaultKeyDown,
@@ -136,7 +136,7 @@ pub const State = struct {
             .dt = 0,
             .scene = try graphics.Scene.init(main_win),
             .last_time = @as(f32, @floatCast(graphics.glfw.glfwGetTime())),
-            .ui = try Ui.init(common.allocator, main_win),
+            .callback = try Callback.init(common.allocator, main_win),
         };
 
         return state;
@@ -144,25 +144,25 @@ pub const State = struct {
 
     pub fn charFunc(ptr: *anyopaque, codepoint: u32) !void {
         var state: *Self = @ptrCast(@alignCast(ptr));
-        try state.ui.getChar(codepoint);
+        try state.callback.getChar(codepoint);
         try state.char_func(codepoint);
     }
 
     pub fn scrollFunc(ptr: *anyopaque, xoffset: f64, yoffset: f64) !void {
         var state: *Self = @ptrCast(@alignCast(ptr));
-        try state.ui.getScroll(xoffset, yoffset);
+        try state.callback.getScroll(xoffset, yoffset);
         try state.scroll_func(xoffset, yoffset);
     }
 
     pub fn mouseFunc(ptr: *anyopaque, button: i32, action: graphics.Action, mods: i32) !void {
         var state: *Self = @ptrCast(@alignCast(ptr));
-        try state.ui.getMouse(button, action, mods);
+        try state.callback.getMouse(button, action, mods);
         try state.mouse_func(button, action, mods);
     }
 
     pub fn cursorFunc(ptr: *anyopaque, xoffset: f64, yoffset: f64) !void {
         var state: *Self = @ptrCast(@alignCast(ptr));
-        try state.ui.getCursor(xoffset, yoffset);
+        try state.callback.getCursor(xoffset, yoffset);
         try state.cursor_func(xoffset, yoffset);
     }
 
@@ -193,7 +193,7 @@ pub const State = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.ui.deinit();
+        self.callback.deinit();
         self.scene.deinit();
         self.main_win.deinit();
         self.bdf.deinit();
@@ -208,14 +208,14 @@ pub const State = struct {
         const h: f32 = @floatFromInt(height);
         try state.cam.setParameters(0.6, w / h, 0.1, 2048);
 
-        try state.ui.getFrame(width, height);
+        try state.callback.getFrame(width, height);
         try state.frame_func(width, height);
     }
 
     fn keyFunc(ptr: *anyopaque, key: i32, scancode: i32, action: graphics.Action, mods: i32) !void {
         var state: *Self = @ptrCast(@alignCast(ptr));
 
-        try state.ui.getKey(key, scancode, action, mods);
+        try state.callback.getKey(key, scancode, action, mods);
         try state.key_func(key, scancode, action, mods);
 
         if (action == .press) {

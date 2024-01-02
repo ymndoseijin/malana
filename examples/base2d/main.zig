@@ -6,24 +6,24 @@ const Vec3 = ui.Vec3;
 const Vertex = ui.Vertex;
 const common = ui.common;
 
-const display = ui.display;
+const Ui = ui.Ui;
 
 const math = ui.math;
 
-var state: *display.State = undefined;
+var state: *Ui = undefined;
 
 var num_clicked: u32 = 0;
 
 var color: graphics.ColoredRect = undefined;
 
-fn keyDown(key_state: display.KeyState, mods: i32, dt: f32) !void {
+fn keyDown(key_state: ui.KeyState, mods: i32, dt: f32) !void {
     _ = mods;
     _ = dt;
     if (key_state.pressed_table[graphics.glfw.GLFW_KEY_Q]) {
         state.main_win.alive = false;
     }
 }
-fn nice(_: *anyopaque, _: *display.Ui, _: i32, action: graphics.Action, _: i32) !bool {
+fn nice(_: *anyopaque, _: *ui.Callback, _: i32, action: graphics.Action, _: i32) !bool {
     if (action == .press) {
         std.debug.print("Hey!", .{});
         try state.scene.delete(color.drawing);
@@ -39,7 +39,7 @@ pub fn main() !void {
     defer bdf.deinit();
     try bdf.parse("b12.bdf");
 
-    state = try display.State.init(.{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
+    state = try Ui.init(.{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
     defer state.deinit();
 
     state.main_win.setSize(1920, 1080);
@@ -60,9 +60,9 @@ pub fn main() !void {
     color.transform.rotation.angle = 0.5;
     color.updateTransform();
 
-    var color_region: display.Region = .{ .transform = color.transform };
+    var color_region: ui.Region = .{ .transform = color.transform };
 
-    try state.ui.elements.append(.{ @ptrCast(&color), .{ .mouse_func = nice, .region = &color_region } });
+    try state.callback.elements.append(.{ @ptrCast(&color), .{ .mouse_func = nice, .region = &color_region } });
 
     var text = try graphics.TextBdf.init(
         &state.scene,
