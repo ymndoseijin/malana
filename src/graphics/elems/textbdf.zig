@@ -60,6 +60,7 @@ pub const Text = struct {
     pos: Vec3,
     width: f32,
     height: f32,
+    texture: graphics.Texture,
 
     pub fn makeAtlas(bdf: BdfParse) !Image {
         const count = bdf.map.items.len;
@@ -178,6 +179,7 @@ pub const Text = struct {
 
     pub fn deinit(self: *Text) void {
         common.allocator.free(self.atlas.data);
+        self.texture.deinit();
     }
 
     pub fn init(scene: anytype, bdf: BdfParse, pos: Vec3) !Text {
@@ -200,6 +202,7 @@ pub const Text = struct {
             .atlas = atlas,
             .width = 0,
             .height = 0,
+            .texture = tex,
         };
 
         return res;

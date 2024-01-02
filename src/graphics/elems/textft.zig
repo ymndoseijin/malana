@@ -86,6 +86,8 @@ pub const Text = struct {
         advance: f32,
         parent: *Text,
 
+        texture: graphics.Texture,
+
         pub fn setOpacity(self: *Character, opacity: f32) void {
             self.sprite.setOpacity(opacity);
         }
@@ -131,11 +133,13 @@ pub const Text = struct {
                 .sprite = sprite,
                 .offset = offset,
                 .advance = advance / 64,
+                .texture = tex,
             };
         }
 
         pub fn deinit(self: Character) void {
             common.allocator.free(self.image.data);
+            self.texture.deinit();
         }
     };
 

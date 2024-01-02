@@ -804,7 +804,7 @@ pub const Texture = struct {
         };
     }
 
-    pub fn deinit(self: *Texture) void {
+    pub fn deinit(self: Texture) void {
         const win = self.window;
         win.gc.vkd.destroySampler(win.gc.dev, self.sampler, null);
         win.gc.vkd.destroyImageView(win.gc.dev, self.image_view, null);
@@ -1296,7 +1296,11 @@ pub const Drawing = struct {
         self.descriptor_sets = try common.allocator.alloc(vk.DescriptorSet, frames_in_flight);
 
         try gc.vkd.allocateDescriptorSets(gc.dev, &allocate_info, self.descriptor_sets.ptr);
+        try self.updateDescriptorSets(pipeline);
+    }
 
+    pub fn updateDescriptorSets(self: *Self, pipeline: RenderPipeline) !void {
+        var gc = &self.window.gc;
         for (0..frames_in_flight) |i| {
             var descriptor_writes = try common.allocator.alloc(vk.WriteDescriptorSet, pipeline.samplers.len + pipeline.uniform_sizes.len);
             var buffer_info = try common.allocator.alloc(vk.DescriptorBufferInfo, pipeline.samplers.len + pipeline.uniform_sizes.len);
@@ -1381,6 +1385,11 @@ pub const Drawing = struct {
     pub fn bindIndexBuffer(self: *Self, indices: []const u32) !void {
         var gc = &self.window.gc;
         const pool = self.window.pool;
+
+        if (self.index_buffer) |ib| {
+            try gc.vkd.deviceWaitIdle(gc.dev);
+            ib.deinit(gc);
+        }
 
         const buffer = try gc.vkd.createBuffer(gc.dev, &.{
             .size = @sizeOf(u32) * indices.len,
@@ -1623,7 +1632,14 @@ pub const Window = struct {
     framebuffers: []vk.Framebuffer,
 
     //depth_buffer: DepthBuffer,
+
     default_shaders: DefaultShaders,
+
+    const DepthBuffer = struct {
+        image: vk.Image,
+        memory: vk.DeviceMemory,
+        view: vk.ImageView,
+    };
 
     const DefaultShaders = struct {
         sprite_shaders: [2]Shader,
@@ -1652,12 +1668,6 @@ pub const Window = struct {
             for (self.color_shaders) |s| s.deinit(gc);
             for (self.text_shaders) |s| s.deinit(gc);
         }
-    };
-
-    const DepthBuffer = struct {
-        image: vk.Image,
-        memory: vk.DeviceMemory,
-        view: vk.ImageView,
     };
 
     pub fn setScrollCallback(self: *Window, fun: *const fn (*anyopaque, f64, f64) anyerror!void) void {
@@ -2141,6 +2151,11 @@ pub const VertexDescription = struct {
     pub fn bindVertexBuffer(comptime self: VertexDescription, draw: *Drawing, vertices: []const self.getAttributeType()) !void {
         var gc = &draw.window.gc;
         const pool = draw.window.pool;
+
+        if (draw.vertex_buffer) |vb| {
+            try gc.vkd.deviceWaitIdle(gc.dev);
+            vb.deinit(gc);
+        }
 
         const buffer = try gc.vkd.createBuffer(gc.dev, &.{
             .size = self.getVertexSize() * vertices.len,

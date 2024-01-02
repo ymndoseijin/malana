@@ -31,9 +31,13 @@ pub fn main() !void {
     state.key_down = keyDown;
 
     var tex = try graphics.Texture.initFromPath(state.main_win, "resources/ear.qoi", .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
+    var venus_tex = try graphics.Texture.initFromPath(state.main_win, "resources/cool.png", .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
     defer tex.deinit();
+    defer venus_tex.deinit();
 
     var sprite = try graphics.Sprite.init(&state.scene, .{ .tex = tex });
+
+    //try sprite.updateTexture(.{ .tex = venus_tex });
 
     while (state.main_win.alive) {
         try state.updateEvents();
