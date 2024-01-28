@@ -211,7 +211,7 @@ pub const Text = struct {
 
         while (it.next()) |word| {
             if (try self.getExtent(word) + start[0] > self.bounding_width + self.transform.translation[0] and self.count != 0) {
-                start = .{ self.transform.translation[0], start[1] - self.line_spacing };
+                start = .{ self.transform.translation[0], start[1] + self.line_spacing };
             }
 
             for (word) |c| {

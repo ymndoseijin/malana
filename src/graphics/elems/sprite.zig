@@ -46,7 +46,7 @@ pub const Sprite = struct {
         var actual_pipeline = info.pipeline;
 
         actual_pipeline.samplers = &.{info.tex};
-        try drawing.init(scene.window, &scene.window.default_shaders.sprite_shaders, actual_pipeline);
+        try drawing.init(scene.window, info.shaders orelse &scene.window.default_shaders.sprite_shaders, actual_pipeline);
 
         try graphics.SpritePipeline.vertex_description.bindVertex(drawing, &.{
             .{ .{ 0, 0, 1 }, .{ 0, 0 } },

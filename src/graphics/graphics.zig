@@ -1236,7 +1236,11 @@ pub const Drawing = struct {
         //self.cube_textures.deinit();
         //self.vertex_buffer.deinit(&self.window.gc);
         //self.index_buffer.deinit(&self.window.gc);
+
         const win = self.window;
+
+        win.gc.vkd.deviceWaitIdle(win.gc.dev) catch return;
+
         win.gc.vkd.destroyPipeline(win.gc.dev, self.vk_pipeline, null);
         win.gc.vkd.destroyPipelineLayout(win.gc.dev, self.layout, null);
 
@@ -1559,6 +1563,11 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
 
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
+        if (win.fixed_size) {
+            _ = glfw.glfwSetWindowSize(glfw_win, win.frame_width, win.frame_height);
+            if (!win.size_dirty) return;
+        }
+
         win.swapchain.recreate(&win.gc, .{ .width = @intCast(width), .height = @intCast(height) }) catch |err| {
             printError(err);
         };
@@ -1572,6 +1581,9 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
 
         win.frame_width = width;
         win.frame_height = height;
+
+        win.viewport_width = width;
+        win.viewport_height = height;
 
         if (win.events.frame_func) |fun| {
             fun(map[0], width, height) catch |err| {
@@ -1622,6 +1634,8 @@ pub const Window = struct {
 
     viewport_width: i32,
     viewport_height: i32,
+    fixed_size: bool,
+    size_dirty: bool,
 
     events: EventTable,
 
@@ -1811,12 +1825,13 @@ pub const Window = struct {
     pub fn initBare(info: WindowInfo) !Window {
         glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, if (info.resizable) glfw.GLFW_TRUE else glfw.GLFW_FALSE);
         glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
+        std.debug.print("por que {any}\n", .{info});
         const win_or = glfw.glfwCreateWindow(info.width, info.height, info.name, null, null);
 
         const glfw_win = win_or orelse return GlfwError.FailedGlfwWindow;
 
         glfw.glfwMakeContextCurrent(glfw_win);
-        glfw.glfwSetWindowAspectRatio(glfw_win, 16, 9);
+        //glfw.glfwSetWindowAspectRatio(glfw_win, 16, 9);
         _ = glfw.glfwSetKeyCallback(glfw_win, getGlfwKey);
         _ = glfw.glfwSetCharCallback(glfw_win, getGlfwChar);
         _ = glfw.glfwSetFramebufferSizeCallback(glfw_win, getFramebufferSize);
@@ -1854,6 +1869,8 @@ pub const Window = struct {
             .frame_width = info.width,
             .viewport_height = info.height,
             .frame_height = info.height,
+            .fixed_size = !info.resizable,
+            .size_dirty = false,
 
             // vulkan
             .gc = gc,
