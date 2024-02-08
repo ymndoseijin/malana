@@ -1170,9 +1170,9 @@ pub const Drawing = struct {
                     .alpha_to_coverage_enable = vk.FALSE,
                     .alpha_to_one_enable = vk.FALSE,
                 },
-                .p_depth_stencil_state = if (win.depth_buffer) |_| &vk.PipelineDepthStencilStateCreateInfo{
-                    .depth_test_enable = vk.TRUE,
-                    .depth_write_enable = vk.TRUE,
+                .p_depth_stencil_state = &vk.PipelineDepthStencilStateCreateInfo{
+                    .depth_test_enable = if (pipeline.depth_test) vk.TRUE else vk.FALSE,
+                    .depth_write_enable = if (pipeline.depth_test) vk.TRUE else vk.FALSE,
                     .depth_compare_op = .less,
                     .depth_bounds_test_enable = vk.FALSE,
                     .min_depth_bounds = 0,
@@ -1180,7 +1180,7 @@ pub const Drawing = struct {
                     .stencil_test_enable = vk.FALSE,
                     .front = undefined,
                     .back = undefined,
-                } else null,
+                },
                 .p_color_blend_state = &vk.PipelineColorBlendStateCreateInfo{
                     .logic_op_enable = vk.FALSE,
                     .logic_op = .clear,
@@ -1649,7 +1649,6 @@ pub const WindowInfo = struct {
     height: i32 = 256,
     resizable: bool = true,
     name: [:0]const u8 = "default name",
-    depth_test: bool = true,
 };
 
 pub const Window = struct {
@@ -1670,7 +1669,7 @@ pub const Window = struct {
     render_pass: vk.RenderPass,
     pool: vk.CommandPool,
     framebuffers: []vk.Framebuffer,
-    depth_buffer: ?DepthBuffer,
+    depth_buffer: DepthBuffer,
 
     default_shaders: DefaultShaders,
 
@@ -1834,7 +1833,7 @@ pub const Window = struct {
         return win;
     }
 
-    fn createRenderPass(gc: *const GraphicsContext, swapchain: Swapchain, depth_test: bool) !vk.RenderPass {
+    fn createRenderPass(gc: *const GraphicsContext, swapchain: Swapchain) !vk.RenderPass {
         const color_attachment = vk.AttachmentDescription{
             .format = swapchain.surface_format.format,
             .samples = .{ .@"1_bit" = true },
@@ -1871,7 +1870,7 @@ pub const Window = struct {
             .pipeline_bind_point = .graphics,
             .color_attachment_count = 1,
             .p_color_attachments = @ptrCast(&color_attachment_ref),
-            .p_depth_stencil_attachment = if (depth_test) @ptrCast(&depth_attachment_ref) else null,
+            .p_depth_stencil_attachment = @ptrCast(&depth_attachment_ref),
         };
 
         const dependency = vk.SubpassDependency{
@@ -1880,13 +1879,10 @@ pub const Window = struct {
             .src_stage_mask = .{ .color_attachment_output_bit = true, .early_fragment_tests_bit = true },
             .src_access_mask = .{},
             .dst_stage_mask = .{ .color_attachment_output_bit = true, .early_fragment_tests_bit = true },
-            .dst_access_mask = .{ .color_attachment_write_bit = true, .depth_stencil_attachment_write_bit = depth_test },
+            .dst_access_mask = .{ .color_attachment_write_bit = true, .depth_stencil_attachment_write_bit = true },
         };
 
-        const depth_attachments = [2]vk.AttachmentDescription{ color_attachment, depth_attachment };
-        const color_attachments = [1]vk.AttachmentDescription{color_attachment};
-
-        const attachments = if (depth_test) &depth_attachments else &color_attachments;
+        const attachments = &[2]vk.AttachmentDescription{ color_attachment, depth_attachment };
 
         return try gc.vkd.createRenderPass(gc.dev, &.{
             .attachment_count = @intCast(attachments.len),
@@ -1919,14 +1915,14 @@ pub const Window = struct {
 
         const swapchain = try Swapchain.init(&gc, common.allocator, .{ .width = @intCast(info.width), .height = @intCast(info.height) });
 
-        const render_pass = try createRenderPass(&gc, swapchain, info.depth_test);
+        const render_pass = try createRenderPass(&gc, swapchain);
 
         const pool = try gc.vkd.createCommandPool(gc.dev, &.{
             .queue_family_index = gc.graphics_queue.family,
             .flags = .{ .reset_command_buffer_bit = true },
         }, null);
 
-        const depth_buffer = if (info.depth_test) try createDepthBuffer(&gc, swapchain, pool) else null;
+        const depth_buffer = try createDepthBuffer(&gc, swapchain, pool);
 
         const framebuffers = try createFramebuffers(&gc, common.allocator, render_pass, swapchain, depth_buffer);
 
@@ -1970,7 +1966,7 @@ pub const Window = struct {
         common.allocator.free(self.framebuffers);
 
         self.gc.vkd.destroyRenderPass(self.gc.dev, self.render_pass, null);
-        if (self.depth_buffer) |db| db.deinit(&self.gc);
+        self.depth_buffer.deinit(&self.gc);
 
         self.swapchain.deinit(&self.gc);
         self.gc.deinit();
@@ -2116,7 +2112,7 @@ pub const Scene = struct {
             .framebuffer = self.window.framebuffers[result.image_index],
             .render_area = render_area,
             .clear_value_count = 2,
-            .p_clear_values = if (self.window.depth_buffer) |_| &[2]vk.ClearValue{ clear_color, clear_depth } else &[1]vk.ClearValue{clear_color},
+            .p_clear_values = &[2]vk.ClearValue{ clear_color, clear_depth },
         }, .@"inline");
 
         for (self.drawing_array.items) |elem| {
