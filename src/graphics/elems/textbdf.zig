@@ -62,7 +62,7 @@ pub const Text = struct {
     height: f32,
     texture: graphics.Texture,
 
-    pub fn makeAtlas(bdf: BdfParse) !Image {
+    pub fn makeAtlas(ally: std.mem.Allocator, bdf: BdfParse) !Image {
         const count = bdf.map.items.len;
 
         const count_float: f32 = @floatFromInt(count);
@@ -71,7 +71,7 @@ pub const Text = struct {
 
         const side_size: u32 = size * bdf.width;
 
-        var atlas = try common.allocator.alloc(img.color.Rgba32, side_size * side_size);
+        var atlas = try ally.alloc(img.color.Rgba32, side_size * side_size);
         for (atlas) |*elem| {
             elem.* = .{ .r = 30, .g = 100, .b = 100, .a = 255 };
         }
@@ -97,12 +97,12 @@ pub const Text = struct {
         try self.print(str);
     }
 
-    pub fn print(self: *Text, text: []const u8) !void {
+    pub fn print(self: *Text, ally: std.mem.Allocator, text: []const u8) !void {
         if (text.len == 0) return;
 
         const Attribute = BdfPipeline.getAttributeType();
-        var vertices = std.ArrayList(Attribute).init(common.allocator);
-        var indices = std.ArrayList(u32).init(common.allocator);
+        var vertices = std.ArrayList(Attribute).init(ally);
+        var indices = std.ArrayList(u32).init(ally);
         defer vertices.deinit();
         defer indices.deinit();
 
@@ -177,8 +177,8 @@ pub const Text = struct {
         try BdfPipeline.vertex_description.bindVertex(self.drawing, vertices.items, indices.items);
     }
 
-    pub fn deinit(self: *Text) void {
-        common.allocator.free(self.atlas.data);
+    pub fn deinit(self: *Text, ally: std.mem.Allocator) void {
+        ally.free(self.atlas.data);
         self.texture.deinit();
     }
 

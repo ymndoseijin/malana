@@ -66,11 +66,11 @@ pub const MeshBuilder = struct {
         );
     }
 
-    pub fn init() !MeshBuilder {
+    pub fn init(ally: std.mem.Allocator) !MeshBuilder {
         return MeshBuilder{
             .count = 0,
-            .vertices = std.ArrayList(f32).init(common.allocator),
-            .indices = std.ArrayList(u32).init(common.allocator),
+            .vertices = std.ArrayList(f32).init(ally),
+            .indices = std.ArrayList(u32).init(ally),
         };
     }
 };

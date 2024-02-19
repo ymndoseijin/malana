@@ -26,21 +26,19 @@ fn keyDown(key_state: ui.KeyState, mods: i32, dt: f32) !void {
 fn nice(_: *anyopaque, _: *ui.Callback, _: i32, action: graphics.Action, _: i32) !bool {
     if (action == .press) {
         std.debug.print("Hey!", .{});
-        try state.scene.delete(color.drawing);
+        try state.scene.delete(state.scene.window.ally, color.drawing);
         num_clicked += 1;
     }
     return true;
 }
 
 pub fn main() !void {
-    defer _ = common.gpa_instance.deinit();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const ally = gpa.allocator();
 
-    var bdf = try ui.parsing.BdfParse.init();
-    defer bdf.deinit();
-    try bdf.parse("b12.bdf");
-
-    state = try Ui.init(.{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
-    defer state.deinit();
+    state = try Ui.init(ally, .{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
+    defer state.deinit(ally);
 
     state.main_win.setSize(1920, 1080);
     // get image file
@@ -49,7 +47,7 @@ pub fn main() !void {
 
     const image_path = arg_it.next() orelse return error.NotEnoughArguments;
 
-    var tex = try graphics.Texture.initFromPath(state.main_win, image_path, .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
+    var tex = try graphics.Texture.initFromPath(ally, state.main_win, image_path, .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
     defer tex.deinit();
 
     var sprite = try graphics.Sprite.init(&state.scene, .{ .tex = tex });
@@ -64,27 +62,17 @@ pub fn main() !void {
 
     try state.callback.elements.append(.{ @ptrCast(&color), .{ .mouse_func = nice, .region = &color_region } });
 
-    var text = try graphics.TextBdf.init(
-        &state.scene,
-        bdf,
-        .{ 0, 0, 0 },
-    );
-    defer text.deinit();
-
-    //try text.initUniform();
-
-    var char_test = try graphics.TextFt.init("resources/cmunrm.ttf", 50, 1, 250);
+    var char_test = try graphics.TextFt.init(ally, "resources/cmunrm.ttf", 50, 1, 250);
     char_test.transform.translation = .{ 0, 200 };
-    try char_test.print(&state.scene, .{ .text = "hello world! " });
-    try char_test.print(&state.scene, .{ .text = "I'm here!" });
+    try char_test.print(&state.scene, ally, .{ .text = "hello world! " });
+    try char_test.print(&state.scene, ally, .{ .text = "I'm here!" });
     char_test.setOpacity(0.5);
-    defer char_test.deinit();
+    defer char_test.deinit(ally);
 
     state.key_down = keyDown;
 
     while (state.main_win.alive) {
         try state.updateEvents();
-        try text.printFmt("rect clicked {} times! {d:.4} {d:.1}", .{ num_clicked, state.cam.move, 1 / state.dt });
 
         sprite.transform.rotation.angle += state.dt;
         sprite.updateTransform();

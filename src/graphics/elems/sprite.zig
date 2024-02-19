@@ -20,8 +20,7 @@ const Vec3Utils = math.Vec3Utils;
 
 const elem_shaders = @import("elem_shaders");
 
-// set as uniform 1, you can use it if your struct layout is compatible with it
-const SpriteUniform: graphics.UniformDescription = .{ .type = extern struct { transform: math.Mat4, opacity: f32 } };
+const DefaultSpriteUniform: graphics.UniformDescription = .{ .type = extern struct { transform: math.Mat4, opacity: f32 } };
 
 const SpriteInfo = struct {
     shaders: ?[]graphics.Shader = null,
@@ -29,104 +28,108 @@ const SpriteInfo = struct {
     pipeline: graphics.RenderPipeline = graphics.SpritePipeline,
 };
 
-pub const Sprite = struct {
-    pub const Self = @This();
-    pub fn init(scene: anytype, info: SpriteInfo) !Self {
-        const w: f32 = @floatFromInt(info.tex.width);
-        const h: f32 = @floatFromInt(info.tex.height);
+pub const Sprite = CustomSprite(DefaultSpriteUniform);
 
-        const default_transform: graphics.Transform2D = .{
-            .scale = .{ 1, 1 },
-            .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
-            .translation = .{ 0, 0 },
-        };
+pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
+    return struct {
+        pub const Self = @This();
+        pub fn init(scene: anytype, info: SpriteInfo) !Self {
+            const w: f32 = @floatFromInt(info.tex.width);
+            const h: f32 = @floatFromInt(info.tex.height);
 
-        var drawing = try scene.new();
+            const default_transform: graphics.Transform2D = .{
+                .scale = .{ 1, 1 },
+                .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
+                .translation = .{ 0, 0 },
+            };
 
-        var actual_pipeline = info.pipeline;
+            var drawing = try scene.new();
 
-        actual_pipeline.samplers = &.{info.tex};
-        try drawing.init(scene.window, info.shaders orelse &scene.window.default_shaders.sprite_shaders, actual_pipeline);
+            var actual_pipeline = info.pipeline;
 
-        try graphics.SpritePipeline.vertex_description.bindVertex(drawing, &.{
-            .{ .{ 0, 0, 1 }, .{ 0, 0 } },
-            .{ .{ w, 0, 1 }, .{ 1, 0 } },
-            .{ .{ w, h, 1 }, .{ 1, 1 } },
-            .{ .{ 0, h, 1 }, .{ 0, 1 } },
-        }, &.{ 0, 1, 2, 2, 3, 0 });
+            actual_pipeline.samplers = &.{info.tex};
+            try drawing.init(scene.window.ally, scene.window, info.shaders orelse &scene.window.default_shaders.sprite_shaders, actual_pipeline);
 
-        SpriteUniform.setUniform(drawing, 1, .{ .transform = default_transform.getMat().cast(4, 4), .opacity = 1 });
-        graphics.GlobalUniform.setUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+            try graphics.SpritePipeline.vertex_description.bindVertex(drawing, &.{
+                .{ .{ 0, 0, 1 }, .{ 0, 0 } },
+                .{ .{ w, 0, 1 }, .{ 1, 0 } },
+                .{ .{ w, h, 1 }, .{ 1, 1 } },
+                .{ .{ 0, h, 1 }, .{ 0, 1 } },
+            }, &.{ 0, 1, 2, 2, 3, 0 });
 
-        return Self{
-            .drawing = drawing,
-            .width = w,
-            .height = h,
-            .opacity = 1.0,
-            .transform = default_transform,
-        };
-    }
+            SpriteUniform.setUniform(drawing, 1, .{ .transform = default_transform.getMat().cast(4, 4), .opacity = 1 });
+            graphics.GlobalUniform.setUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
-    pub fn updateTexture(self: *Sprite, info: SpriteInfo) !void {
-        var actual_pipeline = info.pipeline;
-        actual_pipeline.samplers = &.{info.tex};
+            return Self{
+                .drawing = drawing,
+                .width = w,
+                .height = h,
+                .opacity = 1.0,
+                .transform = default_transform,
+            };
+        }
 
-        try self.drawing.updateDescriptorSets(actual_pipeline);
+        pub fn updateTexture(self: *Sprite, info: SpriteInfo) !void {
+            var actual_pipeline = info.pipeline;
+            actual_pipeline.samplers = &.{info.tex};
 
-        const w: f32 = @floatFromInt(info.tex.width);
-        const h: f32 = @floatFromInt(info.tex.height);
+            try self.drawing.updateDescriptorSets(actual_pipeline);
 
-        const default_transform: graphics.Transform2D = .{
-            .scale = .{ 1, 1 },
-            .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
-            .translation = .{ 0, 0 },
-        };
+            const w: f32 = @floatFromInt(info.tex.width);
+            const h: f32 = @floatFromInt(info.tex.height);
 
-        try graphics.SpritePipeline.vertex_description.bindVertex(self.drawing, &.{
-            .{ .{ 0, 0, 1 }, .{ 0, 0 } },
-            .{ .{ w, 0, 1 }, .{ 1, 0 } },
-            .{ .{ w, h, 1 }, .{ 1, 1 } },
-            .{ .{ 0, h, 1 }, .{ 0, 1 } },
-        }, &.{ 0, 1, 2, 2, 3, 0 });
+            const default_transform: graphics.Transform2D = .{
+                .scale = .{ 1, 1 },
+                .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
+                .translation = .{ 0, 0 },
+            };
 
-        SpriteUniform.setUniform(self.drawing, 1, .{ .transform = default_transform.getMat().cast(4, 4), .opacity = 1 });
-        graphics.GlobalUniform.setUniform(self.drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+            try graphics.SpritePipeline.vertex_description.bindVertex(self.drawing, &.{
+                .{ .{ 0, 0, 1 }, .{ 0, 0 } },
+                .{ .{ w, 0, 1 }, .{ 1, 0 } },
+                .{ .{ w, h, 1 }, .{ 1, 1 } },
+                .{ .{ 0, h, 1 }, .{ 0, 1 } },
+            }, &.{ 0, 1, 2, 2, 3, 0 });
 
-        self.width = w;
-        self.height = h;
-        self.transform = default_transform;
-    }
+            SpriteUniform.setUniform(self.drawing, 1, .{ .transform = default_transform.getMat().cast(4, 4), .opacity = 1 });
+            graphics.GlobalUniform.setUniform(self.drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
-    pub fn textureFromPath(self: *Self, path: []const u8) !Self {
-        const wi, const hi = try self.drawing.textureFromPath(path);
+            self.width = w;
+            self.height = h;
+            self.transform = default_transform;
+        }
 
-        const w: f32 = @floatFromInt(wi);
-        const h: f32 = @floatFromInt(hi);
+        pub fn textureFromPath(self: *Self, path: []const u8) !Self {
+            const wi, const hi = try self.drawing.textureFromPath(path);
 
-        self.drawing.bindVertex(&.{
-            0, 0, 1, 0, 0,
-            w, 0, 1, 1, 0,
-            w, h, 1, 1, 1,
-            0, h, 1, 0, 1,
-        }, &.{ 0, 1, 2, 2, 3, 0 });
+            const w: f32 = @floatFromInt(wi);
+            const h: f32 = @floatFromInt(hi);
 
-        self.width = w;
-        self.height = h;
-    }
+            self.drawing.bindVertex(&.{
+                0, 0, 1, 0, 0,
+                w, 0, 1, 1, 0,
+                w, h, 1, 1, 1,
+                0, h, 1, 0, 1,
+            }, &.{ 0, 1, 2, 2, 3, 0 });
 
-    pub fn updateTransform(self: Self) void {
-        SpriteUniform.setUniformField(self.drawing, 1, .transform, self.transform.getMat().cast(4, 4));
-    }
+            self.width = w;
+            self.height = h;
+        }
 
-    pub fn setOpacity(self: *Self, opacity: f32) void {
-        self.opacity = opacity;
-        SpriteUniform.setUniformField(self.drawing, 1, .opacity, opacity);
-    }
+        pub fn updateTransform(self: Self) void {
+            SpriteUniform.setUniformField(self.drawing, 1, .transform, self.transform.getMat().cast(4, 4));
+        }
 
-    width: f32,
-    height: f32,
-    opacity: f32,
-    transform: graphics.Transform2D,
+        pub fn setOpacity(self: *Self, opacity: f32) void {
+            self.opacity = opacity;
+            SpriteUniform.setUniformField(self.drawing, 1, .opacity, opacity);
+        }
 
-    drawing: *Drawing,
-};
+        width: f32,
+        height: f32,
+        opacity: f32,
+        transform: graphics.Transform2D,
+
+        drawing: *Drawing,
+    };
+}

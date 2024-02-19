@@ -46,7 +46,7 @@ pub fn VsopParse(comptime coord_num: usize) type {
             return coords;
         }
 
-        pub fn init(path: [:0]const u8) !Self {
+        pub fn init(ally: std.mem.Allocator, path: [:0]const u8) !Self {
             var file = try std.fs.cwd().openFile(path, .{});
             defer file.close();
 
@@ -58,7 +58,7 @@ pub fn VsopParse(comptime coord_num: usize) type {
             var coord_id: usize = 0;
             var t_num: usize = 0;
 
-            var sums = std.ArrayList([3]f64).init(common.allocator);
+            var sums = std.ArrayList([3]f64).init(ally);
             defer sums.deinit();
             var factors: [coord_num][10][][3]f64 = undefined;
 
@@ -92,7 +92,7 @@ pub fn VsopParse(comptime coord_num: usize) type {
 
             var table: [coord_num]TableData = undefined;
             inline for (factors, 0..) |factor, i| {
-                table[i] = try common.allocator.dupe([][3]f64, factor[0..coord_factor[i]]);
+                table[i] = try ally.dupe([][3]f64, factor[0..coord_factor[i]]);
             }
 
             return Self{
@@ -100,13 +100,13 @@ pub fn VsopParse(comptime coord_num: usize) type {
             };
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: *Self, ally: std.mem.Allocator) void {
             // [][][3]f64;
             inline for (self.table) |factors| {
                 for (factors) |sums| {
-                    common.allocator.free(sums);
+                    ally.free(sums);
                 }
-                common.allocator.free(factors);
+                ally.free(factors);
             }
         }
     };

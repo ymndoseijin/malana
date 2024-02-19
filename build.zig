@@ -344,6 +344,10 @@ pub fn build(b: *std.Build) void {
             "base2d",
             .{},
         },
+        .{
+            "box-test",
+            .{},
+        },
     }) |app| {
         const exe = b.addExecutable(.{
             .name = app[0],
@@ -385,7 +389,7 @@ pub fn build(b: *std.Build) void {
     }
 
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "examples/plotter/ui.zig" },
+        .root_source_file = .{ .path = "src/ui/box.zig" },
         .target = target,
         .optimize = optimize,
     });

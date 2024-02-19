@@ -103,17 +103,17 @@ pub const Ui = struct {
 
     const Self = @This();
 
-    pub fn init(info: graphics.WindowInfo) !*Self {
+    pub fn init(ally: std.mem.Allocator, info: graphics.WindowInfo) !*Self {
         var bdf = try BdfParse.init();
         try bdf.parse("b12.bdf");
 
-        try graphics.initGraphics();
+        try graphics.initGraphics(ally);
         _ = graphics.glfw.glfwWindowHint(graphics.glfw.GLFW_SAMPLES, 4);
 
-        const state = try common.allocator.create(Self);
+        const state = try ally.create(Self);
 
-        var main_win = try common.allocator.create(graphics.Window);
-        main_win.* = try graphics.Window.initBare(info);
+        var main_win = try ally.create(graphics.Window);
+        main_win.* = try graphics.Window.initBare(info, ally);
 
         try main_win.addToMap(state);
 
@@ -136,7 +136,7 @@ pub const Ui = struct {
             .dt = 0,
             .scene = try graphics.Scene.init(main_win),
             .last_time = @as(f32, @floatCast(graphics.glfw.glfwGetTime())),
-            .callback = try Callback.init(common.allocator, main_win),
+            .callback = try Callback.init(ally, main_win),
         };
 
         return state;
@@ -192,13 +192,13 @@ pub const Ui = struct {
         graphics.glfw.glfwSwapBuffers(state.main_win.glfw_win);
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, ally: std.mem.Allocator) void {
         self.callback.deinit();
         self.scene.deinit();
         self.main_win.deinit();
         self.bdf.deinit();
         graphics.deinitGraphics();
-        common.allocator.destroy(self);
+        ally.destroy(self);
     }
 
     fn frameFunc(ptr: *anyopaque, width: i32, height: i32) !void {

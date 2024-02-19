@@ -20,12 +20,12 @@ const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
 
 pub const Line = struct {
-    pub fn init(drawing: *Drawing(LinePipeline), vert: []const Vec3, color: []const Vec3, shader: u32) !Line {
+    pub fn init(drawing: *Drawing(LinePipeline), ally: std.mem.Allocator, vert: []const Vec3, color: []const Vec3, shader: u32) !Line {
         //var shader = try graphics.Shader.setupShader(@embedFile("shaders/line/vertex.glsl"), @embedFile("shaders/line/fragment.glsl"));
         drawing.* = graphics.Drawing(LinePipeline).init(shader);
 
-        var vertices = std.ArrayList(f32).init(common.allocator);
-        var indices = std.ArrayList(u32).init(common.allocator);
+        var vertices = std.ArrayList(f32).init(ally);
+        var indices = std.ArrayList(u32).init(ally);
 
         defer vertices.deinit();
         defer indices.deinit();

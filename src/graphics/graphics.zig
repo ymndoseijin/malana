@@ -151,7 +151,7 @@ pub const GraphicsContext = struct {
         var self: GraphicsContext = undefined;
         self.vkb = try BaseDispatch.load(glfwGetInstanceProcAddress);
 
-        if (!try checkValidationLayerSupport(self.vkb)) return error.NoValidationLayers;
+        if (!try checkValidationLayerSupport(allocator, self.vkb)) return error.NoValidationLayers;
 
         var glfw_exts_count: u32 = 0;
         const glfw_exts = glfw.glfwGetRequiredInstanceExtensions(&glfw_exts_count);
@@ -716,13 +716,13 @@ fn copyBuffer(gc: *const GraphicsContext, pool: vk.CommandPool, dst: vk.Buffer, 
 
 const validation_layers = [_][]const u8{"VK_LAYER_KHRONOS_validation"};
 
-fn checkValidationLayerSupport(vkb: BaseDispatch) !bool {
+fn checkValidationLayerSupport(ally: std.mem.Allocator, vkb: BaseDispatch) !bool {
     var layer_count: u32 = 0;
     _ = try vkb.enumerateInstanceLayerProperties(&layer_count, null);
 
-    const available_layers = try common.allocator.alloc(vk.LayerProperties, layer_count);
+    const available_layers = try ally.alloc(vk.LayerProperties, layer_count);
     _ = try vkb.enumerateInstanceLayerProperties(&layer_count, available_layers.ptr);
-    defer common.allocator.free(available_layers);
+    defer ally.free(available_layers);
 
     for (validation_layers) |layer_name| {
         var layer_found = false;
@@ -813,8 +813,8 @@ pub const Texture = struct {
         win.gc.vkd.freeMemory(win.gc.dev, self.memory, null);
     }
 
-    pub fn initFromMemory(win: *Window, buffer: []const u8, info: TextureInfo) !Texture {
-        var read_image = try img.Image.fromMemory(common.allocator, buffer);
+    pub fn initFromMemory(ally: std.mem.Allocator, win: *Window, buffer: []const u8, info: TextureInfo) !Texture {
+        var read_image = try img.Image.fromMemory(ally, buffer);
         defer read_image.deinit();
 
         switch (read_image.pixels) {
@@ -831,8 +831,8 @@ pub const Texture = struct {
         }
     }
 
-    pub fn initFromPath(win: *Window, path: []const u8, info: TextureInfo) !Texture {
-        var read_image = try img.Image.fromFilePath(common.allocator, path);
+    pub fn initFromPath(ally: std.mem.Allocator, win: *Window, path: []const u8, info: TextureInfo) !Texture {
+        var read_image = try img.Image.fromFilePath(ally, path);
         defer read_image.deinit();
 
         switch (read_image.pixels) {
@@ -1052,13 +1052,12 @@ pub const Drawing = struct {
         buff_mem: BufferMemory,
         data: *anyopaque,
     };
-    const Self = @This();
 
-    pub fn init(drawing: *Self, win: *Window, shaders: []Shader, pipeline: RenderPipeline) !void {
+    pub fn init(drawing: *Drawing, ally: std.mem.Allocator, win: *Window, shaders: []Shader, pipeline: RenderPipeline) !void {
         const gc = &win.gc;
 
-        var bindings = try common.allocator.alloc(vk.DescriptorSetLayoutBinding, pipeline.uniform_sizes.len + pipeline.samplers.len);
-        defer common.allocator.free(bindings);
+        var bindings = try ally.alloc(vk.DescriptorSetLayoutBinding, pipeline.uniform_sizes.len + pipeline.samplers.len);
+        defer ally.free(bindings);
         for (0..pipeline.uniform_sizes.len) |i| {
             bindings[i] = vk.DescriptorSetLayoutBinding{
                 .binding = @intCast(i),
@@ -1092,8 +1091,8 @@ pub const Drawing = struct {
             .p_push_constant_ranges = undefined,
         }, null);
 
-        var pssci = try common.allocator.alloc(vk.PipelineShaderStageCreateInfo, shaders.len);
-        defer common.allocator.free(pssci);
+        var pssci = try ally.alloc(vk.PipelineShaderStageCreateInfo, shaders.len);
+        defer ally.free(pssci);
         for (shaders, 0..) |shader, i| {
             pssci[i] = .{
                 .stage = .{
@@ -1106,8 +1105,8 @@ pub const Drawing = struct {
             };
         }
 
-        var attribute_desc = try common.allocator.alloc(vk.VertexInputAttributeDescription, pipeline.vertex_description.vertex_attribs.len);
-        defer common.allocator.free(attribute_desc);
+        var attribute_desc = try ally.alloc(vk.VertexInputAttributeDescription, pipeline.vertex_description.vertex_attribs.len);
+        defer ally.free(attribute_desc);
         {
             var off: u32 = 0;
             for (pipeline.vertex_description.vertex_attribs, 0..) |attrib, i| {
@@ -1214,8 +1213,8 @@ pub const Drawing = struct {
 
         const frames: u32 = frames_in_flight;
 
-        const pool_sizes = try common.allocator.alloc(vk.DescriptorPoolSize, bindings.len);
-        defer common.allocator.free(pool_sizes);
+        const pool_sizes = try ally.alloc(vk.DescriptorPoolSize, bindings.len);
+        defer ally.free(pool_sizes);
 
         for (pool_sizes, bindings) |*pool_size, binding| {
             pool_size.* = .{
@@ -1231,12 +1230,12 @@ pub const Drawing = struct {
             .pool_size_count = @intCast(bindings.len),
         };
 
-        const uniforms = try common.allocator.alloc([]UniformBuffer, pipeline.uniform_sizes.len);
+        const uniforms = try ally.alloc([]UniformBuffer, pipeline.uniform_sizes.len);
 
         for (uniforms) |*u| u.* = &.{};
 
         drawing.* = .{
-            //.cube_textures = std.ArrayList(u32).init(common.allocator),
+            //.cube_textures = std.ArrayList(u32).init(ally),
             .vert_count = 0,
             .vk_pipeline = vk_pipeline,
             .layout = pipeline_layout,
@@ -1249,14 +1248,17 @@ pub const Drawing = struct {
             .window = win,
             .global_ubo = pipeline.global_ubo,
             //.shader = shader,
-            //.textures = std.ArrayList(Texture).init(common.allocator),
+            //.textures = std.ArrayList(Texture).init(ally),
         };
 
-        try drawing.createUniformBuffers(pipeline);
-        try drawing.createDescriptorSets(pipeline);
+        try drawing.createUniformBuffers(ally, pipeline);
+        try drawing.createDescriptorSets(ally, pipeline);
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(
+        self: *Drawing,
+        ally: std.mem.Allocator,
+    ) void {
         //self.textures.deinit();
         //self.cube_textures.deinit();
         //self.vertex_buffer.deinit(&self.window.gc);
@@ -1271,15 +1273,15 @@ pub const Drawing = struct {
 
         for (self.uniform_buffers) |ubs| {
             for (ubs) |ub| ub.buff_mem.deinit(&win.gc);
-            common.allocator.free(ubs);
+            ally.free(ubs);
         }
-        common.allocator.free(self.uniform_buffers);
+        ally.free(self.uniform_buffers);
 
         win.gc.vkd.destroyDescriptorPool(win.gc.dev, self.descriptor_pool, null);
 
         win.gc.vkd.destroyDescriptorSetLayout(win.gc.dev, self.descriptor_layout, null);
 
-        common.allocator.free(self.descriptor_sets);
+        ally.free(self.descriptor_sets);
 
         if (self.index_buffer) |ib| ib.deinit(&win.gc);
         if (self.vertex_buffer) |vb| vb.deinit(&win.gc);
@@ -1309,10 +1311,10 @@ pub const Drawing = struct {
         return @intCast(0x84C0 + i);
     }
 
-    pub fn createDescriptorSets(self: *Self, pipeline: RenderPipeline) !void {
+    pub fn createDescriptorSets(self: *Drawing, ally: std.mem.Allocator, pipeline: RenderPipeline) !void {
         var gc = &self.window.gc;
-        const layouts = try common.allocator.alloc(vk.DescriptorSetLayout, frames_in_flight);
-        defer common.allocator.free(layouts);
+        const layouts = try ally.alloc(vk.DescriptorSetLayout, frames_in_flight);
+        defer ally.free(layouts);
         for (layouts) |*l| l.* = self.descriptor_layout;
 
         const frames: u32 = @intCast(frames_in_flight);
@@ -1322,20 +1324,20 @@ pub const Drawing = struct {
             .p_set_layouts = layouts.ptr,
         };
 
-        self.descriptor_sets = try common.allocator.alloc(vk.DescriptorSet, frames_in_flight);
+        self.descriptor_sets = try ally.alloc(vk.DescriptorSet, frames_in_flight);
 
         try gc.vkd.allocateDescriptorSets(gc.dev, &allocate_info, self.descriptor_sets.ptr);
-        try self.updateDescriptorSets(pipeline);
+        try self.updateDescriptorSets(ally, pipeline);
     }
 
-    pub fn updateDescriptorSets(self: *Self, pipeline: RenderPipeline) !void {
+    pub fn updateDescriptorSets(self: *Drawing, ally: std.mem.Allocator, pipeline: RenderPipeline) !void {
         var gc = &self.window.gc;
         for (0..frames_in_flight) |i| {
-            var descriptor_writes = try common.allocator.alloc(vk.WriteDescriptorSet, pipeline.samplers.len + pipeline.uniform_sizes.len);
-            var buffer_info = try common.allocator.alloc(vk.DescriptorBufferInfo, pipeline.samplers.len + pipeline.uniform_sizes.len);
+            var descriptor_writes = try ally.alloc(vk.WriteDescriptorSet, pipeline.samplers.len + pipeline.uniform_sizes.len);
+            var buffer_info = try ally.alloc(vk.DescriptorBufferInfo, pipeline.samplers.len + pipeline.uniform_sizes.len);
 
-            defer common.allocator.free(descriptor_writes);
-            defer common.allocator.free(buffer_info);
+            defer ally.free(descriptor_writes);
+            defer ally.free(buffer_info);
 
             for (0.., self.uniform_buffers, pipeline.uniform_sizes) |binding_i, *uniform, uniform_size| {
                 buffer_info[binding_i] = vk.DescriptorBufferInfo{
@@ -1356,8 +1358,8 @@ pub const Drawing = struct {
                 };
             }
 
-            var image_info = try common.allocator.alloc(vk.DescriptorImageInfo, pipeline.samplers.len + pipeline.uniform_sizes.len);
-            defer common.allocator.free(image_info);
+            var image_info = try ally.alloc(vk.DescriptorImageInfo, pipeline.samplers.len + pipeline.uniform_sizes.len);
+            defer ally.free(image_info);
 
             for (0.., pipeline.samplers) |texture_i, texture| {
                 image_info[texture_i] = vk.DescriptorImageInfo{
@@ -1382,11 +1384,11 @@ pub const Drawing = struct {
         }
     }
 
-    pub fn createUniformBuffers(self: *Self, pipeline: RenderPipeline) !void {
+    pub fn createUniformBuffers(self: *Drawing, ally: std.mem.Allocator, pipeline: RenderPipeline) !void {
         for (pipeline.uniform_sizes, self.uniform_buffers) |uniform_size, *uniform_buffer| {
             var gc = &self.window.gc;
 
-            uniform_buffer.* = try common.allocator.alloc(UniformBuffer, frames_in_flight);
+            uniform_buffer.* = try ally.alloc(UniformBuffer, frames_in_flight);
 
             for (uniform_buffer.*) |*mapped_buff| {
                 const buffer = try gc.vkd.createBuffer(gc.dev, &.{
@@ -1407,11 +1409,11 @@ pub const Drawing = struct {
         }
     }
 
-    //pub fn addTexture(self: *Self, texture: Texture) !void {
+    //pub fn addTexture(self: *Drawing, texture: Texture) !void {
     //    try self.textures.append(texture);
     //}
 
-    pub fn bindIndexBuffer(self: *Self, indices: []const u32) !void {
+    pub fn bindIndexBuffer(self: *Drawing, indices: []const u32) !void {
         var gc = &self.window.gc;
         const pool = self.window.pool;
 
@@ -1448,7 +1450,7 @@ pub const Drawing = struct {
         self.index_buffer = .{ .buffer = buffer, .memory = memory };
     }
 
-    pub fn draw(self: *Self, frame_id: usize, command_buffer: vk.CommandBuffer) !void {
+    pub fn draw(self: *Drawing, frame_id: usize, command_buffer: vk.CommandBuffer) !void {
         const gc = &self.window.gc;
 
         gc.vkd.cmdBindPipeline(command_buffer, .graphics, self.vk_pipeline);
@@ -1480,7 +1482,7 @@ const MapType = struct {
 var windowMap: ?std.AutoHashMap(*glfw.GLFWwindow, MapType) = null;
 pub var ft_lib: freetype.Library = undefined;
 
-pub fn initGraphics() !void {
+pub fn initGraphics(ally: std.mem.Allocator) !void {
     if (glfw.glfwInit() == glfw.GLFW_FALSE) return GlfwError.FailedGlfwInit;
 
     if (glfw.glfwVulkanSupported() != glfw.GLFW_TRUE) {
@@ -1488,7 +1490,7 @@ pub fn initGraphics() !void {
         return error.NoVulkan;
     }
 
-    windowMap = std.AutoHashMap(*glfw.GLFWwindow, MapType).init(common.allocator);
+    windowMap = std.AutoHashMap(*glfw.GLFWwindow, MapType).init(ally);
 
     glfw.glfwWindowHint(glfw.GLFW_SAMPLES, 4); // 4x antialiasing
     glfw.glfwWindowHint(glfw.GLFW_CONTEXT_VERSION_MAJOR, 4); // We want OpenGL 3.3
@@ -1598,7 +1600,7 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
         };
 
         win.destroyFramebuffers();
-        win.framebuffers = Window.createFramebuffers(&win.gc, common.allocator, win.render_pass, win.swapchain, win.depth_buffer) catch |err| {
+        win.framebuffers = Window.createFramebuffers(&win.gc, win.ally, win.render_pass, win.swapchain, win.depth_buffer) catch |err| {
             printError(err);
         };
 
@@ -1661,6 +1663,7 @@ pub const Window = struct {
     viewport_height: i32,
     fixed_size: bool,
     size_dirty: bool,
+    ally: std.mem.Allocator,
 
     events: EventTable,
 
@@ -1826,9 +1829,9 @@ pub const Window = struct {
 
         return .{ .view = depth_image_view, .image = image, .memory = image_memory };
     }
-    pub fn init(info: WindowInfo) !*Window {
-        var win = try common.allocator.create(Window);
-        win.* = try initBare(info);
+    pub fn init(info: WindowInfo, ally: std.mem.Allocator) !*Window {
+        var win = try ally.create(Window);
+        win.* = try initBare(info, ally);
         try win.addToMap(win);
         return win;
     }
@@ -1894,7 +1897,7 @@ pub const Window = struct {
         }, null);
     }
 
-    pub fn initBare(info: WindowInfo) !Window {
+    pub fn initBare(info: WindowInfo, ally: std.mem.Allocator) !Window {
         glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, if (info.resizable) glfw.GLFW_TRUE else glfw.GLFW_FALSE);
         glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
         std.debug.print("por que {any}\n", .{info});
@@ -1911,9 +1914,9 @@ pub const Window = struct {
         _ = glfw.glfwSetCursorPosCallback(glfw_win, getGlfwCursorPos);
         _ = glfw.glfwSetScrollCallback(glfw_win, getScroll);
 
-        var gc = try GraphicsContext.init(common.allocator, info.name, glfw_win);
+        var gc = try GraphicsContext.init(ally, info.name, glfw_win);
 
-        const swapchain = try Swapchain.init(&gc, common.allocator, .{ .width = @intCast(info.width), .height = @intCast(info.height) });
+        const swapchain = try Swapchain.init(&gc, ally, .{ .width = @intCast(info.width), .height = @intCast(info.height) });
 
         const render_pass = try createRenderPass(&gc, swapchain);
 
@@ -1924,7 +1927,7 @@ pub const Window = struct {
 
         const depth_buffer = try createDepthBuffer(&gc, swapchain, pool);
 
-        const framebuffers = try createFramebuffers(&gc, common.allocator, render_pass, swapchain, depth_buffer);
+        const framebuffers = try createFramebuffers(&gc, ally, render_pass, swapchain, depth_buffer);
 
         const events: EventTable = .{
             .key_func = null,
@@ -1945,6 +1948,7 @@ pub const Window = struct {
             .frame_height = info.height,
             .fixed_size = !info.resizable,
             .size_dirty = false,
+            .ally = ally,
 
             // vulkan
             .gc = gc,
@@ -1963,7 +1967,7 @@ pub const Window = struct {
         self.gc.vkd.destroyCommandPool(self.gc.dev, self.pool, null);
 
         for (self.framebuffers) |fb| self.gc.vkd.destroyFramebuffer(self.gc.dev, fb, null);
-        common.allocator.free(self.framebuffers);
+        self.ally.free(self.framebuffers);
 
         self.gc.vkd.destroyRenderPass(self.gc.dev, self.render_pass, null);
         self.depth_buffer.deinit(&self.gc);
@@ -1973,7 +1977,7 @@ pub const Window = struct {
         glfw.glfwDestroyWindow(self.glfw_win);
         //gl.makeDispatchTableCurrent(null);
         glfw.glfwTerminate();
-        common.allocator.destroy(self);
+        self.ally.destroy(self);
     }
 };
 
@@ -2037,7 +2041,7 @@ pub const Scene = struct {
 
     const Self = @This();
     pub fn init(win: *Window) !Self {
-        const cmd_buffs = try common.allocator.alloc(vk.CommandBuffer, frames_in_flight);
+        const cmd_buffs = try win.ally.alloc(vk.CommandBuffer, frames_in_flight);
 
         try win.gc.vkd.allocateCommandBuffers(win.gc.dev, &.{
             .command_pool = win.pool,
@@ -2046,7 +2050,7 @@ pub const Scene = struct {
         }, cmd_buffs.ptr);
 
         return Self{
-            .drawing_array = std.ArrayList(*Drawing).init(common.allocator),
+            .drawing_array = std.ArrayList(*Drawing).init(win.ally),
             .command_buffers = cmd_buffs,
             .window = win,
             .frame_id = 0,
@@ -2147,29 +2151,29 @@ pub const Scene = struct {
 
     pub fn deinit(self: *Self) void {
         for (self.drawing_array.items) |elem| {
-            elem.deinit();
-            common.allocator.destroy(elem);
+            elem.deinit(self.window.ally);
+            self.window.ally.destroy(elem);
         }
 
         self.drawing_array.deinit();
 
         self.window.gc.vkd.freeCommandBuffers(self.window.gc.dev, self.window.pool, @intCast(self.command_buffers.len), self.command_buffers.ptr);
-        common.allocator.free(self.command_buffers);
+        self.window.ally.free(self.command_buffers);
     }
 
     pub fn new(self: *Self) !*Drawing {
-        const val = try common.allocator.create(Drawing);
+        const val = try self.window.ally.create(Drawing);
         try self.drawing_array.append(val);
 
         return val;
     }
 
-    pub fn delete(self: *Self, drawing: *Drawing) !void {
+    pub fn delete(self: *Self, ally: std.mem.Allocator, drawing: *Drawing) !void {
         const idx = std.mem.indexOfScalar(*Drawing, self.drawing_array.items, drawing) orelse return error.DeletedDrawingNotInScene;
 
         var rem = self.drawing_array.swapRemove(idx);
-        rem.deinit();
-        common.allocator.destroy(rem);
+        rem.deinit(ally);
+        ally.destroy(rem);
     }
 
     pub fn draw(self: *Self) !void {

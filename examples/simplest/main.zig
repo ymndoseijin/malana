@@ -24,14 +24,16 @@ fn keyDown(key_state: ui.KeyState, mods: i32, dt: f32) !void {
 }
 
 pub fn main() !void {
-    defer _ = common.gpa_instance.deinit();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const ally = gpa.allocator();
 
-    state = try Ui.init(.{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
-    defer state.deinit();
+    state = try Ui.init(ally, .{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
+    defer state.deinit(ally);
     state.key_down = keyDown;
 
-    var tex = try graphics.Texture.initFromPath(state.main_win, "resources/ear.qoi", .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
-    var venus_tex = try graphics.Texture.initFromPath(state.main_win, "resources/cool.png", .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
+    var tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ear.qoi", .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
+    var venus_tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/cool.png", .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
     defer tex.deinit();
     defer venus_tex.deinit();
 

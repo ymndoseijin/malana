@@ -11,6 +11,7 @@ pub const Ui = @import("ui/ui.zig").Ui;
 pub const Callback = @import("ui/ui.zig").Callback;
 pub const Region = @import("ui/ui.zig").Region;
 pub const KeyState = @import("ui/ui.zig").KeyState;
+pub const Box = @import("ui/box.zig").Box;
 
 pub const Mesh = geometry.Mesh;
 pub const Vertex = geometry.Vertex;

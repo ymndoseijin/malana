@@ -4,11 +4,6 @@ const testing = std.testing;
 
 const Allocator = std.mem.Allocator;
 
-pub var gpa_instance = std.heap.GeneralPurposeAllocator(.{
-    .stack_trace_frames = 1000,
-}){};
-pub const allocator = if (builtin.mode == .Debug) gpa_instance.allocator() else std.heap.c_allocator;
-
 pub fn FieldArrayList(comptime T: type) type {
     return struct {
         const Self = @This();

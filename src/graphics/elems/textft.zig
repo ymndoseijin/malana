@@ -92,13 +92,13 @@ pub const Text = struct {
             self.sprite.setOpacity(opacity);
         }
 
-        pub fn init(scene: anytype, parent: *Text, info: CharacterInfo) !Character {
+        pub fn init(scene: anytype, ally: std.mem.Allocator, parent: *Text, info: CharacterInfo) !Character {
             try parent.face.loadChar(info.char, .{ .render = true });
             const glyph = parent.face.glyph();
             const bitmap = glyph.bitmap();
 
             var image: Image = .{
-                .data = try common.allocator.alloc(img.color.Rgba32, bitmap.rows() * bitmap.width()),
+                .data = try ally.alloc(img.color.Rgba32, bitmap.rows() * bitmap.width()),
                 .width = bitmap.width(),
                 .height = bitmap.rows(),
             };
@@ -137,8 +137,8 @@ pub const Text = struct {
             };
         }
 
-        pub fn deinit(self: Character) void {
-            common.allocator.free(self.image.data);
+        pub fn deinit(self: Character, ally: std.mem.Allocator) void {
+            ally.free(self.image.data);
             self.texture.deinit();
         }
     };
@@ -184,11 +184,11 @@ pub const Text = struct {
         return res;
     }
 
-    pub fn print(self: *Text, scene: anytype, info: TextInfo) !void {
+    pub fn print(self: *Text, scene: anytype, ally: std.mem.Allocator, info: TextInfo) !void {
         if (info.text.len == 0) return;
 
         var unicode = (try std.unicode.Utf8View.init(info.text)).iterator();
-        var codepoints = std.ArrayList(u32).init(common.allocator);
+        var codepoints = std.ArrayList(u32).init(ally);
         defer codepoints.deinit();
 
         while (unicode.nextCodepoint()) |c| {
@@ -221,7 +221,7 @@ pub const Text = struct {
                     continue;
                 }
 
-                var char = try Character.init(scene, self, .{
+                var char = try Character.init(scene, ally, self, .{
                     .char = c,
                     .shaders = info.shaders,
                     .count = self.count,
@@ -247,14 +247,14 @@ pub const Text = struct {
         self.cursor_pos = start - self.transform.translation;
     }
 
-    pub fn deinit(self: *Text) void {
+    pub fn deinit(self: *Text, ally: std.mem.Allocator) void {
         for (self.characters.items) |c| {
-            c.deinit();
+            c.deinit(ally);
         }
         self.characters.deinit();
     }
 
-    pub fn init(path: [:0]const u8, size: f32, line_spacing: f32, bounding_width: f32) !Text {
+    pub fn init(ally: std.mem.Allocator, path: [:0]const u8, size: f32, line_spacing: f32, bounding_width: f32) !Text {
         var face = try graphics.ft_lib.createFace(path, 0);
         try face.setCharSize(@intFromFloat(size * 64), 0, 0, 0);
         return .{
@@ -264,7 +264,7 @@ pub const Text = struct {
             .bounding_width = bounding_width,
             .face = face,
             .line_spacing = size * line_spacing,
-            .characters = std.ArrayList(Character).init(common.allocator),
+            .characters = std.ArrayList(Character).init(ally),
             .cursor_pos = .{ 0, 0 },
             .transform = .{
                 .scale = .{ 1, 1 },

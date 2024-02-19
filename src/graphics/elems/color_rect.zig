@@ -36,7 +36,7 @@ pub const ColoredRect = struct {
     pub fn init(scene: anytype, color: math.Vec4) !ColoredRect {
         var drawing = try scene.new();
 
-        try drawing.init(scene.window, &scene.window.default_shaders.color_shaders, ColoredRectPipeline);
+        try drawing.init(scene.window.ally, scene.window, &scene.window.default_shaders.color_shaders, ColoredRectPipeline);
 
         const default_transform: graphics.Transform2D = .{
             .scale = .{ 1, 1 },
