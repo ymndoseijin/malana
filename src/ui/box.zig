@@ -32,17 +32,25 @@ pub const Box = struct {
         size: Vec2 = .{ 0, 0 },
         pos: Vec2 = .{ 0, 0 },
         parent: ?*Box = null,
+        children: []const Box = &.{},
+        callbacks: []const Callback = &.{},
     };
 
-    pub fn init(ally: std.mem.Allocator, info: BoxInfo) Box {
+    pub fn init(ally: std.mem.Allocator, info: BoxInfo) !Box {
+        var box_arr = try std.ArrayList(Box).initCapacity(ally, info.children.len);
+        for (info.children) |c| try box_arr.append(c);
+
+        var call_arr = try std.ArrayList(Callback).initCapacity(ally, info.callbacks.len);
+        for (info.callbacks) |c| try call_arr.append(c);
+
         return .{
             .expand = info.expand,
             .flow = info.flow,
             .fixed_size = info.size,
             .current_size = info.size,
             .absolute_pos = info.pos,
-            .leaves = std.ArrayList(Box).init(ally),
-            .update_callback = std.ArrayList(Callback).init(ally),
+            .leaves = box_arr,
+            .update_callback = call_arr,
             .parent = info.parent,
         };
     }
@@ -163,14 +171,50 @@ pub const Box = struct {
     }
 };
 
+const MarginInfo = struct {
+    top: f32 = 0,
+    bottom: f32 = 0,
+    left: f32 = 0,
+    right: f32 = 0,
+};
+
+pub fn MarginBox(ally: std.mem.Allocator, info: MarginInfo, in_box: Box) !Box {
+    var box = in_box;
+    box.expand = .{ .vertical = true, .horizontal = true };
+    box.fixed_size = .{ 0, 0 };
+
+    return try Box.init(ally, .{
+        .flow = .{ .horizontal = true },
+        .expand = in_box.expand,
+        .size = in_box.fixed_size,
+        .children = &.{
+            try Box.init(ally, .{ .expand = .{ .vertical = true }, .size = .{ info.left, 0 } }),
+            try Box.init(ally, .{
+                .flow = .{ .vertical = true },
+                .expand = .{ .vertical = true, .horizontal = true },
+                .children = &.{
+                    try Box.init(ally, .{ .expand = .{ .horizontal = true }, .size = .{ 0, info.top } }),
+                    box,
+                    try Box.init(ally, .{ .expand = .{ .horizontal = true }, .size = .{ 0, info.bottom } }),
+                },
+            }),
+            try Box.init(ally, .{ .expand = .{ .vertical = true }, .size = .{ info.right, 0 } }),
+        },
+    });
+}
+
 test "nice" {
     const ally = std.testing.allocator;
-    var root = Box.init(ally, .{ .flow = .{ .horizontal = true }, .size = .{ 100, 100 } });
+    var root = try Box.init(ally, .{
+        .flow = .{ .horizontal = true },
+        .size = .{ 100, 100 },
+        .children = &.{
+            try Box.init(ally, .{ .expand = .{ .horizontal = true }, .size = .{ 40, 20 } }),
+            try Box.init(ally, .{ .expand = .{ .horizontal = true } }),
+            try Box.init(ally, .{ .expand = .{ .horizontal = true } }),
+        },
+    });
     defer root.deinit();
-
-    try root.append(Box.init(ally, .{ .expand = .{ .horizontal = true }, .size = .{ 40, 20 } }));
-    try root.append(Box.init(ally, .{ .expand = .{ .horizontal = true } }));
-    try root.append(Box.init(ally, .{ .expand = .{ .horizontal = true } }));
 
     try root.resolve(ally);
 }

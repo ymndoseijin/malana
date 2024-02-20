@@ -101,16 +101,14 @@ pub const Ui = struct {
     frame_func: *const fn (width: i32, height: i32) anyerror!void = defaultFrame,
     key_func: *const fn (key: i32, scancode: i32, action: graphics.Action, mods: i32) anyerror!void = defaultKey,
 
-    const Self = @This();
-
-    pub fn init(ally: std.mem.Allocator, info: graphics.WindowInfo) !*Self {
+    pub fn init(ally: std.mem.Allocator, info: graphics.WindowInfo) !*Ui {
         var bdf = try BdfParse.init();
         try bdf.parse("b12.bdf");
 
         try graphics.initGraphics(ally);
         _ = graphics.glfw.glfwWindowHint(graphics.glfw.GLFW_SAMPLES, 4);
 
-        const state = try ally.create(Self);
+        const state = try ally.create(Ui);
 
         var main_win = try ally.create(graphics.Window);
         main_win.* = try graphics.Window.initBare(info, ally);
@@ -128,7 +126,7 @@ pub const Ui = struct {
         cam.move = .{ 0, 0, 0 };
         try cam.updateMat();
 
-        state.* = Self{
+        state.* = Ui{
             .main_win = main_win,
             .cam = cam,
             .bdf = bdf,
@@ -143,30 +141,30 @@ pub const Ui = struct {
     }
 
     pub fn charFunc(ptr: *anyopaque, codepoint: u32) !void {
-        var state: *Self = @ptrCast(@alignCast(ptr));
+        var state: *Ui = @ptrCast(@alignCast(ptr));
         try state.callback.getChar(codepoint);
         try state.char_func(codepoint);
     }
 
     pub fn scrollFunc(ptr: *anyopaque, xoffset: f64, yoffset: f64) !void {
-        var state: *Self = @ptrCast(@alignCast(ptr));
+        var state: *Ui = @ptrCast(@alignCast(ptr));
         try state.callback.getScroll(xoffset, yoffset);
         try state.scroll_func(xoffset, yoffset);
     }
 
     pub fn mouseFunc(ptr: *anyopaque, button: i32, action: graphics.Action, mods: i32) !void {
-        var state: *Self = @ptrCast(@alignCast(ptr));
+        var state: *Ui = @ptrCast(@alignCast(ptr));
         try state.callback.getMouse(button, action, mods);
         try state.mouse_func(button, action, mods);
     }
 
     pub fn cursorFunc(ptr: *anyopaque, xoffset: f64, yoffset: f64) !void {
-        var state: *Self = @ptrCast(@alignCast(ptr));
+        var state: *Ui = @ptrCast(@alignCast(ptr));
         try state.callback.getCursor(xoffset, yoffset);
         try state.cursor_func(xoffset, yoffset);
     }
 
-    pub fn updateEvents(state: *Self) !void {
+    pub fn updateEvents(state: *Ui) !void {
         var time = @as(f32, @floatCast(graphics.glfw.glfwGetTime()));
 
         graphics.waitGraphicsEvent();
@@ -183,7 +181,7 @@ pub const Ui = struct {
         state.last_time = time;
     }
 
-    pub fn render(state: *Self) !void {
+    pub fn render(state: *Ui) !void {
         state.cam.eye = state.cam.eye;
         try state.cam.updateMat();
 
@@ -192,7 +190,7 @@ pub const Ui = struct {
         graphics.glfw.glfwSwapBuffers(state.main_win.glfw_win);
     }
 
-    pub fn deinit(self: *Self, ally: std.mem.Allocator) void {
+    pub fn deinit(self: *Ui, ally: std.mem.Allocator) void {
         self.callback.deinit();
         self.scene.deinit();
         self.main_win.deinit();
@@ -202,7 +200,7 @@ pub const Ui = struct {
     }
 
     fn frameFunc(ptr: *anyopaque, width: i32, height: i32) !void {
-        var state: *Self = @ptrCast(@alignCast(ptr));
+        var state: *Ui = @ptrCast(@alignCast(ptr));
 
         const w: f32 = @floatFromInt(width);
         const h: f32 = @floatFromInt(height);
@@ -213,7 +211,7 @@ pub const Ui = struct {
     }
 
     fn keyFunc(ptr: *anyopaque, key: i32, scancode: i32, action: graphics.Action, mods: i32) !void {
-        var state: *Self = @ptrCast(@alignCast(ptr));
+        var state: *Ui = @ptrCast(@alignCast(ptr));
 
         try state.callback.getKey(key, scancode, action, mods);
         try state.key_func(key, scancode, action, mods);
