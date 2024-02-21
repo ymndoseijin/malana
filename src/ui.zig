@@ -11,8 +11,34 @@ pub const Ui = @import("ui/ui.zig").Ui;
 pub const Callback = @import("ui/ui.zig").Callback;
 pub const Region = @import("ui/ui.zig").Region;
 pub const KeyState = @import("ui/ui.zig").KeyState;
+
 pub const Box = @import("ui/box.zig").Box;
 pub const MarginBox = @import("ui/box.zig").MarginBox;
+pub const BoxCallback = @import("ui/box.zig").Callback;
+
+fn colorBoxBind(box: *Box, color_ptr: *anyopaque) !void {
+    var color: *graphics.ColoredRect = @ptrCast(@alignCast(color_ptr));
+
+    color.transform.scale = box.current_size;
+    color.transform.translation = box.absolute_pos;
+    color.updateTransform();
+}
+
+pub fn getColorCallback(color: *graphics.ColoredRect) BoxCallback {
+    return .{ .fun = colorBoxBind, .data = color };
+}
+
+fn spriteBoxBind(box: *Box, sprite_ptr: *anyopaque) !void {
+    var sprite: *graphics.Sprite = @ptrCast(@alignCast(sprite_ptr));
+
+    sprite.transform.scale = box.current_size;
+    sprite.transform.translation = box.absolute_pos;
+    sprite.updateTransform();
+}
+
+pub fn getSpriteCallback(sprite: *graphics.Sprite) BoxCallback {
+    return .{ .fun = spriteBoxBind, .data = sprite };
+}
 
 pub const Mesh = geometry.Mesh;
 pub const Vertex = geometry.Vertex;

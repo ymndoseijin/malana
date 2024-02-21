@@ -3,6 +3,11 @@ const std = @import("std");
 const math = @import("math");
 const Vec2 = math.Vec2;
 
+pub const Callback = struct {
+    fun: *const fn (*Box, *anyopaque) anyerror!void,
+    data: *anyopaque,
+};
+
 const Direction = struct {
     horizontal: bool = false,
     vertical: bool = false,
@@ -20,11 +25,6 @@ pub const Box = struct {
     leaves: std.ArrayList(Box),
     parent: ?*Box,
     update_callback: std.ArrayList(Callback),
-
-    const Callback = struct {
-        fun: *const fn (*Box, *anyopaque) anyerror!void,
-        data: *anyopaque,
-    };
 
     const BoxInfo = struct {
         expand: Direction = .{},

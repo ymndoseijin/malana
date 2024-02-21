@@ -1590,6 +1590,11 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
 
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
+
+        win.gc.vkd.deviceWaitIdle(win.gc.dev) catch |err| {
+            printError(err);
+        };
+
         if (win.fixed_size) {
             _ = glfw.glfwSetWindowSize(glfw_win, win.frame_width, win.frame_height);
             if (!win.size_dirty) return;
@@ -1600,6 +1605,11 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
         };
 
         win.destroyFramebuffers();
+        win.depth_buffer.deinit(&win.gc);
+        win.depth_buffer = Window.createDepthBuffer(&win.gc, win.swapchain, win.pool) catch |err| {
+            printError(err);
+        };
+
         win.framebuffers = Window.createFramebuffers(&win.gc, win.ally, win.render_pass, win.swapchain, win.depth_buffer) catch |err| {
             printError(err);
         };
@@ -1787,7 +1797,7 @@ pub const Window = struct {
         return framebuffers;
     }
 
-    fn createDepthBuffer(gc: *GraphicsContext, swapchain: Swapchain, pool: vk.CommandPool) !DepthBuffer {
+    pub fn createDepthBuffer(gc: *GraphicsContext, swapchain: Swapchain, pool: vk.CommandPool) !DepthBuffer {
         const format = try gc.findDepthFormat();
         const width = swapchain.extent.width;
         const height = swapchain.extent.height;

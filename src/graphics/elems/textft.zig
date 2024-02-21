@@ -49,9 +49,8 @@ pub const Text = struct {
     transform: graphics.Transform2D,
     opacity: f32,
 
-    count: usize = 0,
-
     cursor_pos: math.Vec2,
+    codepoints: std.ArrayList(u32),
 
     const CharacterInfo = struct {
         char: u32,
@@ -188,29 +187,27 @@ pub const Text = struct {
         if (info.text.len == 0) return;
 
         var unicode = (try std.unicode.Utf8View.init(info.text)).iterator();
-        var codepoints = std.ArrayList(u32).init(ally);
-        defer codepoints.deinit();
+
+        const past = self.codepoints.items.len;
 
         while (unicode.nextCodepoint()) |c| {
-            try codepoints.append(c);
+            try self.codepoints.append(c);
         }
 
-        var index: usize = self.count;
-
-        self.count += codepoints.items.len;
+        var index: usize = self.codepoints.items.len - 1;
 
         for (self.characters.items) |c| {
-            CharacterUniform.setUniformField(c.sprite.drawing, 1, .count, @as(u32, @intCast(self.count)));
+            CharacterUniform.setUniformField(c.sprite.drawing, 1, .count, @as(u32, @intCast(self.codepoints.items.len)));
         }
 
         var start: math.Vec2 = self.transform.translation + self.cursor_pos;
 
         const space_width: f32 = 10;
 
-        var it = std.mem.splitScalar(u32, codepoints.items, ' ');
+        var it = std.mem.splitScalar(u32, self.codepoints.items[past..], ' ');
 
         while (it.next()) |word| {
-            if (try self.getExtent(word) + start[0] > self.bounding_width + self.transform.translation[0] and self.count != 0) {
+            if (try self.getExtent(word) + start[0] > self.bounding_width + self.transform.translation[0] and self.codepoints.items.len != 0) {
                 start = .{ self.transform.translation[0], start[1] + self.line_spacing };
             }
 
@@ -224,7 +221,7 @@ pub const Text = struct {
                 var char = try Character.init(scene, ally, self, .{
                     .char = c,
                     .shaders = info.shaders,
-                    .count = self.count,
+                    .count = self.codepoints.items.len,
                     .index = index,
                     .pipeline = info.pipeline,
                 });
@@ -252,6 +249,7 @@ pub const Text = struct {
             c.deinit(ally);
         }
         self.characters.deinit();
+        self.codepoints.deinit();
     }
 
     pub fn init(ally: std.mem.Allocator, path: [:0]const u8, size: f32, line_spacing: f32, bounding_width: f32) !Text {
@@ -265,6 +263,7 @@ pub const Text = struct {
             .face = face,
             .line_spacing = size * line_spacing,
             .characters = std.ArrayList(Character).init(ally),
+            .codepoints = std.ArrayList(u32).init(ally),
             .cursor_pos = .{ 0, 0 },
             .transform = .{
                 .scale = .{ 1, 1 },
