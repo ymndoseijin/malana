@@ -104,8 +104,6 @@ pub const Callback = struct {
     pub fn getMouse(callback: *Callback, button: i32, action: graphics.Action, mods: i32) !void {
         var pos: [2]f64 = undefined;
         graphics.glfw.glfwGetCursorPos(callback.window.glfw_win, &pos[0], &pos[1]);
-        const h: f64 = @floatFromInt(callback.window.viewport_height);
-        pos[1] = h - pos[1];
 
         if (button == 0) {
             for (callback.elements.items) |elem| {

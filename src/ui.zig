@@ -40,6 +40,29 @@ pub fn getSpriteCallback(sprite: *graphics.Sprite) BoxCallback {
     return .{ .fun = spriteBoxBind, .data = sprite };
 }
 
+fn regionBind(box: *Box, region_ptr: *anyopaque) !void {
+    var region: *Region = @ptrCast(@alignCast(region_ptr));
+
+    region.transform.scale = box.current_size;
+    region.transform.translation = box.absolute_pos;
+}
+
+pub fn getRegionCallback(region: *Region) BoxCallback {
+    return .{ .fun = regionBind, .data = region };
+}
+
+fn textBind(box: *Box, text_ptr: *anyopaque) !void {
+    var text: *graphics.TextFt = @ptrCast(@alignCast(text_ptr));
+
+    text.bounding_width = box.current_size[0];
+    text.transform.translation = box.absolute_pos;
+    try text.update();
+}
+
+pub fn getTextCallback(text: *graphics.TextFt) BoxCallback {
+    return .{ .fun = textBind, .data = text };
+}
+
 pub const Mesh = geometry.Mesh;
 pub const Vertex = geometry.Vertex;
 pub const HalfEdge = geometry.HalfEdge;

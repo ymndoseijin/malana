@@ -285,6 +285,8 @@ pub fn build(b: *std.Build) void {
         .{ "color_vert", "src/graphics/elems/shaders/color_rect/shader.vert" },
         .{ "text_frag", "src/graphics/elems/shaders/text/shader.frag" },
         .{ "text_vert", "src/graphics/elems/shaders/text/shader.vert" },
+        .{ "textft_frag", "src/graphics/elems/shaders/textft/shader.frag" },
+        .{ "textft_vert", "src/graphics/elems/shaders/textft/shader.vert" },
     };
     inline for (shader_list) |shader| {
         elem_shaders.add(shader[0], shader[1], .{});

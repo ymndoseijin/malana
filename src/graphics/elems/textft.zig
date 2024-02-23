@@ -65,6 +65,7 @@ pub const Text = struct {
         opacity: f32,
         index: u32,
         count: u32,
+        color: math.Vec3,
     } };
 
     const CharacterPipeline = graphics.RenderPipeline{
@@ -80,7 +81,7 @@ pub const Text = struct {
 
     pub const Character = struct {
         image: Image,
-        sprite: graphics.Sprite,
+        sprite: graphics.CustomSprite(CharacterUniform),
         offset: math.Vec2,
         advance: f32,
         parent: *Text,
@@ -121,7 +122,12 @@ pub const Text = struct {
             var tex = try graphics.Texture.init(scene.window, image.width, image.height, .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
             try tex.setFromRgba(image);
 
-            const sprite = try graphics.Sprite.init(scene, .{ .tex = tex, .shaders = info.shaders, .pipeline = info.pipeline });
+            const sprite = try graphics.CustomSprite(CharacterUniform).init(scene, .{
+                .tex = tex,
+                .shaders = info.shaders orelse &scene.window.default_shaders.textft_shaders,
+                .pipeline = info.pipeline,
+            });
+
             CharacterUniform.setUniformField(sprite.drawing, 1, .index, @as(u32, @intCast(info.index)));
             CharacterUniform.setUniformField(sprite.drawing, 1, .count, @as(u32, @intCast(info.count)));
             CharacterUniform.setUniformField(sprite.drawing, 1, .opacity, parent.opacity);
@@ -144,6 +150,7 @@ pub const Text = struct {
 
     const TextInfo = struct {
         text: []const u8,
+        color: math.Vec3 = .{ 1.0, 1.0, 1.0 },
         shaders: ?[]graphics.Shader = null,
         pipeline: graphics.RenderPipeline = CharacterPipeline,
     };
@@ -188,23 +195,47 @@ pub const Text = struct {
 
         var unicode = (try std.unicode.Utf8View.init(info.text)).iterator();
 
-        const past = self.codepoints.items.len;
-
         while (unicode.nextCodepoint()) |c| {
             try self.codepoints.append(c);
         }
 
         var index: usize = self.codepoints.items.len - 1;
 
+        unicode = (try std.unicode.Utf8View.init(info.text)).iterator();
+
+        while (unicode.nextCodepoint()) |c| {
+            defer index += 1;
+            if (c == '\n' or c == 32) {
+                continue;
+            }
+            const char = try Character.init(scene, ally, self, .{
+                .char = c,
+                .shaders = info.shaders,
+                .count = self.codepoints.items.len,
+                .index = index,
+                .pipeline = info.pipeline,
+            });
+            CharacterUniform.setUniformField(char.sprite.drawing, 1, .color, info.color);
+            try self.characters.append(char);
+        }
+
+        try self.update();
+
         for (self.characters.items) |c| {
             CharacterUniform.setUniformField(c.sprite.drawing, 1, .count, @as(u32, @intCast(self.codepoints.items.len)));
         }
+    }
 
-        var start: math.Vec2 = self.transform.translation + self.cursor_pos;
+    pub fn update(self: *Text) !void {
+        if (self.characters.items.len == 0) return;
+        var start: math.Vec2 = self.transform.translation;
+        start[1] += self.line_spacing;
 
         const space_width: f32 = 10;
 
-        var it = std.mem.splitScalar(u32, self.codepoints.items[past..], ' ');
+        var it = std.mem.splitScalar(u32, self.codepoints.items, ' ');
+
+        var character_index: usize = 0;
 
         while (it.next()) |word| {
             if (try self.getExtent(word) + start[0] > self.bounding_width + self.transform.translation[0] and self.codepoints.items.len != 0) {
@@ -212,20 +243,12 @@ pub const Text = struct {
             }
 
             for (word) |c| {
-                defer index += 1;
                 if (c == '\n') {
                     start = .{ self.transform.translation[0], start[1] + self.line_spacing };
                     continue;
                 }
 
-                var char = try Character.init(scene, ally, self, .{
-                    .char = c,
-                    .shaders = info.shaders,
-                    .count = self.codepoints.items.len,
-                    .index = index,
-                    .pipeline = info.pipeline,
-                });
-                try self.characters.append(char);
+                var char = &self.characters.items[character_index];
 
                 if (char.advance + start[0] > self.bounding_width + self.transform.translation[0]) {
                     start = .{ self.transform.translation[0], start[1] + self.line_spacing };
@@ -234,14 +257,12 @@ pub const Text = struct {
                 char.sprite.transform.translation = start + char.offset - math.Vec2{ 0, @floatFromInt(char.image.height) };
                 char.sprite.updateTransform();
                 start += .{ char.advance, 0 };
+                character_index += 1;
             }
             if (it.peek() != null) {
-                index += 1;
                 start += .{ space_width, 0 };
             }
         }
-
-        self.cursor_pos = start - self.transform.translation;
     }
 
     pub fn deinit(self: *Text, ally: std.mem.Allocator) void {

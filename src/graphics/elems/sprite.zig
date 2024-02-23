@@ -57,7 +57,9 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
                 .{ .{ 0, h, 1 }, .{ 0, 1 } },
             }, &.{ 0, 1, 2, 2, 3, 0 });
 
-            SpriteUniform.setUniform(drawing, 1, .{ .transform = default_transform.getMat().cast(4, 4), .opacity = 1 });
+            SpriteUniform.setUniformField(drawing, 1, .transform, default_transform.getMat().cast(4, 4));
+            SpriteUniform.setUniformField(drawing, 1, .opacity, 1);
+
             graphics.GlobalUniform.setUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
             return Self{
@@ -91,7 +93,8 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
                 .{ .{ 0, h, 1 }, .{ 0, 1 } },
             }, &.{ 0, 1, 2, 2, 3, 0 });
 
-            SpriteUniform.setUniform(self.drawing, 1, .{ .transform = default_transform.getMat().cast(4, 4), .opacity = 1 });
+            SpriteUniform.setUniformField(self.drawing, 1, .transform, default_transform.getMat().cast(4, 4));
+            SpriteUniform.setUniformField(self.drawing, 1, .opacity, 1);
             graphics.GlobalUniform.setUniform(self.drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
             self.width = w;

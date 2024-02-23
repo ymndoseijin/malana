@@ -93,7 +93,6 @@ pub const Ui = struct {
     bdf: BdfParse,
 
     key_down: *const fn (KeyState, i32, f32) anyerror!void = defaultKeyDown,
-
     char_func: *const fn (codepoint: u32) anyerror!void = defaultChar,
     scroll_func: *const fn (xoffset: f64, yoffset: f64) anyerror!void = defaultScroll,
     mouse_func: *const fn (button: i32, action: graphics.Action, mods: i32) anyerror!void = defaultMouse,

@@ -26,6 +26,7 @@ pub const Camera = @import("elems/camera.zig").Camera;
 pub const TextBdf = @import("elems/textbdf.zig").Text;
 pub const TextFt = @import("elems/textft.zig").Text;
 pub const Sprite = @import("elems/sprite.zig").Sprite;
+pub const CustomSprite = @import("elems/sprite.zig").CustomSprite;
 pub const ColoredRect = @import("elems/color_rect.zig").ColoredRect;
 
 pub const MeshBuilder = @import("meshbuilder.zig").MeshBuilder;
@@ -1702,6 +1703,7 @@ pub const Window = struct {
         sprite_shaders: [2]Shader,
         color_shaders: [2]Shader,
         text_shaders: [2]Shader,
+        textft_shaders: [2]Shader,
 
         pub fn init(gc: GraphicsContext) !DefaultShaders {
             const sprite_vert = try Shader.init(gc, &elem_shaders.sprite_vert, .vertex);
@@ -1713,10 +1715,14 @@ pub const Window = struct {
             const text_vert = try Shader.init(gc, &elem_shaders.text_vert, .vertex);
             const text_frag = try Shader.init(gc, &elem_shaders.text_frag, .fragment);
 
+            const textft_vert = try Shader.init(gc, &elem_shaders.textft_vert, .vertex);
+            const textft_frag = try Shader.init(gc, &elem_shaders.textft_frag, .fragment);
+
             return .{
                 .sprite_shaders = .{ sprite_vert, sprite_frag },
                 .color_shaders = .{ color_vert, color_frag },
                 .text_shaders = .{ text_vert, text_frag },
+                .textft_shaders = .{ textft_vert, textft_frag },
             };
         }
 
@@ -1724,6 +1730,7 @@ pub const Window = struct {
             for (self.sprite_shaders) |s| s.deinit(gc);
             for (self.color_shaders) |s| s.deinit(gc);
             for (self.text_shaders) |s| s.deinit(gc);
+            for (self.textft_shaders) |s| s.deinit(gc);
         }
     };
 
@@ -1999,7 +2006,7 @@ pub const Transform2D = struct {
         return math.transform2D(f32, self.scale, self.rotation, self.translation);
     }
     pub fn getInverseMat(self: Transform2D) math.Mat3 {
-        return math.transform2D(f32, math.Vec2{ 1, 1 } / self.scale, .{ .angle = -self.rotation.angle, .center = self.rotation.center }, math.Vec2{ -1, -1 } * self.translation);
+        return math.transform2D(f32, math.Vec2{ 1, 1 } / self.scale, .{ .angle = -self.rotation.angle, .center = self.rotation.center }, math.Vec2{ -1, -1 } * self.translation / self.scale);
     }
     pub fn apply(self: Transform2D, v: math.Vec2) math.Vec2 {
         var res: [3]f32 = self.getMat().dot(.{ v[0], v[1], 1 });
