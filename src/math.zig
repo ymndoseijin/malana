@@ -2,6 +2,7 @@ const std = @import("std");
 
 const assert = std.debug.assert;
 
+pub const color = @import("color.zig");
 const sin = std.math.sin;
 const cos = std.math.cos;
 
@@ -213,9 +214,9 @@ pub fn transform2D(comptime T: type, scaling: @Vector(2, T), rotation: anytype, 
     rot = rotation2D(T, rotation.angle).cast(3, 3).mul(rot);
     rot = Mat(T, 3, 3).translation(rotation.center).mul(rot);
 
-    var trans = Mat(T, 3, 3).translation(.{ translation[0], translation[1] });
-    var scale = Mat(T, 3, 3).scaling(.{ scaling[0], scaling[1], 1 });
-    return trans.mul(scale.mul(rot));
+    const trans = Mat(T, 3, 3).translation(.{ translation[0], translation[1] });
+    const scale = Mat(T, 3, 3).scaling(.{ scaling[0], scaling[1], 1 });
+    return trans.mul(rot.mul(scale));
 }
 
 pub fn rotationX(comptime T: type, t: T) Mat(T, 3, 3) {

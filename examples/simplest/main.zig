@@ -32,8 +32,8 @@ pub fn main() !void {
     defer state.deinit(ally);
     state.key_down = keyDown;
 
-    var tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ear.qoi", .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
-    var venus_tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/cool.png", .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
+    var tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ear.qoi", .{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
+    var venus_tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/cool.png", .{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
     defer tex.deinit();
     defer venus_tex.deinit();
 

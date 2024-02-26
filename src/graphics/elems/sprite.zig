@@ -39,7 +39,7 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
 
             const default_transform: graphics.Transform2D = .{
                 .scale = .{ 1, 1 },
-                .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
+                .rotation = .{ .angle = 0, .center = .{ 0.5, 0.5 } },
                 .translation = .{ 0, 0 },
             };
 
@@ -52,9 +52,9 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
 
             try graphics.SpritePipeline.vertex_description.bindVertex(drawing, &.{
                 .{ .{ 0, 0, 1 }, .{ 0, 0 } },
-                .{ .{ w, 0, 1 }, .{ 1, 0 } },
-                .{ .{ w, h, 1 }, .{ 1, 1 } },
-                .{ .{ 0, h, 1 }, .{ 0, 1 } },
+                .{ .{ 1, 0, 1 }, .{ 1, 0 } },
+                .{ .{ 1, 1, 1 }, .{ 1, 1 } },
+                .{ .{ 0, 1, 1 }, .{ 0, 1 } },
             }, &.{ 0, 1, 2, 2, 3, 0 });
 
             SpriteUniform.setUniformField(drawing, 1, .transform, default_transform.getMat().cast(4, 4));
@@ -88,9 +88,9 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
 
             try graphics.SpritePipeline.vertex_description.bindVertex(self.drawing, &.{
                 .{ .{ 0, 0, 1 }, .{ 0, 0 } },
-                .{ .{ w, 0, 1 }, .{ 1, 0 } },
-                .{ .{ w, h, 1 }, .{ 1, 1 } },
-                .{ .{ 0, h, 1 }, .{ 0, 1 } },
+                .{ .{ 1, 0, 1 }, .{ 1, 0 } },
+                .{ .{ 1, 1, 1 }, .{ 1, 1 } },
+                .{ .{ 0, 1, 1 }, .{ 0, 1 } },
             }, &.{ 0, 1, 2, 2, 3, 0 });
 
             SpriteUniform.setUniformField(self.drawing, 1, .transform, default_transform.getMat().cast(4, 4));
@@ -110,9 +110,9 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
 
             self.drawing.bindVertex(&.{
                 0, 0, 1, 0, 0,
-                w, 0, 1, 1, 0,
-                w, h, 1, 1, 1,
-                0, h, 1, 0, 1,
+                1, 0, 1, 1, 0,
+                1, 1, 1, 1, 1,
+                0, 1, 1, 0, 1,
             }, &.{ 0, 1, 2, 2, 3, 0 });
 
             self.width = w;

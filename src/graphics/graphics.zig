@@ -751,15 +751,21 @@ pub const TextureInfo = struct {
     const FilterEnum = enum {
         nearest,
         linear,
-        mipmap,
+
+        pub fn getVulkan(filter: FilterEnum) vk.Filter {
+            return switch (filter) {
+                .nearest => .nearest,
+                .linear => .linear,
+            };
+        }
     };
     const TextureType = enum {
         flat,
     };
 
-    texture_type: TextureType,
-    mag_filter: FilterEnum,
-    min_filter: FilterEnum,
+    texture_type: TextureType = .flat,
+    mag_filter: FilterEnum = .nearest,
+    min_filter: FilterEnum = .nearest,
 };
 
 pub const Texture = struct {
@@ -855,8 +861,8 @@ pub const Texture = struct {
         const properties = gc.vki.getPhysicalDeviceProperties(gc.pdev);
 
         const sampler_info: vk.SamplerCreateInfo = .{
-            .mag_filter = .linear,
-            .min_filter = .linear,
+            .mag_filter = tex.info.mag_filter.getVulkan(),
+            .min_filter = tex.info.min_filter.getVulkan(),
             .address_mode_u = .repeat,
             .address_mode_v = .repeat,
             .address_mode_w = .repeat,

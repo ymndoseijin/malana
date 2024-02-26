@@ -119,7 +119,7 @@ pub const Text = struct {
                 }
             }
 
-            var tex = try graphics.Texture.init(scene.window, image.width, image.height, .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
+            var tex = try graphics.Texture.init(scene.window, image.width, image.height, .{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
             try tex.setFromRgba(image);
 
             const sprite = try graphics.CustomSprite(CharacterUniform).init(scene, .{
@@ -255,6 +255,7 @@ pub const Text = struct {
                 }
 
                 char.sprite.transform.translation = start + char.offset - math.Vec2{ 0, @floatFromInt(char.image.height) };
+                char.sprite.transform.scale = .{ @floatFromInt(char.image.width), @floatFromInt(char.image.height) };
                 char.sprite.updateTransform();
                 start += .{ char.advance, 0 };
                 character_index += 1;

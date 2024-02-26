@@ -47,7 +47,7 @@ pub fn main() !void {
 
     const image_path = arg_it.next() orelse return error.NotEnoughArguments;
 
-    var tex = try graphics.Texture.initFromPath(ally, state.main_win, image_path, .{ .mag_filter = .linear, .min_filter = .mipmap, .texture_type = .flat });
+    var tex = try graphics.Texture.initFromPath(ally, state.main_win, image_path, .{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
     defer tex.deinit();
 
     var sprite = try graphics.Sprite.init(&state.scene, .{ .tex = tex });
