@@ -620,10 +620,7 @@ fn initSwapchainImages(gc: *const GraphicsContext, swapchain: vk.SwapchainKHR, f
 
 fn findSurfaceFormat(gc: *const GraphicsContext, allocator: Allocator, format: PreferredFormat) !vk.SurfaceFormatKHR {
     const preferred = vk.SurfaceFormatKHR{
-        .format = switch (format) {
-            .srgb => .b8g8r8a8_srgb,
-            .unorm => .b8g8r8a8_unorm,
-        },
+        .format = format.getSurfaceFormat(),
         .color_space = .srgb_nonlinear_khr,
     };
 
@@ -790,7 +787,7 @@ pub const Texture = struct {
             .extent = .{ .width = width, .height = height, .depth = 1 },
             .mip_levels = 1,
             .array_layers = 1,
-            .format = .r8g8b8a8_unorm,
+            .format = win.preferred_format.getSurfaceFormat(),
             .tiling = .linear,
             .initial_layout = .undefined,
             .usage = .{ .transfer_dst_bit = true, .sampled_bit = true },
@@ -890,7 +887,7 @@ pub const Texture = struct {
         const view_info: vk.ImageViewCreateInfo = .{
             .image = tex.image,
             .view_type = .@"2d",
-            .format = .r8g8b8a8_unorm,
+            .format = tex.window.preferred_format.getSurfaceFormat(),
             .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
             .subresource_range = .{
                 .aspect_mask = .{ .color_bit = true },
@@ -1669,6 +1666,13 @@ pub const EventTable = struct {
 const PreferredFormat = enum {
     unorm,
     srgb,
+
+    pub fn getSurfaceFormat(format: PreferredFormat) vk.Format {
+        return switch (format) {
+            .srgb => .b8g8r8a8_srgb,
+            .unorm => .b8g8r8a8_unorm,
+        };
+    }
 };
 
 pub const WindowInfo = struct {
