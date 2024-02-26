@@ -15,6 +15,7 @@ var global_ally: std.mem.Allocator = undefined;
 
 const Program = struct {
     color: graphics.ColoredRect,
+    chat_background: graphics.ColoredRect,
     input_box: graphics.ColoredRect,
     char_test: graphics.TextFt,
     text_region: ui.Region,
@@ -22,14 +23,15 @@ const Program = struct {
     ally: std.mem.Allocator,
 
     pub fn init(state_ui: *Ui) !Program {
-        const color = try graphics.ColoredRect.init(&state.scene, try math.color.parseHexRGBA("c0c0c0"));
-        const input_box = try graphics.ColoredRect.init(&state.scene, .{ 1.0, 1.0, 1.0, 1.0 });
+        const color = try graphics.ColoredRect.init(&state.scene, comptime try math.color.parseHexRGBA("c0c0c0"));
+        const input_box = try graphics.ColoredRect.init(&state.scene, comptime try math.color.parseHexRGBA("8e8eb9"));
         const char_test = try graphics.TextFt.init(global_ally, "resources/fonts/Fairfax.ttf", 12, 1, 250);
 
         const text_region: ui.Region = .{ .transform = input_box.transform };
 
         return .{
             .color = color,
+            .chat_background = try graphics.ColoredRect.init(&state.scene, comptime try math.color.parseHexRGBA("ffffff")),
             .input_box = input_box,
             .char_test = char_test,
             .text_region = text_region,
@@ -69,52 +71,70 @@ const NineInfo = struct {
 };
 
 const NineRectSprite = struct {
-    top_left: graphics.Sprite,
-    left: graphics.Sprite,
-    bottom_left: graphics.Sprite,
-    top: graphics.Sprite,
-    bottom: graphics.Sprite,
-    top_right: graphics.Sprite,
-    right: graphics.Sprite,
-    bottom_right: graphics.Sprite,
+    top_left: graphics.Texture,
+    left: graphics.Texture,
+    bottom_left: graphics.Texture,
+    top: graphics.Texture,
+    bottom: graphics.Texture,
+    top_right: graphics.Texture,
+    right: graphics.Texture,
+    bottom_right: graphics.Texture,
+
+    top_left_sprite: ?graphics.Sprite = null,
+    left_sprite: ?graphics.Sprite = null,
+    bottom_left_sprite: ?graphics.Sprite = null,
+    top_sprite: ?graphics.Sprite = null,
+    bottom_sprite: ?graphics.Sprite = null,
+    top_right_sprite: ?graphics.Sprite = null,
+    right_sprite: ?graphics.Sprite = null,
+    bottom_right_sprite: ?graphics.Sprite = null,
 
     pub fn init(rect: *NineRectSprite, ally: std.mem.Allocator, in_box: Box) !Box {
+        rect.top_left_sprite = try graphics.Sprite.init(&state.scene, .{ .tex = rect.top_left });
+        rect.left_sprite = try graphics.Sprite.init(&state.scene, .{ .tex = rect.left });
+        rect.bottom_left_sprite = try graphics.Sprite.init(&state.scene, .{ .tex = rect.bottom_left });
+        rect.top_sprite = try graphics.Sprite.init(&state.scene, .{ .tex = rect.top });
+        rect.bottom_sprite = try graphics.Sprite.init(&state.scene, .{ .tex = rect.bottom });
+        rect.top_right_sprite = try graphics.Sprite.init(&state.scene, .{ .tex = rect.top_right });
+        rect.right_sprite = try graphics.Sprite.init(&state.scene, .{ .tex = rect.right });
+        rect.bottom_right_sprite = try graphics.Sprite.init(&state.scene, .{ .tex = rect.bottom_right });
+
         return NineRectBox(ally, .{
             .top_left = try Box.init(ally, .{
-                .size = .{ rect.top_left.width, rect.top_left.height },
-                .callbacks = &.{ui.getSpriteCallback(&rect.top_left)},
+                .size = .{ rect.top_left_sprite.?.width, rect.top_left_sprite.?.height },
+                .callbacks = &.{ui.getSpriteCallback(&rect.top_left_sprite.?)},
             }),
             .bottom_left = try Box.init(ally, .{
-                .size = .{ rect.bottom_left.width, rect.bottom_left.height },
-                .callbacks = &.{ui.getSpriteCallback(&rect.bottom_left)},
+                .size = .{ rect.bottom_left_sprite.?.width, rect.bottom_left_sprite.?.height },
+                .callbacks = &.{ui.getSpriteCallback(&rect.bottom_left_sprite.?)},
             }),
             .top_right = try Box.init(ally, .{
-                .size = .{ rect.top_right.width, rect.top_right.height },
-                .callbacks = &.{ui.getSpriteCallback(&rect.top_right)},
+                .size = .{ rect.top_right_sprite.?.width, rect.top_right_sprite.?.height },
+                .callbacks = &.{ui.getSpriteCallback(&rect.top_right_sprite.?)},
             }),
             .bottom_right = try Box.init(ally, .{
-                .size = .{ rect.bottom_right.width, rect.bottom_right.height },
-                .callbacks = &.{ui.getSpriteCallback(&rect.bottom_right)},
+                .size = .{ rect.bottom_right_sprite.?.width, rect.bottom_right_sprite.?.height },
+                .callbacks = &.{ui.getSpriteCallback(&rect.bottom_right_sprite.?)},
             }),
             .top = try Box.init(ally, .{
                 .expand = .{ .horizontal = true },
-                .size = .{ rect.top.width, rect.top.height },
-                .callbacks = &.{ui.getSpriteCallback(&rect.top)},
+                .size = .{ rect.top_sprite.?.width, rect.top_sprite.?.height },
+                .callbacks = &.{ui.getSpriteCallback(&rect.top_sprite.?)},
             }),
             .bottom = try Box.init(ally, .{
                 .expand = .{ .horizontal = true },
-                .size = .{ rect.bottom.width, rect.bottom.height },
-                .callbacks = &.{ui.getSpriteCallback(&rect.bottom)},
+                .size = .{ rect.bottom_sprite.?.width, rect.bottom_sprite.?.height },
+                .callbacks = &.{ui.getSpriteCallback(&rect.bottom_sprite.?)},
             }),
             .left = try Box.init(ally, .{
                 .expand = .{ .vertical = true },
-                .size = .{ rect.left.width, rect.left.height },
-                .callbacks = &.{ui.getSpriteCallback(&rect.left)},
+                .size = .{ rect.left_sprite.?.width, rect.left_sprite.?.height },
+                .callbacks = &.{ui.getSpriteCallback(&rect.left_sprite.?)},
             }),
             .right = try Box.init(ally, .{
                 .expand = .{ .vertical = true },
-                .size = .{ rect.right.width, rect.right.height },
-                .callbacks = &.{ui.getSpriteCallback(&rect.right)},
+                .size = .{ rect.right_sprite.?.width, rect.right_sprite.?.height },
+                .callbacks = &.{ui.getSpriteCallback(&rect.right_sprite.?)},
             }),
         }, in_box);
     }
@@ -169,7 +189,7 @@ pub fn main() !void {
     global_ally = gpa.allocator();
     const ally = global_ally;
 
-    state = try Ui.init(ally, .{ .name = "box test", .width = 500, .height = 500, .resizable = true });
+    state = try Ui.init(ally, .{ .name = "box test", .width = 500, .height = 500, .resizable = true, .preferred_format = .unorm });
     defer state.deinit(ally);
 
     //var sprite = try graphics.Sprite.init(&state.scene, .{ .tex = tex });
@@ -177,34 +197,29 @@ pub fn main() !void {
     var program = try Program.init(state);
     try program.initPtr();
 
-    //const margins = 10;
+    const margins = 10;
     //const text_margin = 20;
 
-    var nine = NineRectSprite{
-        .top_left = try graphics.Sprite.init(&state.scene, .{
-            .tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/top_left.png", .{}),
-        }),
-        .bottom_left = try graphics.Sprite.init(&state.scene, .{
-            .tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/bottom_left.png", .{}),
-        }),
-        .top_right = try graphics.Sprite.init(&state.scene, .{
-            .tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/top_right.png", .{}),
-        }),
-        .bottom_right = try graphics.Sprite.init(&state.scene, .{
-            .tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/bottom_right.png", .{}),
-        }),
-        .top = try graphics.Sprite.init(&state.scene, .{
-            .tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/top.png", .{}),
-        }),
-        .bottom = try graphics.Sprite.init(&state.scene, .{
-            .tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/bottom.png", .{}),
-        }),
-        .left = try graphics.Sprite.init(&state.scene, .{
-            .tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/left.png", .{}),
-        }),
-        .right = try graphics.Sprite.init(&state.scene, .{
-            .tex = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/right.png", .{}),
-        }),
+    var text_border = NineRectSprite{
+        .top_left = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/top_left.png", .{}),
+        .bottom_left = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/bottom_left.png", .{}),
+        .top_right = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/top_right.png", .{}),
+        .bottom_right = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/bottom_right.png", .{}),
+        .top = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/top.png", .{}),
+        .bottom = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/bottom.png", .{}),
+        .left = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/left.png", .{}),
+        .right = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/right.png", .{}),
+    };
+
+    var border = NineRectSprite{
+        .top_left = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_2/top_left.png", .{}),
+        .bottom_left = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_2/bottom_left.png", .{}),
+        .top_right = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_2/top_right.png", .{}),
+        .bottom_right = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_2/bottom_right.png", .{}),
+        .top = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_2/top.png", .{}),
+        .bottom = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_2/bottom.png", .{}),
+        .left = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_2/left.png", .{}),
+        .right = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_2/right.png", .{}),
     };
 
     root = try Box.init(ally, .{
@@ -214,12 +229,17 @@ pub fn main() !void {
                 .expand = .{ .vertical = true, .horizontal = true },
                 .callbacks = &.{ui.getColorCallback(&program.color)},
             }),
-            try Box.init(ally, .{
+            try ui.MarginBox(ally, .{ .top = margins, .bottom = margins, .left = margins, .right = margins }, try Box.init(ally, .{
                 .expand = .{ .vertical = true, .horizontal = true },
                 .flow = .{ .vertical = true },
                 .children = &.{
-                    try nine.init(ally, try Box.init(ally, .{
-                        .expand = .{ .horizontal = true, .vertical = true },
+                    try border.init(ally, try Box.init(ally, .{
+                        .expand = .{ .vertical = true, .horizontal = true },
+                        .callbacks = &.{},
+                    })),
+                    try Box.init(ally, .{ .size = .{ 0, 10 } }),
+                    try text_border.init(ally, try Box.init(ally, .{
+                        .expand = .{ .horizontal = true },
                         .size = .{ 0, 30 },
                         .callbacks = &.{
                             ui.getColorCallback(&program.input_box),
@@ -228,7 +248,7 @@ pub fn main() !void {
                         },
                     })),
                 },
-            }),
+            })),
         },
     });
     defer root.deinit();

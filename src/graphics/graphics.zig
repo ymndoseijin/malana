@@ -460,18 +460,18 @@ pub const Swapchain = struct {
 
     swap_images: []SwapImage,
 
-    pub fn init(gc: *const GraphicsContext, allocator: Allocator, extent: vk.Extent2D) !Swapchain {
-        return try initRecycle(gc, allocator, extent, .null_handle);
+    pub fn init(gc: *const GraphicsContext, allocator: Allocator, extent: vk.Extent2D, format: PreferredFormat) !Swapchain {
+        return try initRecycle(gc, allocator, extent, .null_handle, format);
     }
 
-    pub fn initRecycle(gc: *const GraphicsContext, allocator: Allocator, extent: vk.Extent2D, old_handle: vk.SwapchainKHR) !Swapchain {
+    pub fn initRecycle(gc: *const GraphicsContext, allocator: Allocator, extent: vk.Extent2D, old_handle: vk.SwapchainKHR, format: PreferredFormat) !Swapchain {
         const caps = try gc.vki.getPhysicalDeviceSurfaceCapabilitiesKHR(gc.pdev, gc.surface);
         const actual_extent = findActualExtent(caps, extent);
         if (actual_extent.width == 0 or actual_extent.height == 0) {
             return error.InvalidSurfaceDimensions;
         }
 
-        const surface_format = try findSurfaceFormat(gc, allocator);
+        const surface_format = try findSurfaceFormat(gc, allocator, format);
         const present_mode = try findPresentMode(gc, allocator);
 
         var image_count = caps.min_image_count + 1;
@@ -535,11 +535,11 @@ pub const Swapchain = struct {
         gc.vkd.destroySwapchainKHR(gc.dev, self.handle, null);
     }
 
-    pub fn recreate(self: *Swapchain, gc: *GraphicsContext, new_extent: vk.Extent2D) !void {
+    pub fn recreate(self: *Swapchain, gc: *GraphicsContext, new_extent: vk.Extent2D, format: PreferredFormat) !void {
         const allocator = self.allocator;
         const old_handle = self.handle;
         self.deinitExceptSwapchain(gc);
-        self.* = try initRecycle(gc, allocator, new_extent, old_handle);
+        self.* = try initRecycle(gc, allocator, new_extent, old_handle, format);
     }
 };
 
@@ -618,9 +618,12 @@ fn initSwapchainImages(gc: *const GraphicsContext, swapchain: vk.SwapchainKHR, f
     return swap_images;
 }
 
-fn findSurfaceFormat(gc: *const GraphicsContext, allocator: Allocator) !vk.SurfaceFormatKHR {
+fn findSurfaceFormat(gc: *const GraphicsContext, allocator: Allocator, format: PreferredFormat) !vk.SurfaceFormatKHR {
     const preferred = vk.SurfaceFormatKHR{
-        .format = .b8g8r8a8_srgb,
+        .format = switch (format) {
+            .srgb => .b8g8r8a8_srgb,
+            .unorm => .b8g8r8a8_unorm,
+        },
         .color_space = .srgb_nonlinear_khr,
     };
 
@@ -636,7 +639,7 @@ fn findSurfaceFormat(gc: *const GraphicsContext, allocator: Allocator) !vk.Surfa
         }
     }
 
-    return surface_formats[0]; // There must always be at least one supported surface format
+    return surface_formats[0];
 }
 
 fn findPresentMode(gc: *const GraphicsContext, allocator: Allocator) !vk.PresentModeKHR {
@@ -787,7 +790,7 @@ pub const Texture = struct {
             .extent = .{ .width = width, .height = height, .depth = 1 },
             .mip_levels = 1,
             .array_layers = 1,
-            .format = .r8g8b8a8_srgb,
+            .format = .r8g8b8a8_unorm,
             .tiling = .linear,
             .initial_layout = .undefined,
             .usage = .{ .transfer_dst_bit = true, .sampled_bit = true },
@@ -887,7 +890,7 @@ pub const Texture = struct {
         const view_info: vk.ImageViewCreateInfo = .{
             .image = tex.image,
             .view_type = .@"2d",
-            .format = .r8g8b8a8_srgb,
+            .format = .r8g8b8a8_unorm,
             .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
             .subresource_range = .{
                 .aspect_mask = .{ .color_bit = true },
@@ -1607,7 +1610,7 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
             if (!win.size_dirty) return;
         }
 
-        win.swapchain.recreate(&win.gc, .{ .width = @intCast(width), .height = @intCast(height) }) catch |err| {
+        win.swapchain.recreate(&win.gc, .{ .width = @intCast(width), .height = @intCast(height) }, win.preferred_format) catch |err| {
             printError(err);
         };
 
@@ -1663,10 +1666,16 @@ pub const EventTable = struct {
     cursor_func: ?*const fn (*anyopaque, f64, f64) anyerror!void,
 };
 
+const PreferredFormat = enum {
+    unorm,
+    srgb,
+};
+
 pub const WindowInfo = struct {
     width: i32 = 256,
     height: i32 = 256,
     resizable: bool = true,
+    preferred_format: PreferredFormat = .srgb,
     name: [:0]const u8 = "default name",
 };
 
@@ -1680,6 +1689,7 @@ pub const Window = struct {
     viewport_height: i32,
     fixed_size: bool,
     size_dirty: bool,
+    preferred_format: PreferredFormat,
     ally: std.mem.Allocator,
 
     events: EventTable,
@@ -1939,7 +1949,7 @@ pub const Window = struct {
 
         var gc = try GraphicsContext.init(ally, info.name, glfw_win);
 
-        const swapchain = try Swapchain.init(&gc, ally, .{ .width = @intCast(info.width), .height = @intCast(info.height) });
+        const swapchain = try Swapchain.init(&gc, ally, .{ .width = @intCast(info.width), .height = @intCast(info.height) }, info.preferred_format);
 
         const render_pass = try createRenderPass(&gc, swapchain);
 
@@ -1972,6 +1982,7 @@ pub const Window = struct {
             .fixed_size = !info.resizable,
             .size_dirty = false,
             .ally = ally,
+            .preferred_format = info.preferred_format,
 
             // vulkan
             .gc = gc,
