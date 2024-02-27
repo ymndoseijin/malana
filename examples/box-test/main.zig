@@ -10,7 +10,7 @@ const math = ui.math;
 const Box = ui.Box;
 
 var state: *Ui = undefined;
-var root: Box = undefined;
+var root: *Box = undefined;
 var global_ally: std.mem.Allocator = undefined;
 
 const Program = struct {
@@ -60,14 +60,14 @@ fn textInput(program_ptr: *anyopaque, _: *ui.Callback, codepoint: u32) !void {
 }
 
 const NineInfo = struct {
-    top_left: Box,
-    left: Box,
-    bottom_left: Box,
-    top: Box,
-    bottom: Box,
-    top_right: Box,
-    right: Box,
-    bottom_right: Box,
+    top_left: *Box,
+    left: *Box,
+    bottom_left: *Box,
+    top: *Box,
+    bottom: *Box,
+    top_right: *Box,
+    right: *Box,
+    bottom_right: *Box,
 };
 
 const NineRectSprite = struct {
@@ -89,7 +89,7 @@ const NineRectSprite = struct {
     right_sprite: ?graphics.Sprite = null,
     bottom_right_sprite: ?graphics.Sprite = null,
 
-    pub fn init(rect: *NineRectSprite, ally: std.mem.Allocator, in_box: Box) !Box {
+    pub fn init(rect: *NineRectSprite, ally: std.mem.Allocator, in_box: *Box) !*Box {
         rect.top_left_sprite = try graphics.Sprite.init(&state.scene, .{ .tex = rect.top_left });
         rect.left_sprite = try graphics.Sprite.init(&state.scene, .{ .tex = rect.left });
         rect.bottom_left_sprite = try graphics.Sprite.init(&state.scene, .{ .tex = rect.bottom_left });
@@ -100,38 +100,38 @@ const NineRectSprite = struct {
         rect.bottom_right_sprite = try graphics.Sprite.init(&state.scene, .{ .tex = rect.bottom_right });
 
         return NineRectBox(ally, .{
-            .top_left = try Box.init(ally, .{
+            .top_left = try Box.create(ally, .{
                 .size = .{ rect.top_left_sprite.?.width, rect.top_left_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.top_left_sprite.?)},
             }),
-            .bottom_left = try Box.init(ally, .{
+            .bottom_left = try Box.create(ally, .{
                 .size = .{ rect.bottom_left_sprite.?.width, rect.bottom_left_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.bottom_left_sprite.?)},
             }),
-            .top_right = try Box.init(ally, .{
+            .top_right = try Box.create(ally, .{
                 .size = .{ rect.top_right_sprite.?.width, rect.top_right_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.top_right_sprite.?)},
             }),
-            .bottom_right = try Box.init(ally, .{
+            .bottom_right = try Box.create(ally, .{
                 .size = .{ rect.bottom_right_sprite.?.width, rect.bottom_right_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.bottom_right_sprite.?)},
             }),
-            .top = try Box.init(ally, .{
+            .top = try Box.create(ally, .{
                 .expand = .{ .horizontal = true },
                 .size = .{ rect.top_sprite.?.width, rect.top_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.top_sprite.?)},
             }),
-            .bottom = try Box.init(ally, .{
+            .bottom = try Box.create(ally, .{
                 .expand = .{ .horizontal = true },
                 .size = .{ rect.bottom_sprite.?.width, rect.bottom_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.bottom_sprite.?)},
             }),
-            .left = try Box.init(ally, .{
+            .left = try Box.create(ally, .{
                 .expand = .{ .vertical = true },
                 .size = .{ rect.left_sprite.?.width, rect.left_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.left_sprite.?)},
             }),
-            .right = try Box.init(ally, .{
+            .right = try Box.create(ally, .{
                 .expand = .{ .vertical = true },
                 .size = .{ rect.right_sprite.?.width, rect.right_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.right_sprite.?)},
@@ -140,17 +140,17 @@ const NineRectSprite = struct {
     }
 };
 
-pub fn NineRectBox(ally: std.mem.Allocator, info: NineInfo, in_box: Box) !Box {
+pub fn NineRectBox(ally: std.mem.Allocator, info: NineInfo, in_box: *Box) !*Box {
     var box = in_box;
     box.expand = .{ .vertical = true, .horizontal = true };
     box.fixed_size = .{ 0, 0 };
 
-    return try Box.init(ally, .{
+    return try Box.create(ally, .{
         .flow = .{ .horizontal = true },
         .expand = in_box.expand,
         .size = in_box.fixed_size,
         .children = &.{
-            try Box.init(ally, .{
+            try Box.create(ally, .{
                 .flow = .{ .vertical = true },
                 .expand = .{ .vertical = true },
                 .size = .{ 0, 0 },
@@ -160,7 +160,7 @@ pub fn NineRectBox(ally: std.mem.Allocator, info: NineInfo, in_box: Box) !Box {
                     info.bottom_left,
                 },
             }),
-            try Box.init(ally, .{
+            try Box.create(ally, .{
                 .flow = .{ .vertical = true },
                 .expand = .{ .vertical = true, .horizontal = true },
                 .children = &.{
@@ -169,7 +169,7 @@ pub fn NineRectBox(ally: std.mem.Allocator, info: NineInfo, in_box: Box) !Box {
                     info.bottom,
                 },
             }),
-            try Box.init(ally, .{
+            try Box.create(ally, .{
                 .flow = .{ .vertical = true },
                 .expand = .{ .vertical = true },
                 .size = .{ 0, 0 },
@@ -222,23 +222,23 @@ pub fn main() !void {
         .right = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_2/right.png", .{}),
     };
 
-    root = try Box.init(ally, .{
+    root = try Box.create(ally, .{
         .size = .{ 1920, 1080 },
         .children = &.{
-            try Box.init(ally, .{
+            try Box.create(ally, .{
                 .expand = .{ .vertical = true, .horizontal = true },
                 .callbacks = &.{ui.getColorCallback(&program.color)},
             }),
-            try ui.MarginBox(ally, .{ .top = margins, .bottom = margins, .left = margins, .right = margins }, try Box.init(ally, .{
+            try ui.MarginBox(ally, .{ .top = margins, .bottom = margins, .left = margins, .right = margins }, try Box.create(ally, .{
                 .expand = .{ .vertical = true, .horizontal = true },
                 .flow = .{ .vertical = true },
                 .children = &.{
-                    try border.init(ally, try Box.init(ally, .{
+                    try border.init(ally, try Box.create(ally, .{
                         .expand = .{ .vertical = true, .horizontal = true },
                         .callbacks = &.{},
                     })),
-                    try Box.init(ally, .{ .size = .{ 0, 10 } }),
-                    try text_border.init(ally, try Box.init(ally, .{
+                    try Box.create(ally, .{ .size = .{ 0, 10 } }),
+                    try text_border.init(ally, try Box.create(ally, .{
                         .expand = .{ .horizontal = true },
                         .size = .{ 0, 30 },
                         .callbacks = &.{
