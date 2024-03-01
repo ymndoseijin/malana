@@ -51,17 +51,37 @@ pub fn getRegionCallback(region: *Region) BoxCallback {
     return .{ .fun = regionBind, .data = region };
 }
 
-fn textBind(box: *Box, text_ptr: *anyopaque) !void {
-    var text: *graphics.TextFt = @ptrCast(@alignCast(text_ptr));
+pub const TextBox = struct {
+    text: graphics.TextFt,
+    box: ?*Box = null,
 
-    text.bounding_width = box.current_size[0];
-    text.transform.translation = box.absolute_pos;
-    try text.update();
-}
+    pub fn init(text: graphics.TextFt) TextBox {
+        return .{
+            .text = text,
+        };
+    }
 
-pub fn getTextCallback(text: *graphics.TextFt) BoxCallback {
-    return .{ .fun = textBind, .data = text };
-}
+    pub fn update(text_box: *TextBox) !void {
+        if (text_box.box) |b| {
+            b.fixed_size[1] = text_box.text.bounding_height;
+            try b.resolveChildren(false);
+        }
+    }
+
+    fn textBind(box: *Box, text_ptr: *anyopaque) !void {
+        var text_box: *TextBox = @ptrCast(@alignCast(text_ptr));
+
+        text_box.text.bounding_width = box.current_size[0];
+        text_box.text.transform.translation = box.absolute_pos;
+
+        try text_box.text.update();
+        try text_box.update();
+    }
+
+    pub fn getTextCallback(text_box: *TextBox) BoxCallback {
+        return .{ .box = &text_box.box, .fun = textBind, .data = text_box };
+    }
+};
 
 pub const Mesh = geometry.Mesh;
 pub const Vertex = geometry.Vertex;

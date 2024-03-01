@@ -42,14 +42,15 @@ pub const Text = struct {
     width: f32,
     height: f32,
 
+    size: f32,
     line_spacing: f32,
     bounding_width: f32,
+    bounding_height: f32,
 
     // 2D structure
     transform: graphics.Transform2D,
     opacity: f32,
 
-    cursor_pos: math.Vec2,
     codepoints: std.ArrayList(u32),
 
     const CharacterInfo = struct {
@@ -168,14 +169,13 @@ pub const Text = struct {
         }
     }
 
-    pub fn clear(self: *Text, scene: anytype) !void {
-        self.cursor_pos = .{ 0, 0 };
-        self.count = 0;
+    pub fn clear(self: *Text, scene: anytype, ally: std.mem.Allocator) !void {
         for (self.characters.items) |c| {
-            try scene.delete(c.sprite.drawing);
-            c.deinit();
+            try scene.delete(ally, c.sprite.drawing);
+            c.deinit(ally);
         }
         self.characters.clearRetainingCapacity();
+        self.codepoints.clearRetainingCapacity();
     }
 
     pub fn getExtent(self: Text, unicode: []const u32) !f32 {
@@ -237,14 +237,18 @@ pub const Text = struct {
 
         var character_index: usize = 0;
 
+        var height = self.line_spacing;
+
         while (it.next()) |word| {
             if (try self.getExtent(word) + start[0] > self.bounding_width + self.transform.translation[0] and self.codepoints.items.len != 0) {
                 start = .{ self.transform.translation[0], start[1] + self.line_spacing };
+                height += self.line_spacing;
             }
 
             for (word) |c| {
                 if (c == '\n') {
                     start = .{ self.transform.translation[0], start[1] + self.line_spacing };
+                    height += self.line_spacing;
                     continue;
                 }
 
@@ -252,6 +256,7 @@ pub const Text = struct {
 
                 if (char.advance + start[0] > self.bounding_width + self.transform.translation[0]) {
                     start = .{ self.transform.translation[0], start[1] + self.line_spacing };
+                    height += self.line_spacing;
                 }
 
                 char.sprite.transform.translation = start + char.offset - math.Vec2{ 0, @floatFromInt(char.image.height) };
@@ -264,6 +269,8 @@ pub const Text = struct {
                 start += .{ space_width, 0 };
             }
         }
+
+        self.bounding_height = height;
     }
 
     pub fn deinit(self: *Text, ally: std.mem.Allocator) void {
@@ -282,11 +289,12 @@ pub const Text = struct {
             .height = 0,
             .opacity = 1,
             .bounding_width = bounding_width,
+            .bounding_height = size * line_spacing,
             .face = face,
+            .size = size,
             .line_spacing = size * line_spacing,
             .characters = std.ArrayList(Character).init(ally),
             .codepoints = std.ArrayList(u32).init(ally),
-            .cursor_pos = .{ 0, 0 },
             .transform = .{
                 .scale = .{ 1, 1 },
                 .rotation = .{ .angle = 0, .center = .{ 0.5, 0.5 } },

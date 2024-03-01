@@ -17,15 +17,16 @@ const Program = struct {
     color: graphics.ColoredRect,
     chat_background: graphics.ColoredRect,
     input_box: graphics.ColoredRect,
-    char_test: graphics.TextFt,
+    char_test: ui.TextBox,
     text_region: ui.Region,
+    text: std.ArrayList(u8),
     state: *Ui,
     ally: std.mem.Allocator,
 
     pub fn init(state_ui: *Ui) !Program {
         const color = try graphics.ColoredRect.init(&state.scene, comptime try math.color.parseHexRGBA("c0c0c0"));
         const input_box = try graphics.ColoredRect.init(&state.scene, comptime try math.color.parseHexRGBA("8e8eb9"));
-        const char_test = try graphics.TextFt.init(global_ally, "resources/fonts/Fairfax.ttf", 12, 1, 250);
+        const char_test = ui.TextBox.init(try graphics.TextFt.init(global_ally, "resources/fonts/Fairfax.ttf", 12, 1, 250));
 
         const text_region: ui.Region = .{ .transform = input_box.transform };
 
@@ -35,20 +36,41 @@ const Program = struct {
             .input_box = input_box,
             .char_test = char_test,
             .text_region = text_region,
+            .text = std.ArrayList(u8).init(global_ally),
             .state = state_ui,
             .ally = global_ally,
         };
     }
 
     pub fn initPtr(program: *Program) !void {
-        try state.callback.elements.append(.{ @ptrCast(program), .{ .char_func = textInput, .region = &program.text_region } });
+        try state.callback.elements.append(.{ @ptrCast(program), .{
+            .key_func = keyInput,
+            .char_func = textInput,
+            .region = &program.text_region,
+        } });
+    }
+
+    pub fn deinit(program: Program) void {
+        program.text.deinit();
     }
 };
 
 pub fn frameUpdate(width: i32, height: i32) !void {
     root.fixed_size = .{ @floatFromInt(width), @floatFromInt(height) };
     root.current_size = .{ @floatFromInt(width), @floatFromInt(height) };
-    try root.resolve(global_ally);
+    try root.resolve();
+}
+
+fn keyInput(program_ptr: *anyopaque, _: *ui.Callback, key: i32, scancode: i32, action: graphics.Action, mods: i32) !void {
+    _ = scancode;
+    _ = mods;
+    const program: *Program = @alignCast(@ptrCast(program_ptr));
+
+    if (key == graphics.glfw.GLFW_KEY_ENTER and action == .press) {
+        std.debug.print("woop \"{s}\"\n", .{program.text.items});
+        program.text.clearRetainingCapacity();
+        try program.char_test.text.clear(&state.scene, program.ally);
+    }
 }
 
 fn textInput(program_ptr: *anyopaque, _: *ui.Callback, codepoint: u32) !void {
@@ -56,7 +78,8 @@ fn textInput(program_ptr: *anyopaque, _: *ui.Callback, codepoint: u32) !void {
 
     var buf: [4]u8 = undefined;
     const string = buf[0..try std.unicode.utf8Encode(@intCast(codepoint), &buf)];
-    try program.char_test.print(&program.state.scene, program.ally, .{ .text = string, .color = .{ 0.0, 0.0, 0.0 } });
+    for (string) |c| try program.text.append(c);
+    try program.char_test.text.print(&program.state.scene, program.ally, .{ .text = string, .color = .{ 0.0, 0.0, 0.0 } });
 }
 
 const NineInfo = struct {
@@ -101,37 +124,45 @@ const NineRectSprite = struct {
 
         return NineRectBox(ally, .{
             .top_left = try Box.create(ally, .{
+                .label = "top left",
                 .size = .{ rect.top_left_sprite.?.width, rect.top_left_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.top_left_sprite.?)},
             }),
             .bottom_left = try Box.create(ally, .{
+                .label = "bottom left",
                 .size = .{ rect.bottom_left_sprite.?.width, rect.bottom_left_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.bottom_left_sprite.?)},
             }),
             .top_right = try Box.create(ally, .{
+                .label = "top right",
                 .size = .{ rect.top_right_sprite.?.width, rect.top_right_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.top_right_sprite.?)},
             }),
             .bottom_right = try Box.create(ally, .{
+                .label = "bottom right",
                 .size = .{ rect.bottom_right_sprite.?.width, rect.bottom_right_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.bottom_right_sprite.?)},
             }),
             .top = try Box.create(ally, .{
+                .label = "top",
                 .expand = .{ .horizontal = true },
                 .size = .{ rect.top_sprite.?.width, rect.top_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.top_sprite.?)},
             }),
             .bottom = try Box.create(ally, .{
+                .label = "bottom",
                 .expand = .{ .horizontal = true },
                 .size = .{ rect.bottom_sprite.?.width, rect.bottom_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.bottom_sprite.?)},
             }),
             .left = try Box.create(ally, .{
+                .label = "left",
                 .expand = .{ .vertical = true },
                 .size = .{ rect.left_sprite.?.width, rect.left_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.left_sprite.?)},
             }),
             .right = try Box.create(ally, .{
+                .label = "right",
                 .expand = .{ .vertical = true },
                 .size = .{ rect.right_sprite.?.width, rect.right_sprite.?.height },
                 .callbacks = &.{ui.getSpriteCallback(&rect.right_sprite.?)},
@@ -140,19 +171,18 @@ const NineRectSprite = struct {
     }
 };
 
-pub fn NineRectBox(ally: std.mem.Allocator, info: NineInfo, in_box: *Box) !*Box {
-    var box = in_box;
-    box.expand = .{ .vertical = true, .horizontal = true };
-    box.fixed_size = .{ 0, 0 };
-
+pub fn NineRectBox(ally: std.mem.Allocator, info: NineInfo, box: *Box) !*Box {
     return try Box.create(ally, .{
+        .label = "nine rect",
         .flow = .{ .horizontal = true },
-        .expand = in_box.expand,
-        .size = in_box.fixed_size,
+        .expand = box.expand,
+        .fit = .{ .vertical = true, .horizontal = true },
         .children = &.{
             try Box.create(ally, .{
+                .label = "left nine",
                 .flow = .{ .vertical = true },
                 .expand = .{ .vertical = true },
+                .fit = .{ .vertical = true, .horizontal = true },
                 .size = .{ 0, 0 },
                 .children = &.{
                     info.top_left,
@@ -161,8 +191,10 @@ pub fn NineRectBox(ally: std.mem.Allocator, info: NineInfo, in_box: *Box) !*Box 
                 },
             }),
             try Box.create(ally, .{
+                .label = "middle nine",
                 .flow = .{ .vertical = true },
                 .expand = .{ .vertical = true, .horizontal = true },
+                .fit = .{ .vertical = true, .horizontal = true },
                 .children = &.{
                     info.top,
                     box,
@@ -170,8 +202,10 @@ pub fn NineRectBox(ally: std.mem.Allocator, info: NineInfo, in_box: *Box) !*Box 
                 },
             }),
             try Box.create(ally, .{
+                .label = "right nine",
                 .flow = .{ .vertical = true },
                 .expand = .{ .vertical = true },
+                .fit = .{ .vertical = true, .horizontal = true },
                 .size = .{ 0, 0 },
                 .children = &.{
                     info.top_right,
@@ -196,6 +230,7 @@ pub fn main() !void {
 
     var program = try Program.init(state);
     try program.initPtr();
+    defer program.deinit();
 
     const margins = 10;
     //const text_margin = 20;
@@ -237,14 +272,15 @@ pub fn main() !void {
                         .expand = .{ .vertical = true, .horizontal = true },
                         .callbacks = &.{},
                     })),
-                    try Box.create(ally, .{ .size = .{ 0, 10 } }),
+                    try Box.create(ally, .{ .size = .{ 1000, 10 } }),
                     try text_border.init(ally, try Box.create(ally, .{
+                        .label = "Text",
                         .expand = .{ .horizontal = true },
                         .size = .{ 0, 30 },
                         .callbacks = &.{
                             ui.getColorCallback(&program.input_box),
                             ui.getRegionCallback(&program.text_region),
-                            ui.getTextCallback(&program.char_test),
+                            program.char_test.getTextCallback(),
                         },
                     })),
                 },
@@ -254,6 +290,9 @@ pub fn main() !void {
     defer root.deinit();
 
     state.frame_func = frameUpdate;
+
+    try root.resolve();
+    root.print(0);
 
     while (state.main_win.alive) {
         try state.updateEvents();
