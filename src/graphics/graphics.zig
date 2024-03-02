@@ -2209,7 +2209,7 @@ pub const Scene = struct {
     pub fn delete(self: *Self, ally: std.mem.Allocator, drawing: *Drawing) !void {
         const idx = std.mem.indexOfScalar(*Drawing, self.drawing_array.items, drawing) orelse return error.DeletedDrawingNotInScene;
 
-        var rem = self.drawing_array.swapRemove(idx);
+        var rem = self.drawing_array.orderedRemove(idx);
         rem.deinit(ally);
         ally.destroy(rem);
     }

@@ -52,18 +52,18 @@ pub fn getRegionCallback(region: *Region) BoxCallback {
 }
 
 pub const TextBox = struct {
-    text: graphics.TextFt,
+    content: graphics.TextFt,
     box: ?*Box = null,
 
     pub fn init(text: graphics.TextFt) TextBox {
         return .{
-            .text = text,
+            .content = text,
         };
     }
 
     pub fn update(text_box: *TextBox) !void {
         if (text_box.box) |b| {
-            b.fixed_size[1] = text_box.text.bounding_height;
+            b.fixed_size[1] = text_box.content.bounding_height;
             try b.resolveChildren(false);
         }
     }
@@ -71,10 +71,10 @@ pub const TextBox = struct {
     fn textBind(box: *Box, text_ptr: *anyopaque) !void {
         var text_box: *TextBox = @ptrCast(@alignCast(text_ptr));
 
-        text_box.text.bounding_width = box.current_size[0];
-        text_box.text.transform.translation = box.absolute_pos;
+        text_box.content.bounding_width = box.current_size[0];
+        text_box.content.transform.translation = box.absolute_pos;
 
-        try text_box.text.update();
+        try text_box.content.update();
         try text_box.update();
     }
 

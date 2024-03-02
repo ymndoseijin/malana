@@ -10,6 +10,7 @@ const math = ui.math;
 const Box = ui.Box;
 
 var main_program: *Program = undefined;
+var main_irc: *Irc = undefined;
 var global_ally: std.mem.Allocator = undefined;
 
 const Program = struct {
@@ -25,6 +26,13 @@ const Program = struct {
     border: NineRectSprite,
     text_border: NineRectSprite,
     root: *Box,
+    list: *Box,
+    textures: Textures,
+
+    const Textures = struct {
+        text_border: NineRectTexture,
+        border: NineRectTexture,
+    };
 
     pub fn init(state: *Ui) !Program {
         const ally = global_ally;
@@ -34,7 +42,7 @@ const Program = struct {
 
         const text_region: ui.Region = .{ .transform = input_box.transform };
 
-        const text_border = NineRectSprite{
+        const text_border_texture: NineRectTexture = .{
             .top_left = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/top_left.png", .{}),
             .bottom_left = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/bottom_left.png", .{}),
             .top_right = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/top_right.png", .{}),
@@ -45,7 +53,7 @@ const Program = struct {
             .right = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_1/right.png", .{}),
         };
 
-        const border = NineRectSprite{
+        const border_texture: NineRectTexture = .{
             .top_left = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_2/top_left.png", .{}),
             .bottom_left = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_2/bottom_left.png", .{}),
             .top_right = try graphics.Texture.initFromPath(ally, state.main_win, "resources/ui/box_2/top_right.png", .{}),
@@ -65,9 +73,14 @@ const Program = struct {
             .text = std.ArrayList(u8).init(global_ally),
             .state = state,
             .ally = global_ally,
-            .border = border,
-            .text_border = text_border,
+            .textures = .{
+                .text_border = text_border_texture,
+                .border = border_texture,
+            },
+            .border = .{ .texture = border_texture },
+            .text_border = .{ .texture = text_border_texture },
             .root = undefined,
+            .list = undefined,
         };
     }
 
@@ -79,25 +92,27 @@ const Program = struct {
         } });
         const margins = 10;
         //const text_margin = 20;
+        const ally = program.ally;
+        var list: ?*Box = undefined;
 
-        var root = try Box.create(program.ally, .{
+        var root = try Box.create(ally, .{
             .size = .{ 1920, 1080 },
             .children = &.{
-                try Box.create(program.ally, .{
+                try Box.create(ally, .{
                     .expand = .{ .vertical = true, .horizontal = true },
                     .callbacks = &.{ui.getColorCallback(&program.color)},
                 }),
-                try ui.MarginBox(program.ally, .{ .top = margins, .bottom = margins, .left = margins, .right = margins }, try Box.create(program.ally, .{
+                try ui.MarginBox(ally, .{ .top = margins, .bottom = margins, .left = margins, .right = margins }, try Box.create(ally, .{
                     .expand = .{ .vertical = true, .horizontal = true },
                     .flow = .{ .vertical = true },
                     .children = &.{
-                        try program.border.init(&program.state.scene, program.ally, try Box.create(program.ally, .{
+                        try program.border.init(&program.state.scene, ally, try Box.create(ally, .{
                             .expand = .{ .vertical = true, .horizontal = true },
                             .flow = .{ .vertical = true },
-                            .callbacks = &.{.{}},
+                            .callbacks = &.{.{ .box = &list }},
                         })),
-                        try Box.create(program.ally, .{ .size = .{ 1000, 10 } }),
-                        try program.text_border.init(&program.state.scene, program.ally, try Box.create(program.ally, .{
+                        try Box.create(ally, .{ .size = .{ 1000, 10 } }),
+                        try program.text_border.init(&program.state.scene, ally, try Box.create(ally, .{
                             .label = "Text",
                             .expand = .{ .horizontal = true },
                             .size = .{ 0, 30 },
@@ -115,6 +130,13 @@ const Program = struct {
         try root.resolve();
         root.print(0);
         program.root = root;
+        program.list = list.?;
+    }
+
+    pub fn addMessage(program: *Program, string: []const u8) !void {
+        const ally = program.ally;
+        const message = try Message.create(program, ally, string);
+        try program.list.append(message.box);
     }
 
     pub fn deinit(program: Program) void {
@@ -129,15 +151,86 @@ pub fn frameUpdate(width: i32, height: i32) !void {
     try main_program.root.resolve();
 }
 
+const Message = struct {
+    background: graphics.ColoredRect,
+    text: ui.TextBox,
+    border: NineRectSprite,
+    box: *Box,
+
+    pub fn create(program: *Program, ally: std.mem.Allocator, string: []const u8) !*Message {
+        const message = try ally.create(Message);
+        const background = try graphics.ColoredRect.init(&program.state.scene, comptime try math.color.parseHexRGBA("8e8eb9"));
+        var text = ui.TextBox.init(try graphics.TextFt.init(global_ally, "resources/fonts/Fairfax.ttf", 12, 1, 250));
+        try text.content.print(&program.state.scene, ally, .{ .text = string, .color = .{ 0.0, 0.0, 0.0 } });
+
+        message.* = .{
+            .background = background,
+            .text = text,
+            .border = .{ .texture = program.textures.text_border },
+            .box = undefined,
+        };
+
+        const border = 5;
+
+        message.box =
+            try message.border.init(
+            &program.state.scene,
+            ally,
+            try Box.create(ally, .{
+                .expand = .{ .horizontal = true },
+                .fit = .{ .vertical = true, .horizontal = true },
+                .callbacks = &.{ui.getColorCallback(&message.background)},
+                .children = &.{
+                    try ui.MarginBox(
+                        ally,
+                        .{ .top = border, .bottom = border, .left = border, .right = border },
+                        try Box.create(ally, .{
+                            .label = "Text",
+                            .expand = .{ .horizontal = true },
+                            .size = .{ 0, 30 },
+                            .callbacks = &.{
+                                message.text.getTextCallback(),
+                            },
+                        }),
+                    ),
+                },
+            }),
+        );
+
+        return message;
+    }
+};
+
 fn keyInput(program_ptr: *anyopaque, _: *ui.Callback, key: i32, scancode: i32, action: graphics.Action, mods: i32) !void {
     _ = scancode;
     _ = mods;
     const program: *Program = @alignCast(@ptrCast(program_ptr));
 
     if (key == graphics.glfw.GLFW_KEY_ENTER and action == .press) {
-        std.debug.print("woop \"{s}\"\n", .{program.text.items});
+        main_irc.mutex.lock();
+        defer main_irc.mutex.unlock();
+
+        var buf: [4096]u8 = undefined;
+        try program.addMessage(try std.fmt.bufPrint(&buf, "{s} | {s}: {s}", .{ main_irc.channel, main_irc.name, program.text.items }));
+
+        try main_irc.send("{s}", .{program.text.items});
+
         program.text.clearRetainingCapacity();
-        try program.char_test.text.clear(&program.state.scene, program.ally);
+        try program.char_test.content.clear(&program.state.scene, program.ally);
+        try program.root.resolve();
+    } else if (key == graphics.glfw.GLFW_KEY_BACKSPACE and action == .press) {
+        if (program.text.items.len == 0) return;
+        var text = &program.char_test.content;
+        const char = text.characters.pop();
+        try program.state.scene.delete(program.ally, char.sprite.drawing);
+        char.deinit(program.ally);
+
+        var buf: [4]u8 = undefined;
+        const codepoint = text.codepoints.pop();
+        const string = buf[0..try std.unicode.utf8Encode(@intCast(codepoint), &buf)];
+        std.debug.print("text before: {s}\n", .{program.text.items});
+        program.text.shrinkRetainingCapacity(program.text.items.len - string.len);
+        std.debug.print("text after: {s}\n", .{program.text.items});
     }
 }
 
@@ -147,7 +240,7 @@ fn textInput(program_ptr: *anyopaque, _: *ui.Callback, codepoint: u32) !void {
     var buf: [4]u8 = undefined;
     const string = buf[0..try std.unicode.utf8Encode(@intCast(codepoint), &buf)];
     for (string) |c| try program.text.append(c);
-    try program.char_test.text.print(&program.state.scene, program.ally, .{ .text = string, .color = .{ 0.0, 0.0, 0.0 } });
+    try program.char_test.content.print(&program.state.scene, program.ally, .{ .text = string, .color = .{ 0.0, 0.0, 0.0 } });
 }
 
 const NineInfo = struct {
@@ -161,7 +254,7 @@ const NineInfo = struct {
     bottom_right: *Box,
 };
 
-const NineRectSprite = struct {
+const NineRectTexture = struct {
     top_left: graphics.Texture,
     left: graphics.Texture,
     bottom_left: graphics.Texture,
@@ -170,7 +263,9 @@ const NineRectSprite = struct {
     top_right: graphics.Texture,
     right: graphics.Texture,
     bottom_right: graphics.Texture,
+};
 
+const NineRectSprite = struct {
     top_left_sprite: ?graphics.Sprite = null,
     left_sprite: ?graphics.Sprite = null,
     bottom_left_sprite: ?graphics.Sprite = null,
@@ -179,16 +274,17 @@ const NineRectSprite = struct {
     top_right_sprite: ?graphics.Sprite = null,
     right_sprite: ?graphics.Sprite = null,
     bottom_right_sprite: ?graphics.Sprite = null,
+    texture: NineRectTexture,
 
-    pub fn init(rect: *NineRectSprite, scene: anytype, ally: std.mem.Allocator, in_box: *Box) !*Box {
-        rect.top_left_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.top_left });
-        rect.left_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.left });
-        rect.bottom_left_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.bottom_left });
-        rect.top_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.top });
-        rect.bottom_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.bottom });
-        rect.top_right_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.top_right });
-        rect.right_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.right });
-        rect.bottom_right_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.bottom_right });
+    pub fn init(rect: *NineRectSprite, scene: *graphics.Scene, ally: std.mem.Allocator, in_box: *Box) !*Box {
+        rect.top_left_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.texture.top_left });
+        rect.left_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.texture.left });
+        rect.bottom_left_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.texture.bottom_left });
+        rect.top_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.texture.top });
+        rect.bottom_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.texture.bottom });
+        rect.top_right_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.texture.top_right });
+        rect.right_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.texture.right });
+        rect.bottom_right_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.texture.bottom_right });
 
         return NineRectBox(ally, .{
             .top_left = try Box.create(ally, .{
@@ -285,11 +381,100 @@ pub fn NineRectBox(ally: std.mem.Allocator, info: NineInfo, box: *Box) !*Box {
     });
 }
 
+const Irc = struct {
+    server: std.net.Stream,
+    name: []const u8,
+    channel: []const u8,
+    ally: std.mem.Allocator,
+
+    mutex: std.Thread.Mutex,
+
+    fn handleMessage(irc: *Irc, sender: []const u8, message_in: []const u8, channel: []const u8) !void {
+        irc.mutex.lock();
+        defer irc.mutex.unlock();
+
+        std.debug.print("{s} {s}: {s}\n", .{ channel, sender, message_in });
+        var buf: [4096]u8 = undefined;
+        try main_program.addMessage(try std.fmt.bufPrint(&buf, "{s} | {s}: {s}", .{ channel, sender, message_in }));
+        try main_program.root.resolve();
+    }
+
+    fn handleIrcMessage(irc: *Irc, sender: []const u8, command_string: []const u8) !void {
+        var space_split = std.mem.split(u8, command_string, " ");
+        const message_type = space_split.next() orelse return error.InvalidServerMessage;
+        var server_writer = irc.server.writer();
+
+        if (std.mem.eql(u8, message_type, "PRIVMSG")) {
+            var msg_split = std.mem.split(u8, command_string, ":");
+            _ = msg_split.next();
+            const channel = space_split.next() orelse return error.InvalidPrivMsg;
+            const message = msg_split.rest();
+            var sender_split = std.mem.splitSequence(u8, sender, "!");
+            var sender_proc = sender_split.next() orelse return error.InvalidMessage;
+            sender_proc = std.mem.trim(u8, sender_proc, ":");
+            try irc.handleMessage(sender_proc, std.mem.trim(u8, message, "\x00\r\n"), channel);
+        } else if (std.mem.eql(u8, message_type, "PING")) {
+            _ = try server_writer.print("PONG {s}\r\n", .{space_split.next() orelse return error.InvalidPong});
+        }
+    }
+
+    pub fn send(irc: *Irc, comptime message: []const u8, args: anytype) !void {
+        const formatted = try std.fmt.allocPrint(irc.ally, message, args);
+        defer irc.ally.free(formatted);
+        var server_writer = irc.server.writer();
+        _ = try server_writer.print("PRIVMSG {s} :{s}\r\n", .{ irc.channel, formatted });
+    }
+
+    pub fn init(ally: std.mem.Allocator, name: []const u8, channel: []const u8) !Irc {
+        const address = std.net.Address.initIp4([4]u8{ 10, 8, 0, 1 }, 6667);
+        var server = try std.net.tcpConnectToAddress(address);
+
+        var server_writer = server.writer();
+
+        _ = try server_writer.print("NICK {s}\r\n", .{name});
+        _ = try server_writer.print("USER {s} 0 * :{s}\r\n", .{ name, name });
+        _ = try server_writer.print("JOIN {s}\r\n", .{channel});
+        std.debug.print("Bot irc funcionando!\n", .{});
+
+        return .{
+            .server = server,
+            .name = name,
+            .channel = channel,
+            .ally = ally,
+            .mutex = .{},
+        };
+    }
+
+    pub fn deinit(irc: *Irc) void {
+        irc.server.close();
+        irc.last_message.deinit();
+    }
+
+    pub fn loop(irc: *Irc) !void {
+        var buf: [2048]u8 = undefined;
+        while (true) {
+            const size = try irc.server.read(&buf);
+            const msg = buf[0..size];
+            var space_split = std.mem.split(u8, msg, " ");
+            const sender = space_split.next() orelse return error.InvalidServerMessage;
+            const command_string = space_split.rest();
+
+            std.debug.print("sender: {s} command_string: {s}\n", .{ sender, command_string });
+            try irc.handleIrcMessage(sender, command_string);
+        }
+    }
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     global_ally = gpa.allocator();
     const ally = global_ally;
+
+    var irc = try Irc.init(ally, "cliente", "#pas");
+    main_irc = &irc;
+
+    _ = try std.Thread.spawn(.{}, Irc.loop, .{&irc});
 
     var state = try Ui.init(ally, .{ .name = "box test", .width = 500, .height = 500, .resizable = true, .preferred_format = .unorm });
     defer state.deinit(ally);
@@ -305,6 +490,8 @@ pub fn main() !void {
 
     while (state.main_win.alive) {
         try state.updateEvents();
+        irc.mutex.lock();
+        defer irc.mutex.unlock();
         try state.render();
     }
 }

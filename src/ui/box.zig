@@ -248,7 +248,7 @@ pub const Box = struct {
         }
     }
 
-    pub fn append(box: *Box, child: Box) !void {
+    pub fn append(box: *Box, child: *Box) !void {
         var new = child;
         new.parent = box;
         try box.leaves.append(new);
@@ -262,20 +262,17 @@ const MarginInfo = struct {
     right: f32 = 0,
 };
 
-pub fn MarginBox(ally: std.mem.Allocator, info: MarginInfo, in_box: *Box) !*Box {
-    var box = in_box;
-    box.expand = .{ .vertical = true, .horizontal = true };
-    box.fixed_size = .{ 0, 0 };
-
+pub fn MarginBox(ally: std.mem.Allocator, info: MarginInfo, box: *Box) !*Box {
     return try Box.create(ally, .{
         .flow = .{ .horizontal = true },
-        .expand = in_box.expand,
-        .size = in_box.fixed_size,
+        .expand = box.expand,
+        .fit = .{ .vertical = true, .horizontal = true },
         .children = &.{
             try Box.create(ally, .{ .expand = .{ .vertical = true }, .size = .{ info.left, 0 } }),
             try Box.create(ally, .{
                 .flow = .{ .vertical = true },
                 .expand = .{ .vertical = true, .horizontal = true },
+                .fit = .{ .vertical = true, .horizontal = true },
                 .children = &.{
                     try Box.create(ally, .{ .expand = .{ .horizontal = true }, .size = .{ 0, info.top } }),
                     box,

@@ -33,7 +33,7 @@ pub const ColoredRectPipeline = graphics.RenderPipeline{
 };
 
 pub const ColoredRect = struct {
-    pub fn init(scene: anytype, color: math.Vec4) !ColoredRect {
+    pub fn init(scene: *graphics.Scene, color: math.Vec4) !ColoredRect {
         var drawing = try scene.new();
 
         try drawing.init(scene.window.ally, scene.window, &scene.window.default_shaders.color_shaders, ColoredRectPipeline);

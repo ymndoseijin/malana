@@ -33,7 +33,7 @@ pub const Sprite = CustomSprite(DefaultSpriteUniform);
 pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
     return struct {
         pub const Self = @This();
-        pub fn init(scene: anytype, info: SpriteInfo) !Self {
+        pub fn init(scene: *graphics.Scene, info: SpriteInfo) !Self {
             const w: f32 = @floatFromInt(info.tex.width);
             const h: f32 = @floatFromInt(info.tex.height);
 
