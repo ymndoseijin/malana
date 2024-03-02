@@ -48,7 +48,11 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
             var actual_pipeline = info.pipeline;
 
             actual_pipeline.samplers = &.{info.tex};
-            try drawing.init(scene.window.ally, scene.window, info.shaders orelse &scene.window.default_shaders.sprite_shaders, actual_pipeline);
+            try drawing.init(scene.window.ally, .{
+                .win = scene.window,
+                .shaders = info.shaders orelse &scene.window.default_shaders.sprite_shaders,
+                .pipeline = actual_pipeline,
+            });
 
             try graphics.SpritePipeline.vertex_description.bindVertex(drawing, &.{
                 .{ .{ 0, 0, 1 }, .{ 0, 0 } },

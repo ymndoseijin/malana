@@ -20,7 +20,8 @@ const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
 
 pub const MeshBuilder = struct {
-    vertices: std.ArrayList(f32),
+    const VertTuple = struct { [3]f32, [2]f32, [3]f32 };
+    vertices: std.ArrayList(VertTuple),
     indices: std.ArrayList(u32),
     count: u32,
 
@@ -30,10 +31,10 @@ pub const MeshBuilder = struct {
     }
 
     pub fn addTri(self: *MeshBuilder, v: [3]Vertex) !void {
-        const vertices = [_]f32{
-            v[0].pos[0], v[0].pos[1], v[0].pos[2], v[0].uv[0], v[0].uv[1], v[0].norm[0], v[0].norm[1], v[0].norm[2],
-            v[1].pos[0], v[1].pos[1], v[1].pos[2], v[1].uv[0], v[1].uv[1], v[1].norm[0], v[1].norm[1], v[1].norm[2],
-            v[2].pos[0], v[2].pos[1], v[2].pos[2], v[2].uv[0], v[2].uv[1], v[2].norm[0], v[2].norm[1], v[2].norm[2],
+        const vertices = [_]VertTuple{
+            .{ .{ v[0].pos[0], v[0].pos[1], v[0].pos[2] }, .{ v[0].uv[0], v[0].uv[1] }, .{ v[0].norm[0], v[0].norm[1], v[0].norm[2] } },
+            .{ .{ v[1].pos[0], v[1].pos[1], v[1].pos[2] }, .{ v[1].uv[0], v[1].uv[1] }, .{ v[1].norm[0], v[1].norm[1], v[1].norm[2] } },
+            .{ .{ v[2].pos[0], v[2].pos[1], v[2].pos[2] }, .{ v[2].uv[0], v[2].uv[1] }, .{ v[2].norm[0], v[2].norm[1], v[2].norm[2] } },
         };
 
         const indices = [_]u32{
@@ -69,7 +70,7 @@ pub const MeshBuilder = struct {
     pub fn init(ally: std.mem.Allocator) !MeshBuilder {
         return MeshBuilder{
             .count = 0,
-            .vertices = std.ArrayList(f32).init(ally),
+            .vertices = std.ArrayList(VertTuple).init(ally),
             .indices = std.ArrayList(u32).init(ally),
         };
     }

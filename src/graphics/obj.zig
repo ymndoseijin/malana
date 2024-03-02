@@ -37,7 +37,7 @@ pub const ObjParse = struct {
         defer norms.deinit();
         defer uvs.deinit();
 
-        var mesh = try MeshBuilder.init();
+        var mesh = try MeshBuilder.init(self.allocator);
 
         while (try in_stream.readUntilDelimiterOrEof(&buf, '\n')) |line| {
             var spaces = std.mem.splitAny(u8, line, " ");

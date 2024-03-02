@@ -75,7 +75,6 @@ pub const Text = struct {
         },
         .render_type = .triangle,
         .depth_test = false,
-        .cull_face = false,
         .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), CharacterUniform.getSize() },
         .global_ubo = true,
     };
@@ -156,10 +155,10 @@ pub const Text = struct {
         pipeline: graphics.RenderPipeline = CharacterPipeline,
     };
 
-    pub fn printFmt(self: *Text, scene: anytype, comptime fmt: []const u8, fmt_args: anytype) !void {
+    pub fn printFmt(self: *Text, scene: anytype, ally: std.mem.Allocator, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
         const str = try std.fmt.bufPrint(&buf, fmt, fmt_args);
-        try self.print(scene, .{ .text = str });
+        try self.print(scene, ally, .{ .text = str });
     }
 
     pub fn setOpacity(self: *Text, opacity: f32) void {

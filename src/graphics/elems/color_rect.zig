@@ -27,7 +27,7 @@ pub const ColoredRectPipeline = graphics.RenderPipeline{
     },
     .render_type = .triangle,
     .depth_test = false,
-    .cull_face = false,
+    .cull_type = .none,
     .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), ColoredRectUniform.getSize() },
     .global_ubo = true,
 };
@@ -36,7 +36,11 @@ pub const ColoredRect = struct {
     pub fn init(scene: *graphics.Scene, color: math.Vec4) !ColoredRect {
         var drawing = try scene.new();
 
-        try drawing.init(scene.window.ally, scene.window, &scene.window.default_shaders.color_shaders, ColoredRectPipeline);
+        try drawing.init(scene.window.ally, .{
+            .win = scene.window,
+            .shaders = &scene.window.default_shaders.color_shaders,
+            .pipeline = ColoredRectPipeline,
+        });
 
         const default_transform: graphics.Transform2D = .{
             .scale = .{ 1, 1 },

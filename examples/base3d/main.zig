@@ -1,74 +1,69 @@
 const std = @import("std");
 
 const ui = @import("ui");
+const shaders = @import("shaders");
+
+const Ui = ui.Ui;
 const graphics = ui.graphics;
 const Vec3 = ui.Vec3;
 const Vertex = ui.Vertex;
 const common = ui.common;
 
-const display = ui.display;
-
 const math = ui.math;
 const gl = ui.gl;
 
-var state: *display.State = undefined;
+var state: *Ui = undefined;
 
-fn key_down(keys: []const bool, mods: i32, dt: f32) !void {
-    if (keys[graphics.glfw.GLFW_KEY_Q]) {
+fn key_down(keys: ui.KeyState, mods: i32, dt: f32) !void {
+    if (keys.pressed_table[graphics.glfw.GLFW_KEY_Q]) {
         state.main_win.alive = false;
     }
 
-    try state.cam.spatialMove(keys, mods, dt, &state.cam.move, graphics.elems.Camera.DefaultSpatial);
+    try state.cam.spatialMove(keys.pressed_table, mods, dt, &state.cam.move, graphics.Camera.DefaultSpatial);
 }
 
 pub fn main() !void {
-    defer _ = common.gpa_instance.deinit();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const ally = gpa.allocator();
 
-    var bdf = try ui.parsing.BdfParse.init();
-    defer bdf.deinit();
-    try bdf.parse("b12.bdf");
+    state = try Ui.init(ally, .{
+        .window = .{ .name = "box test", .width = 500, .height = 500, .resizable = true, .preferred_format = .srgb },
+        .scene = .{ .flip_z = true },
+    });
+    defer state.deinit(ally);
 
-    state = try display.State.init();
-    defer state.deinit();
-
-    var text = try graphics.elems.Text.init(
-        try state.scene.new(.spatial),
-        bdf,
-        .{ 0, 0, 0 },
-    );
-    defer text.deinit();
-
-    try text.initUniform();
+    var text = try graphics.TextFt.init(ally, "resources/fonts/Fairfax.ttf", 12, 1, 250);
+    defer text.deinit(ally);
 
     // get obj file
     var arg_it = std.process.args();
     _ = arg_it.next();
 
-    var obj_file = arg_it.next() orelse return error.NotEnoughArguments;
+    const obj_file = arg_it.next() orelse return error.NotEnoughArguments;
 
-    var obj_parser = try ui.graphics.ObjParse.init(common.allocator);
+    var obj_parser = try ui.graphics.ObjParse.init(ally);
     var object = try obj_parser.parse(obj_file);
     defer object.deinit();
 
-    var camera_obj = try graphics.SpatialMesh.init(
-        try state.scene.new(.spatial),
-        .{ 0, 0, 0 },
-        try graphics.Shader.setupShader(
-            @embedFile("shaders/triangle/vertex.glsl"),
-            @embedFile("shaders/triangle/fragment.glsl"),
-        ),
-    );
+    const triangle_vert = try graphics.Shader.init(state.main_win.gc, &shaders.vert, .vertex);
+    const triangle_frag = try graphics.Shader.init(state.main_win.gc, &shaders.frag, .fragment);
 
-    camera_obj.drawing.bindVertex(object.vertices.items, object.indices.items);
+    var triangle_shaders = [_]graphics.Shader{ triangle_vert, triangle_frag };
 
-    try state.cam.linkDrawing(camera_obj.drawing);
-    try camera_obj.initUniform();
+    const camera_obj = try graphics.SpatialMesh.init(&state.scene, .{
+        .pos = .{ 0, 0, 0 },
+        .shaders = &triangle_shaders,
+    });
+
+    try graphics.SpatialPipeline.vertex_description.bindVertex(camera_obj.drawing, object.vertices.items, object.indices.items);
 
     state.key_down = key_down;
 
     while (state.main_win.alive) {
         try state.updateEvents();
-        try text.printFmt("{d:.4} {d:.1}", .{ state.cam.move, 1 / state.dt });
+        try state.cam.linkDrawing(camera_obj.drawing);
+        //try text.printFmt(&state.scene, ally, "{d:.4} {d:.1}", .{ state.cam.move, 1 / state.dt });
         try state.render();
     }
 }

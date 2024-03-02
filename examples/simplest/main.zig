@@ -28,7 +28,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const ally = gpa.allocator();
 
-    state = try Ui.init(ally, .{ .name = "image test", .width = 1920, .height = 1080, .resizable = false });
+    state = try Ui.init(ally, .{ .window = .{ .name = "image test", .width = 1920, .height = 1080, .resizable = false } });
     defer state.deinit(ally);
     state.key_down = keyDown;
 

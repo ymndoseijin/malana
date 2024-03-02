@@ -30,7 +30,7 @@ pub const CustomSprite = @import("elems/sprite.zig").CustomSprite;
 pub const ColoredRect = @import("elems/color_rect.zig").ColoredRect;
 
 pub const MeshBuilder = @import("meshbuilder.zig").MeshBuilder;
-pub const SpatialMesh = @import("spatialmesh.zig").SpatialMesh;
+pub const SpatialMesh = @import("elems/spatialmesh.zig").SpatialMesh;
 pub const ObjParse = @import("obj.zig").ObjParse;
 pub const ComptimeMeshBuilder = @import("comptime_meshbuilder.zig").ComptimeMeshBuilder;
 
@@ -1060,7 +1060,18 @@ pub const Drawing = struct {
         data: *anyopaque,
     };
 
-    pub fn init(drawing: *Drawing, ally: std.mem.Allocator, win: *Window, shaders: []Shader, pipeline: RenderPipeline) !void {
+    const DrawingInfo = struct {
+        win: *Window,
+        shaders: []Shader,
+        pipeline: RenderPipeline,
+        flipped_z: bool = false,
+    };
+
+    pub fn init(drawing: *Drawing, ally: std.mem.Allocator, info: DrawingInfo) !void {
+        const win = info.win;
+        const shaders = info.shaders;
+        const pipeline = info.pipeline;
+
         const gc = &win.gc;
 
         var bindings = try ally.alloc(vk.DescriptorSetLayoutBinding, pipeline.uniform_sizes.len + pipeline.samplers.len);
@@ -1162,7 +1173,7 @@ pub const Drawing = struct {
                     .rasterizer_discard_enable = vk.FALSE,
                     .polygon_mode = .fill,
                     .cull_mode = .{ .back_bit = true },
-                    .front_face = .clockwise,
+                    .front_face = if (info.flipped_z) .counter_clockwise else .clockwise,
                     .depth_bias_enable = vk.FALSE,
                     .depth_bias_constant_factor = 0,
                     .depth_bias_clamp = 0,
@@ -2068,6 +2079,10 @@ pub fn embedProcess(comptime source: [:0]const u8) [:0]const u8 {
 
 const frames_in_flight = 2;
 
+pub const SceneInfo = struct {
+    flip_z: bool = false,
+};
+
 pub const Scene = struct {
     drawing_array: std.ArrayList(*Drawing),
 
@@ -2076,9 +2091,10 @@ pub const Scene = struct {
     window: *Window,
 
     frame_id: usize,
+    flip_z: bool,
 
     const Self = @This();
-    pub fn init(win: *Window) !Self {
+    pub fn init(win: *Window, info: SceneInfo) !Self {
         const cmd_buffs = try win.ally.alloc(vk.CommandBuffer, frames_in_flight);
 
         try win.gc.vkd.allocateCommandBuffers(win.gc.dev, &.{
@@ -2092,6 +2108,7 @@ pub const Scene = struct {
             .command_buffers = cmd_buffs,
             .window = win,
             .frame_id = 0,
+            .flip_z = info.flip_z,
         };
     }
 
@@ -2131,14 +2148,25 @@ pub const Scene = struct {
         try gc.vkd.resetCommandBuffer(cmdbuf, .{});
 
         try gc.vkd.beginCommandBuffer(cmdbuf, &.{});
-        gc.vkd.cmdSetViewport(cmdbuf, 0, 1, @ptrCast(&vk.Viewport{
-            .x = 0,
-            .y = 0,
-            .width = @as(f32, @floatFromInt(extent.width)),
-            .height = @as(f32, @floatFromInt(extent.height)),
-            .min_depth = 0,
-            .max_depth = 1,
-        }));
+        if (self.flip_z) {
+            gc.vkd.cmdSetViewport(cmdbuf, 0, 1, @ptrCast(&vk.Viewport{
+                .x = 0,
+                .y = @as(f32, @floatFromInt(extent.height)),
+                .width = @as(f32, @floatFromInt(extent.width)),
+                .height = -@as(f32, @floatFromInt(extent.height)),
+                .min_depth = 0,
+                .max_depth = 1,
+            }));
+        } else {
+            gc.vkd.cmdSetViewport(cmdbuf, 0, 1, @ptrCast(&vk.Viewport{
+                .x = 0,
+                .y = 0,
+                .width = @as(f32, @floatFromInt(extent.width)),
+                .height = @as(f32, @floatFromInt(extent.height)),
+                .min_depth = 0,
+                .max_depth = 1,
+            }));
+        }
         gc.vkd.cmdSetScissor(cmdbuf, 0, 1, @ptrCast(&vk.Rect2D{
             .offset = .{ .x = 0, .y = 0 },
             .extent = extent,
@@ -2335,14 +2363,14 @@ const CullType = enum {
     front,
     back,
     front_and_back,
+    none,
 };
 
 pub const RenderPipeline = struct {
     vertex_description: VertexDescription,
     render_type: RenderType,
     depth_test: bool,
-    cull_face: bool,
-    cull_type: CullType = .back,
+    cull_type: CullType = .none,
 
     uniform_sizes: []const usize = &.{},
     samplers: []const Texture = &.{},
@@ -2393,21 +2421,12 @@ pub const FlatPipeline = RenderPipeline{
     .vertex_attrib = &VertexAttribute{ .{ .size = 3 }, .{ .size = 2 } },
     .render_type = .triangle,
     .depth_test = false,
-    .cull_face = false,
-};
-
-pub const SpatialPipeline = RenderPipeline{
-    .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
-    .render_type = .triangle,
-    .depth_test = true,
-    .cull_face = false,
 };
 
 pub const LinePipeline = RenderPipeline{
     .vertex_attrib = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 3 } },
     .render_type = .line,
     .depth_test = true,
-    .cull_face = false,
 };
 
 pub const UniformDescription = struct {
@@ -2432,6 +2451,11 @@ pub const UniformDescription = struct {
 
 pub const GlobalUniform: UniformDescription = .{ .type = extern struct { time: f32, in_resolution: math.Vec2 } };
 pub const SpriteUniform: UniformDescription = .{ .type = extern struct { transform: math.Mat4, opacity: f32 } };
+pub const SpatialUniform: UniformDescription = .{ .type = extern struct {
+    spatial_pos: math.Vec3,
+    transform: math.Mat4,
+    cam_pos: math.Vec3,
+} };
 
 pub const SpritePipeline = RenderPipeline{
     .vertex_description = .{
@@ -2439,7 +2463,17 @@ pub const SpritePipeline = RenderPipeline{
     },
     .render_type = .triangle,
     .depth_test = false,
-    .cull_face = false,
     .uniform_sizes = &.{ GlobalUniform.getSize(), SpriteUniform.getSize() },
+    .global_ubo = true,
+};
+
+pub const SpatialPipeline = RenderPipeline{
+    .vertex_description = .{
+        .vertex_attribs = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
+    },
+    .render_type = .triangle,
+    .depth_test = true,
+    .cull_type = .back,
+    .uniform_sizes = &.{ GlobalUniform.getSize(), SpatialUniform.getSize() },
     .global_ubo = true,
 };

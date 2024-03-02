@@ -100,7 +100,12 @@ pub const Ui = struct {
     frame_func: *const fn (width: i32, height: i32) anyerror!void = defaultFrame,
     key_func: *const fn (key: i32, scancode: i32, action: graphics.Action, mods: i32) anyerror!void = defaultKey,
 
-    pub fn init(ally: std.mem.Allocator, info: graphics.WindowInfo) !*Ui {
+    const UiInfo = struct {
+        window: graphics.WindowInfo = .{},
+        scene: graphics.SceneInfo = .{},
+    };
+
+    pub fn init(ally: std.mem.Allocator, info: UiInfo) !*Ui {
         var bdf = try BdfParse.init();
         try bdf.parse("b12.bdf");
 
@@ -110,7 +115,7 @@ pub const Ui = struct {
         const state = try ally.create(Ui);
 
         var main_win = try ally.create(graphics.Window);
-        main_win.* = try graphics.Window.initBare(info, ally);
+        main_win.* = try graphics.Window.initBare(info.window, ally);
 
         try main_win.addToMap(state);
 
@@ -131,7 +136,7 @@ pub const Ui = struct {
             .bdf = bdf,
             .time = 0,
             .dt = 0,
-            .scene = try graphics.Scene.init(main_win),
+            .scene = try graphics.Scene.init(main_win, info.scene),
             .last_time = @as(f32, @floatCast(graphics.glfw.glfwGetTime())),
             .callback = try Callback.init(ally, main_win),
         };

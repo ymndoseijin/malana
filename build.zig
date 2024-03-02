@@ -347,6 +347,13 @@ pub fn build(b: *std.Build) void {
             .{},
         },
         .{
+            "base3d",
+            .{
+                .{ "vert", "shaders/shader.vert" },
+                .{ "frag", "shaders/shader.frag" },
+            },
+        },
+        .{
             "box-test",
             .{},
         },

@@ -476,7 +476,7 @@ pub fn main() !void {
 
     _ = try std.Thread.spawn(.{}, Irc.loop, .{&irc});
 
-    var state = try Ui.init(ally, .{ .name = "box test", .width = 500, .height = 500, .resizable = true, .preferred_format = .unorm });
+    var state = try Ui.init(ally, .{ .window = .{ .name = "box test", .width = 500, .height = 500, .resizable = true, .preferred_format = .unorm } });
     defer state.deinit(ally);
 
     //var sprite = try graphics.Sprite.init(&state.scene, .{ .tex = tex });

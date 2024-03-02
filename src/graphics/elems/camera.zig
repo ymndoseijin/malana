@@ -54,9 +54,9 @@ pub const Camera = struct {
         return Point.create(self.move).regressive(Point.create(self.move + eye));
     }
 
-    pub fn linkDrawing(self: *Camera, drawing: anytype) !void {
-        try drawing.addUniformMat4("transform", &self.transform_mat);
-        try drawing.addUniformVec3("cam_pos", &self.move);
+    pub fn linkDrawing(self: *Camera, drawing: *Drawing) !void {
+        graphics.SpatialUniform.setUniformField(drawing, 1, .transform, self.transform_mat);
+        graphics.SpatialUniform.setUniformField(drawing, 1, .cam_pos, self.move);
     }
 
     pub fn setParameters(self: *Camera, fovy: f32, aspect: f32, nearZ: f32, farZ: f32) !void {
