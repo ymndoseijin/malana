@@ -47,7 +47,9 @@ pub fn main() !void {
     defer object.deinit();
 
     const triangle_vert = try graphics.Shader.init(state.main_win.gc, &shaders.vert, .vertex);
+    defer triangle_vert.deinit(state.main_win.gc);
     const triangle_frag = try graphics.Shader.init(state.main_win.gc, &shaders.frag, .fragment);
+    defer triangle_frag.deinit(state.main_win.gc);
 
     var triangle_shaders = [_]graphics.Shader{ triangle_vert, triangle_frag };
 

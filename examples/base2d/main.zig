@@ -26,7 +26,7 @@ fn keyDown(key_state: ui.KeyState, mods: i32, dt: f32) !void {
 fn nice(_: *anyopaque, _: *ui.Callback, _: i32, action: graphics.Action, _: i32) !bool {
     if (action == .press) {
         std.debug.print("Hey!", .{});
-        try state.scene.delete(state.scene.window.ally, color.drawing);
+        state.scene.delete(state.scene.window.ally, color.drawing);
         num_clicked += 1;
     }
     return true;

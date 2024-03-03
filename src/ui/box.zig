@@ -110,12 +110,19 @@ pub const Box = struct {
         return box;
     }
 
-    pub fn deinit(box: Box) void {
-        for (box.leaves.items) |b| {
+    pub fn deinit(box: *Box) void {
+        if (box.parent) |parent| parent.remove(box);
+
+        while (box.leaves.popOrNull()) |b| {
             b.deinit();
         }
 
         box.leaves.deinit();
+    }
+
+    pub fn remove(box: *Box, child: *Box) void {
+        const idx_or = std.mem.indexOfScalar(*Box, box.leaves.items, child);
+        if (idx_or) |idx| _ = box.leaves.orderedRemove(idx);
     }
 
     pub fn min(box: Box) Vec2 {

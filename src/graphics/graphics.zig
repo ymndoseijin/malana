@@ -1765,6 +1765,10 @@ pub const Window = struct {
         }
     };
 
+    pub fn shouldClose(self: Window) bool {
+        return glfw.glfwWindowShouldClose(self.glfw_win) != 0;
+    }
+
     pub fn setScrollCallback(self: *Window, fun: *const fn (*anyopaque, f64, f64) anyerror!void) void {
         self.events.scroll_func = fun;
     }
@@ -1799,6 +1803,7 @@ pub const Window = struct {
 
     fn destroyFramebuffers(self: Window) void {
         for (self.framebuffers) |fb| self.gc.vkd.destroyFramebuffer(self.gc.dev, fb, null);
+        self.ally.free(self.framebuffers);
     }
 
     fn createFramebuffers(gc: *GraphicsContext, allocator: Allocator, render_pass: vk.RenderPass, swapchain: Swapchain, depth_image_or: ?DepthBuffer) ![]vk.Framebuffer {
@@ -2234,12 +2239,11 @@ pub const Scene = struct {
         return val;
     }
 
-    pub fn delete(self: *Self, ally: std.mem.Allocator, drawing: *Drawing) !void {
-        const idx = std.mem.indexOfScalar(*Drawing, self.drawing_array.items, drawing) orelse return error.DeletedDrawingNotInScene;
-
-        var rem = self.drawing_array.orderedRemove(idx);
-        rem.deinit(ally);
-        ally.destroy(rem);
+    pub fn delete(self: *Self, ally: std.mem.Allocator, drawing: *Drawing) void {
+        const idx_or = std.mem.indexOfScalar(*Drawing, self.drawing_array.items, drawing);
+        if (idx_or) |idx| _ = self.drawing_array.orderedRemove(idx);
+        drawing.deinit(ally);
+        ally.destroy(drawing);
     }
 
     pub fn draw(self: *Self) !void {

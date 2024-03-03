@@ -22,12 +22,14 @@ const Program = struct {
     text: std.ArrayList(u8),
     state: *Ui,
     ally: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
 
     border: NineRectSprite,
     text_border: NineRectSprite,
     root: *Box,
     list: *Box,
     textures: Textures,
+    messages: std.ArrayList(*Message),
 
     const Textures = struct {
         text_border: NineRectTexture,
@@ -73,6 +75,7 @@ const Program = struct {
             .text = std.ArrayList(u8).init(global_ally),
             .state = state,
             .ally = global_ally,
+            .arena = std.heap.ArenaAllocator.init(global_ally),
             .textures = .{
                 .text_border = text_border_texture,
                 .border = border_texture,
@@ -81,6 +84,7 @@ const Program = struct {
             .text_border = .{ .texture = text_border_texture },
             .root = undefined,
             .list = undefined,
+            .messages = std.ArrayList(*Message).init(global_ally),
         };
     }
 
@@ -92,7 +96,7 @@ const Program = struct {
         } });
         const margins = 10;
         //const text_margin = 20;
-        const ally = program.ally;
+        const ally = program.arena.allocator();
         var list: ?*Box = undefined;
 
         var root = try Box.create(ally, .{
@@ -134,14 +138,31 @@ const Program = struct {
     }
 
     pub fn addMessage(program: *Program, string: []const u8) !void {
-        const ally = program.ally;
+        const ally = program.arena.allocator();
         const message = try Message.create(program, ally, string);
         try program.list.append(message.box);
+        try program.messages.append(message);
     }
 
-    pub fn deinit(program: Program) void {
+    pub fn deinit(program: *Program) void {
         program.text.deinit();
+        program.border.deinit(program.ally, &program.state.scene);
+        program.text_border.deinit(program.ally, &program.state.scene);
+        program.char_test.content.deinit(program.ally);
+
+        program.state.scene.delete(program.ally, program.color.drawing);
+        program.state.scene.delete(program.ally, program.chat_background.drawing);
+
+        program.textures.text_border.deinit();
+        program.textures.border.deinit();
+
+        for (program.messages.items) |message| {
+            message.deinit(program);
+        }
+        program.messages.deinit();
+
         program.root.deinit();
+        program.arena.deinit();
     }
 };
 
@@ -157,11 +178,18 @@ const Message = struct {
     border: NineRectSprite,
     box: *Box,
 
+    pub fn deinit(message: *Message, program: *Program) void {
+        message.border.deinit(program.ally, &program.state.scene);
+        program.state.scene.delete(program.ally, message.background.drawing);
+        message.text.content.deinit(program.ally);
+        message.box.deinit();
+    }
+
     pub fn create(program: *Program, ally: std.mem.Allocator, string: []const u8) !*Message {
         const message = try ally.create(Message);
         const background = try graphics.ColoredRect.init(&program.state.scene, comptime try math.color.parseHexRGBA("8e8eb9"));
-        var text = ui.TextBox.init(try graphics.TextFt.init(global_ally, "resources/fonts/Fairfax.ttf", 12, 1, 250));
-        try text.content.print(&program.state.scene, ally, .{ .text = string, .color = .{ 0.0, 0.0, 0.0 } });
+        var text = ui.TextBox.init(try graphics.TextFt.init(program.ally, "resources/fonts/Fairfax.ttf", 12, 1, 250));
+        try text.content.print(&program.state.scene, program.ally, .{ .text = string, .color = .{ 0.0, 0.0, 0.0 } });
 
         message.* = .{
             .background = background,
@@ -173,29 +201,25 @@ const Message = struct {
         const border = 5;
 
         message.box =
-            try message.border.init(
-            &program.state.scene,
-            ally,
-            try Box.create(ally, .{
-                .expand = .{ .horizontal = true },
-                .fit = .{ .vertical = true, .horizontal = true },
-                .callbacks = &.{ui.getColorCallback(&message.background)},
-                .children = &.{
-                    try ui.MarginBox(
-                        ally,
-                        .{ .top = border, .bottom = border, .left = border, .right = border },
-                        try Box.create(ally, .{
-                            .label = "Text",
-                            .expand = .{ .horizontal = true },
-                            .size = .{ 0, 30 },
-                            .callbacks = &.{
-                                message.text.getTextCallback(),
-                            },
-                        }),
-                    ),
-                },
-            }),
-        );
+            try message.border.init(&program.state.scene, ally, try Box.create(ally, .{
+            .expand = .{ .horizontal = true },
+            .fit = .{ .vertical = true, .horizontal = true },
+            .callbacks = &.{ui.getColorCallback(&message.background)},
+            .children = &.{
+                try ui.MarginBox(
+                    ally,
+                    .{ .top = border, .bottom = border, .left = border, .right = border },
+                    try Box.create(ally, .{
+                        .label = "Text",
+                        .expand = .{ .horizontal = true },
+                        .size = .{ 0, 12 },
+                        .callbacks = &.{
+                            message.text.getTextCallback(),
+                        },
+                    }),
+                ),
+            },
+        }));
 
         return message;
     }
@@ -222,7 +246,7 @@ fn keyInput(program_ptr: *anyopaque, _: *ui.Callback, key: i32, scancode: i32, a
         if (program.text.items.len == 0) return;
         var text = &program.char_test.content;
         const char = text.characters.pop();
-        try program.state.scene.delete(program.ally, char.sprite.drawing);
+        program.state.scene.delete(program.ally, char.sprite.drawing);
         char.deinit(program.ally);
 
         var buf: [4]u8 = undefined;
@@ -263,6 +287,17 @@ const NineRectTexture = struct {
     top_right: graphics.Texture,
     right: graphics.Texture,
     bottom_right: graphics.Texture,
+
+    pub fn deinit(textures: NineRectTexture) void {
+        textures.top_left.deinit();
+        textures.left.deinit();
+        textures.bottom_left.deinit();
+        textures.top.deinit();
+        textures.bottom.deinit();
+        textures.top_right.deinit();
+        textures.right.deinit();
+        textures.bottom_right.deinit();
+    }
 };
 
 const NineRectSprite = struct {
@@ -275,6 +310,17 @@ const NineRectSprite = struct {
     right_sprite: ?graphics.Sprite = null,
     bottom_right_sprite: ?graphics.Sprite = null,
     texture: NineRectTexture,
+
+    pub fn deinit(rect: NineRectSprite, ally: std.mem.Allocator, scene: *graphics.Scene) void {
+        if (rect.top_left_sprite) |s| scene.delete(ally, s.drawing);
+        if (rect.left_sprite) |s| scene.delete(ally, s.drawing);
+        if (rect.bottom_left_sprite) |s| scene.delete(ally, s.drawing);
+        if (rect.top_sprite) |s| scene.delete(ally, s.drawing);
+        if (rect.bottom_sprite) |s| scene.delete(ally, s.drawing);
+        if (rect.top_right_sprite) |s| scene.delete(ally, s.drawing);
+        if (rect.right_sprite) |s| scene.delete(ally, s.drawing);
+        if (rect.bottom_right_sprite) |s| scene.delete(ally, s.drawing);
+    }
 
     pub fn init(rect: *NineRectSprite, scene: *graphics.Scene, ally: std.mem.Allocator, in_box: *Box) !*Box {
         rect.top_left_sprite = try graphics.Sprite.init(scene, .{ .tex = rect.texture.top_left });
@@ -471,7 +517,7 @@ pub fn main() !void {
     global_ally = gpa.allocator();
     const ally = global_ally;
 
-    var irc = try Irc.init(ally, "cliente", "#pas");
+    var irc = try Irc.init(ally, "cliente", "#robit");
     main_irc = &irc;
 
     _ = try std.Thread.spawn(.{}, Irc.loop, .{&irc});
@@ -488,7 +534,7 @@ pub fn main() !void {
 
     state.frame_func = frameUpdate;
 
-    while (state.main_win.alive) {
+    while (!state.main_win.shouldClose()) {
         try state.updateEvents();
         irc.mutex.lock();
         defer irc.mutex.unlock();

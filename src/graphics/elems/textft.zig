@@ -170,7 +170,7 @@ pub const Text = struct {
 
     pub fn clear(self: *Text, scene: anytype, ally: std.mem.Allocator) !void {
         for (self.characters.items) |c| {
-            try scene.delete(ally, c.sprite.drawing);
+            scene.delete(ally, c.sprite.drawing);
             c.deinit(ally);
         }
         self.characters.clearRetainingCapacity();
