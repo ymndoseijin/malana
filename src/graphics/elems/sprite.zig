@@ -75,35 +75,17 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
             };
         }
 
-        pub fn updateTexture(self: *Sprite, info: SpriteInfo) !void {
+        pub fn updateTexture(self: *Sprite, ally: std.mem.Allocator, info: SpriteInfo) !void {
             var actual_pipeline = info.pipeline;
             actual_pipeline.samplers = &.{info.tex};
 
-            try self.drawing.updateDescriptorSets(actual_pipeline);
+            try self.drawing.updateDescriptorSets(ally, actual_pipeline);
 
             const w: f32 = @floatFromInt(info.tex.width);
             const h: f32 = @floatFromInt(info.tex.height);
 
-            const default_transform: graphics.Transform2D = .{
-                .scale = .{ 1, 1 },
-                .rotation = .{ .angle = 0, .center = .{ w / 2, h / 2 } },
-                .translation = .{ 0, 0 },
-            };
-
-            try graphics.SpritePipeline.vertex_description.bindVertex(self.drawing, &.{
-                .{ .{ 0, 0, 1 }, .{ 0, 0 } },
-                .{ .{ 1, 0, 1 }, .{ 1, 0 } },
-                .{ .{ 1, 1, 1 }, .{ 1, 1 } },
-                .{ .{ 0, 1, 1 }, .{ 0, 1 } },
-            }, &.{ 0, 1, 2, 2, 3, 0 });
-
-            SpriteUniform.setUniformField(self.drawing, 1, .transform, default_transform.getMat().cast(4, 4));
-            SpriteUniform.setUniformField(self.drawing, 1, .opacity, 1);
-            graphics.GlobalUniform.setUniform(self.drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
-
             self.width = w;
             self.height = h;
-            self.transform = default_transform;
         }
 
         pub fn textureFromPath(self: *Self, path: []const u8) !Self {

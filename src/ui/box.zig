@@ -149,13 +149,10 @@ pub const Box = struct {
         return val;
     }
 
+    // TODO: optimize this so it only resolves boxes that are necessary rather than going to root everytime
     pub fn resolve(box: *Box) !void {
         if (box.parent) |parent| {
-            if (parent.fit.vertical or parent.fit.horizontal) {
-                try parent.resolve();
-            } else {
-                try box.resolveChildren(true);
-            }
+            try parent.resolve();
         } else {
             try box.resolveChildren(true);
         }

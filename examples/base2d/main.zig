@@ -23,13 +23,12 @@ fn keyDown(key_state: ui.KeyState, mods: i32, dt: f32) !void {
         state.main_win.alive = false;
     }
 }
-fn nice(_: *anyopaque, _: *ui.Callback, _: i32, action: graphics.Action, _: i32) !bool {
+fn nice(_: *anyopaque, _: *ui.Callback, _: i32, action: graphics.Action, _: i32) !void {
     if (action == .press) {
         std.debug.print("Hey!", .{});
         state.scene.delete(state.scene.window.ally, color.drawing);
         num_clicked += 1;
     }
-    return true;
 }
 
 pub fn main() !void {
@@ -62,7 +61,7 @@ pub fn main() !void {
 
     try state.callback.elements.append(.{ @ptrCast(&color), .{ .mouse_func = nice, .region = &color_region } });
 
-    var char_test = try graphics.TextFt.init(ally, "resources/cmunrm.ttf", 50, 1, 250);
+    var char_test = try graphics.TextFt.init(ally, .{ .path = "resources/cmunrm.ttf", .size = 50, .line_spacing = 1, .bounding_width = 250 });
     char_test.transform.translation = .{ 0, 200 };
     try char_test.print(&state.scene, ally, .{ .text = "hello world! " });
     try char_test.print(&state.scene, ally, .{ .text = "I'm here!" });

@@ -33,7 +33,7 @@ pub fn main() !void {
     });
     defer state.deinit(ally);
 
-    var text = try graphics.TextFt.init(ally, "resources/fonts/Fairfax.ttf", 12, 1, 250);
+    var text = try graphics.TextFt.init(ally, .{ .path = "resources/fonts/Fairfax.ttf", .size = 12, .line_spacing = 1, .bounding_width = 250 });
     defer text.deinit(ally);
 
     // get obj file

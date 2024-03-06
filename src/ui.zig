@@ -63,6 +63,7 @@ pub const TextBox = struct {
 
     pub fn update(text_box: *TextBox) !void {
         if (text_box.box) |b| {
+            b.fixed_size[0] = text_box.content.width;
             b.fixed_size[1] = text_box.content.bounding_height;
             try b.resolveChildren(false);
         }
@@ -78,7 +79,7 @@ pub const TextBox = struct {
         try text_box.update();
     }
 
-    pub fn getTextCallback(text_box: *TextBox) BoxCallback {
+    pub fn getCallback(text_box: *TextBox) BoxCallback {
         return .{ .box = &text_box.box, .fun = textBind, .data = text_box };
     }
 };

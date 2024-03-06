@@ -22,11 +22,11 @@ const Focusable = struct {
     char_func: *const fn (*anyopaque, *Callback, u32) anyerror!void = defaultChar,
     frame_func: *const fn (*anyopaque, *Callback, i32, i32) anyerror!void = defaultFrame,
     scroll_func: *const fn (*anyopaque, *Callback, f64, f64) anyerror!void = defaultScroll,
-    mouse_func: *const fn (*anyopaque, *Callback, i32, graphics.Action, i32) anyerror!bool = defaultMouse,
+    mouse_func: *const fn (*anyopaque, *Callback, i32, graphics.Action, i32) anyerror!void = defaultMouse,
     cursor_func: *const fn (*anyopaque, *Callback, f64, f64) anyerror!void = defaultCursor,
 
-    focus_enter_func: *const fn (*anyopaque, *Callback, i32, graphics.Action, i32) anyerror!bool = defaultMouse,
-    focus_exit_func: *const fn (*anyopaque, *Callback, i32, graphics.Action, i32) anyerror!void = defaultExit,
+    focus_enter_func: *const fn (*anyopaque, *Callback) anyerror!bool = defaultFocus,
+    focus_exit_func: *const fn (*anyopaque, *Callback) anyerror!void = defaultExit,
 
     region: *Region,
 
@@ -50,16 +50,18 @@ const Focusable = struct {
         return true;
     }
 
-    pub fn defaultMouse(_: *anyopaque, _: *Callback, _: i32, _: graphics.Action, _: i32) !bool {
-        return true;
-    }
+    pub fn defaultMouse(_: *anyopaque, _: *Callback, _: i32, _: graphics.Action, _: i32) !void {}
 
-    pub fn defaultExit(_: *anyopaque, _: *Callback, _: i32, _: graphics.Action, _: i32) !void {
+    pub fn defaultExit(_: *anyopaque, _: *Callback) !void {
         return;
     }
 
     pub fn defaultCursor(_: *anyopaque, _: *Callback, _: f64, _: f64) !void {
         return;
+    }
+
+    pub fn defaultFocus(_: *anyopaque, _: *Callback) !bool {
+        return true;
     }
 };
 
@@ -101,40 +103,46 @@ pub const Callback = struct {
         }
     }
 
+    pub fn unfocus(callback: *Callback) !void {
+        if (callback.focused) |focused_elem| {
+            try focused_elem[1].focus_exit_func(focused_elem[0], callback);
+            callback.focused = null;
+        }
+    }
+
     pub fn getMouse(callback: *Callback, button: i32, action: graphics.Action, mods: i32) !void {
         var pos: [2]f64 = undefined;
         graphics.glfw.glfwGetCursorPos(callback.window.glfw_win, &pos[0], &pos[1]);
 
-        if (button == 0) {
+        if (button == 0 and action == .press) {
             for (callback.elements.items) |elem| {
                 if (callback.focused) |focused_elem| {
                     if (elem[0] == focused_elem[0]) continue;
                 }
 
                 if (elem[1].region.isInside(.{ @floatCast(pos[0]), @floatCast(pos[1]) })) {
-                    if (!try elem[1].focus_enter_func(elem[0], callback, button, action, mods)) {
+                    if (!try elem[1].focus_enter_func(elem[0], callback)) {
                         continue;
                     }
 
                     if (callback.focused) |focused_elem| {
-                        try focused_elem[1].focus_exit_func(focused_elem[0], callback, button, action, mods);
+                        try focused_elem[1].focus_exit_func(focused_elem[0], callback);
                     }
 
                     callback.focused = elem;
                     break;
                 }
             }
-
             if (callback.focused) |focused_elem| {
-                if (focused_elem[1].region.isInside(.{ @floatCast(pos[0]), @floatCast(pos[1]) })) {
-                    if (!try focused_elem[1].mouse_func(focused_elem[0], callback, button, action, mods)) {
-                        try focused_elem[1].focus_exit_func(focused_elem[0], callback, button, action, mods);
-                        callback.focused = null;
-                    }
+                if (!focused_elem[1].region.isInside(.{ @floatCast(pos[0]), @floatCast(pos[1]) })) {
+                    try callback.unfocus();
                 } else {
-                    try focused_elem[1].focus_exit_func(focused_elem[0], callback, button, action, mods);
-                    callback.focused = null;
+                    try focused_elem[1].mouse_func(focused_elem[0], callback, button, action, mods);
                 }
+            }
+        } else {
+            if (callback.focused) |focused_elem| {
+                try focused_elem[1].mouse_func(focused_elem[0], callback, button, action, mods);
             }
         }
     }

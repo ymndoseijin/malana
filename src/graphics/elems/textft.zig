@@ -46,6 +46,7 @@ pub const Text = struct {
     line_spacing: f32,
     bounding_width: f32,
     bounding_height: f32,
+    wrap: bool,
 
     // 2D structure
     transform: graphics.Transform2D,
@@ -92,7 +93,7 @@ pub const Text = struct {
             self.sprite.setOpacity(opacity);
         }
 
-        pub fn init(scene: anytype, ally: std.mem.Allocator, parent: *Text, info: CharacterInfo) !Character {
+        pub fn init(scene: *graphics.Scene, ally: std.mem.Allocator, parent: *Text, info: CharacterInfo) !Character {
             try parent.face.loadChar(info.char, .{ .render = true });
             const glyph = parent.face.glyph();
             const bitmap = glyph.bitmap();
@@ -148,14 +149,14 @@ pub const Text = struct {
         }
     };
 
-    const TextInfo = struct {
+    const PrintInfo = struct {
         text: []const u8,
         color: math.Vec3 = .{ 1.0, 1.0, 1.0 },
         shaders: ?[]graphics.Shader = null,
         pipeline: graphics.RenderPipeline = CharacterPipeline,
     };
 
-    pub fn printFmt(self: *Text, scene: anytype, ally: std.mem.Allocator, comptime fmt: []const u8, fmt_args: anytype) !void {
+    pub fn printFmt(self: *Text, scene: *graphics.Scene, ally: std.mem.Allocator, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
         const str = try std.fmt.bufPrint(&buf, fmt, fmt_args);
         try self.print(scene, ally, .{ .text = str });
@@ -168,7 +169,7 @@ pub const Text = struct {
         }
     }
 
-    pub fn clear(self: *Text, scene: anytype, ally: std.mem.Allocator) !void {
+    pub fn clear(self: *Text, scene: *graphics.Scene, ally: std.mem.Allocator) !void {
         for (self.characters.items) |c| {
             scene.delete(ally, c.sprite.drawing);
             c.deinit(ally);
@@ -189,7 +190,7 @@ pub const Text = struct {
         return res;
     }
 
-    pub fn print(self: *Text, scene: anytype, ally: std.mem.Allocator, info: TextInfo) !void {
+    pub fn print(self: *Text, scene: *graphics.Scene, ally: std.mem.Allocator, info: PrintInfo) !void {
         if (info.text.len == 0) return;
 
         var unicode = (try std.unicode.Utf8View.init(info.text)).iterator();
@@ -238,8 +239,10 @@ pub const Text = struct {
 
         var height = self.line_spacing;
 
+        self.width = 0;
+
         while (it.next()) |word| {
-            if (try self.getExtent(word) + start[0] > self.bounding_width + self.transform.translation[0] and self.codepoints.items.len != 0) {
+            if (self.wrap and try self.getExtent(word) + start[0] > self.bounding_width + self.transform.translation[0] and self.codepoints.items.len != 0) {
                 start = .{ self.transform.translation[0], start[1] + self.line_spacing };
                 height += self.line_spacing;
             }
@@ -253,7 +256,7 @@ pub const Text = struct {
 
                 var char = &self.characters.items[character_index];
 
-                if (char.advance + start[0] > self.bounding_width + self.transform.translation[0]) {
+                if (self.wrap and char.advance + start[0] > self.bounding_width + self.transform.translation[0]) {
                     start = .{ self.transform.translation[0], start[1] + self.line_spacing };
                     height += self.line_spacing;
                 }
@@ -261,6 +264,7 @@ pub const Text = struct {
                 char.sprite.transform.translation = start + char.offset - math.Vec2{ 0, @floatFromInt(char.image.height) };
                 char.sprite.transform.scale = .{ @floatFromInt(char.image.width), @floatFromInt(char.image.height) };
                 char.sprite.updateTransform();
+                self.width = @max(self.width + char.advance, self.width);
                 start += .{ char.advance, 0 };
                 character_index += 1;
             }
@@ -280,20 +284,29 @@ pub const Text = struct {
         self.codepoints.deinit();
     }
 
-    pub fn init(ally: std.mem.Allocator, path: [:0]const u8, size: f32, line_spacing: f32, bounding_width: f32) !Text {
-        var face = try graphics.ft_lib.createFace(path, 0);
-        try face.setCharSize(@intFromFloat(size * 64), 0, 0, 0);
+    const TextInfo = struct {
+        path: [:0]const u8,
+        size: f32,
+        line_spacing: f32,
+        wrap: bool = true,
+        bounding_width: f32 = 0,
+    };
+
+    pub fn init(ally: std.mem.Allocator, info: TextInfo) !Text {
+        var face = try graphics.ft_lib.createFace(info.path, 0);
+        try face.setCharSize(@intFromFloat(info.size * 64), 0, 0, 0);
         return .{
             .width = 0,
             .height = 0,
             .opacity = 1,
-            .bounding_width = bounding_width,
-            .bounding_height = size * line_spacing,
+            .bounding_width = info.bounding_width,
+            .bounding_height = info.size * info.line_spacing,
             .face = face,
-            .size = size,
-            .line_spacing = size * line_spacing,
+            .size = info.size,
+            .line_spacing = info.size * info.line_spacing,
             .characters = std.ArrayList(Character).init(ally),
             .codepoints = std.ArrayList(u32).init(ally),
+            .wrap = info.wrap,
             .transform = .{
                 .scale = .{ 1, 1 },
                 .rotation = .{ .angle = 0, .center = .{ 0.5, 0.5 } },

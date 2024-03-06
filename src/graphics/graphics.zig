@@ -1350,6 +1350,7 @@ pub const Drawing = struct {
 
     pub fn updateDescriptorSets(self: *Drawing, ally: std.mem.Allocator, pipeline: RenderPipeline) !void {
         var gc = &self.window.gc;
+        try gc.vkd.deviceWaitIdle(gc.dev);
         for (0..frames_in_flight) |i| {
             var descriptor_writes = try ally.alloc(vk.WriteDescriptorSet, pipeline.samplers.len + pipeline.uniform_sizes.len);
             var buffer_info = try ally.alloc(vk.DescriptorBufferInfo, pipeline.samplers.len + pipeline.uniform_sizes.len);
@@ -2036,9 +2037,9 @@ pub const Window = struct {
 };
 
 pub const Transform2D = struct {
-    scale: math.Vec2,
-    rotation: struct { angle: f32, center: math.Vec2 },
-    translation: math.Vec2,
+    scale: math.Vec2 = .{ 1, 1 },
+    rotation: struct { angle: f32, center: math.Vec2 } = .{ .angle = 0, .center = .{ 0, 0 } },
+    translation: math.Vec2 = .{ 0, 0 },
     pub fn getMat(self: Transform2D) math.Mat3 {
         return math.transform2D(f32, self.scale, self.rotation, self.translation);
     }
