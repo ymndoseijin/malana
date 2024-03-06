@@ -23,12 +23,12 @@ const ButtonTexture = struct {
     pressed_inner: graphics.Texture = undefined,
 
     pub fn deinit(textures: ButtonTexture) void {
-        textures.hover.deinit();
+        //textures.hover.deinit();
         textures.idle.deinit();
         textures.pressed.deinit();
-        textures.hover_inner.deinit();
+        //textures.hover_inner.deinit();
         textures.idle_inner.deinit();
-        textures.pressed_inner.deinit();
+        //textures.pressed_inner.deinit();
     }
 };
 
@@ -69,6 +69,12 @@ const Button = struct {
             .ally = ally,
             .box = null,
         };
+    }
+
+    pub fn deinit(button: *Button, scene: *graphics.Scene) void {
+        button.border.deinit(button.ally, scene);
+        button.text.content.deinit(button.ally);
+        scene.delete(button.ally, button.inner.drawing);
     }
 
     fn mouseButton(button_ptr: *anyopaque, callback: *ui.Callback, button_clicked: i32, action: graphics.Action, _: i32) !void {
@@ -119,15 +125,15 @@ const InputBox = struct {
     background: graphics.ColoredRect,
     border: NineRectSprite,
     ally: std.mem.Allocator,
-    text: std.ArrayList(u8),
     scene: *graphics.Scene,
-    on_send: SendCallback,
+    text: std.ArrayList(u8),
+    on_send: ?SendCallback,
     box: ?*Box,
 
     const SendCallback = struct { ptr: *anyopaque, func: *const fn (*anyopaque, *InputBox, []const u8) anyerror!void };
     pub const InputInfo = struct {
         border_texture: NineRectTexture,
-        on_send: SendCallback,
+        on_send: ?SendCallback = null,
     };
 
     pub fn init(scene: *graphics.Scene, ally: std.mem.Allocator, info: InputInfo) !InputBox {
@@ -186,7 +192,7 @@ const InputBox = struct {
         const input: *InputBox = @alignCast(@ptrCast(input_ptr));
 
         if (key == graphics.glfw.GLFW_KEY_ENTER and action == .press) {
-            try input.on_send.func(input.on_send.ptr, input, input.text.items);
+            if (input.on_send) |on_send| try on_send.func(on_send.ptr, input, input.text.items);
             input.text.clearRetainingCapacity();
             try input.text_box.content.clear(input.scene, input.ally);
             if (input.box) |b| try b.resolve();
@@ -234,6 +240,7 @@ const Program = struct {
     const Textures = struct {
         text_border: NineRectTexture,
         border: NineRectTexture,
+        button: ButtonTexture,
     };
 
     pub fn create(state: *Ui) !*Program {
@@ -305,6 +312,7 @@ const Program = struct {
             .textures = .{
                 .text_border = text_border_texture,
                 .border = border_texture,
+                .button = button_texture,
             },
             .border = try NineRectSprite.init(&state.scene, border_texture),
             .button = try Button.init(&state.scene, ally, .{ .texture = button_texture, .margins = 3, .label = "󱥁󱤧󱤬" }),
@@ -370,13 +378,15 @@ const Program = struct {
         try program.messages.append(message);
     }
 
-    pub fn deinit(program: *Program) void {
+    pub fn destroy(program: *Program) void {
         program.border.deinit(program.ally, &program.state.scene);
-
+        program.button.deinit(&program.state.scene);
+        program.input_box.deinit();
         program.state.scene.delete(program.ally, program.color.drawing);
 
         program.textures.text_border.deinit();
         program.textures.border.deinit();
+        program.textures.button.deinit();
 
         for (program.messages.items) |message| {
             message.deinit(program);
@@ -385,6 +395,8 @@ const Program = struct {
 
         program.root.deinit();
         program.arena.deinit();
+
+        program.ally.destroy(program);
     }
 };
 
@@ -747,7 +759,7 @@ pub fn main() !void {
     //var sprite = try graphics.Sprite.init(&state.scene, .{ .tex = tex });
 
     var program = try Program.create(state);
-    defer program.deinit();
+    defer program.destroy();
     main_program = program;
 
     state.frame_func = frameUpdate;
