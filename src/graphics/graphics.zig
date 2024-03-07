@@ -776,9 +776,9 @@ pub const Texture = struct {
 
     // vulkan
     image: vk.Image,
+    image_view: vk.ImageView,
     window: *Window,
     sampler: vk.Sampler,
-    image_view: vk.ImageView,
     memory: vk.DeviceMemory,
 
     pub fn init(win: *Window, width: u32, height: u32, info: TextureInfo) !Texture {
@@ -1695,6 +1695,34 @@ pub const WindowInfo = struct {
     name: [:0]const u8 = "default name",
 };
 
+pub const Framebuffer = struct {
+    pub const FramebufferInfo = struct {
+        attachments: []const vk.ImageView,
+        render_pass: vk.RenderPass,
+        width: u32,
+        height: u32,
+    };
+    buffer: vk.Framebuffer,
+
+    pub fn deinit(fb: Framebuffer, gc: GraphicsContext) void {
+        gc.vkd.destroyFramebuffer(gc.dev, fb.buffer, null);
+    }
+    pub fn init(gc: *const GraphicsContext, info: FramebufferInfo) !Framebuffer {
+        //const attachments = [2]vk.ImageView{ info.view, info.depth_view };
+
+        return .{
+            .buffer = try gc.vkd.createFramebuffer(gc.dev, &.{
+                .render_pass = info.render_pass,
+                .attachment_count = @intCast(info.attachments.len),
+                .p_attachments = info.attachments.ptr,
+                .width = info.width,
+                .height = info.height,
+                .layers = 1,
+            }, null),
+        };
+    }
+};
+
 pub const Window = struct {
     glfw_win: *glfw.GLFWwindow,
     alive: bool,
@@ -1714,7 +1742,7 @@ pub const Window = struct {
     swapchain: Swapchain,
     render_pass: vk.RenderPass,
     pool: vk.CommandPool,
-    framebuffers: []vk.Framebuffer,
+    framebuffers: []Framebuffer,
     depth_buffer: DepthBuffer,
 
     default_shaders: DefaultShaders,
@@ -1803,37 +1831,32 @@ pub const Window = struct {
     }
 
     fn destroyFramebuffers(self: Window) void {
-        for (self.framebuffers) |fb| self.gc.vkd.destroyFramebuffer(self.gc.dev, fb, null);
+        for (self.framebuffers) |fb| fb.deinit(self.gc);
         self.ally.free(self.framebuffers);
     }
 
-    fn createFramebuffers(gc: *GraphicsContext, allocator: Allocator, render_pass: vk.RenderPass, swapchain: Swapchain, depth_image_or: ?DepthBuffer) ![]vk.Framebuffer {
-        const framebuffers = try allocator.alloc(vk.Framebuffer, swapchain.swap_images.len);
+    fn createFramebuffers(gc: *GraphicsContext, allocator: Allocator, render_pass: vk.RenderPass, swapchain: Swapchain, depth_image_or: ?DepthBuffer) ![]Framebuffer {
+        const framebuffers = try allocator.alloc(Framebuffer, swapchain.swap_images.len);
         errdefer allocator.free(framebuffers);
 
         var i: usize = 0;
-        errdefer for (framebuffers[0..i]) |fb| gc.vkd.destroyFramebuffer(gc.dev, fb, null);
+        errdefer for (framebuffers[0..i]) |fb| gc.vkd.destroyFramebuffer(gc.dev, fb.buffer, null);
 
         for (framebuffers) |*fb| {
             if (depth_image_or) |depth_image| {
-                const attachments = [2]vk.ImageView{ swapchain.swap_images[i].view, depth_image.view };
-                fb.* = try gc.vkd.createFramebuffer(gc.dev, &.{
+                fb.* = try Framebuffer.init(gc, .{
+                    .attachments = &.{ swapchain.swap_images[i].view, depth_image.view },
                     .render_pass = render_pass,
-                    .attachment_count = attachments.len,
-                    .p_attachments = &attachments,
                     .width = swapchain.extent.width,
                     .height = swapchain.extent.height,
-                    .layers = 1,
-                }, null);
+                });
             } else {
-                fb.* = try gc.vkd.createFramebuffer(gc.dev, &.{
+                fb.* = try Framebuffer.init(gc, .{
+                    .attachments = &.{swapchain.swap_images[i].view},
                     .render_pass = render_pass,
-                    .attachment_count = 1,
-                    .p_attachments = @ptrCast(&swapchain.swap_images[i].view),
                     .width = swapchain.extent.width,
                     .height = swapchain.extent.height,
-                    .layers = 1,
-                }, null);
+                });
             }
             i += 1;
         }
@@ -1890,9 +1913,9 @@ pub const Window = struct {
         return win;
     }
 
-    fn createRenderPass(gc: *const GraphicsContext, swapchain: Swapchain) !vk.RenderPass {
+    fn createRenderPass(gc: *const GraphicsContext, format: vk.Format) !vk.RenderPass {
         const color_attachment = vk.AttachmentDescription{
-            .format = swapchain.surface_format.format,
+            .format = format,
             .samples = .{ .@"1_bit" = true },
             .load_op = .clear,
             .store_op = .store,
@@ -1972,7 +1995,7 @@ pub const Window = struct {
 
         const swapchain = try Swapchain.init(&gc, ally, .{ .width = @intCast(info.width), .height = @intCast(info.height) }, info.preferred_format);
 
-        const render_pass = try createRenderPass(&gc, swapchain);
+        const render_pass = try createRenderPass(&gc, swapchain.surface_format.format);
 
         const pool = try gc.vkd.createCommandPool(gc.dev, &.{
             .queue_family_index = gc.graphics_queue.family,
@@ -2021,7 +2044,7 @@ pub const Window = struct {
         self.default_shaders.deinit(self.gc);
         self.gc.vkd.destroyCommandPool(self.gc.dev, self.pool, null);
 
-        for (self.framebuffers) |fb| self.gc.vkd.destroyFramebuffer(self.gc.dev, fb, null);
+        for (self.framebuffers) |fb| fb.deinit(self.gc);
         self.ally.free(self.framebuffers);
 
         self.gc.vkd.destroyRenderPass(self.gc.dev, self.render_pass, null);
@@ -2185,7 +2208,7 @@ pub const Scene = struct {
 
         gc.vkd.cmdBeginRenderPass(cmdbuf, &.{
             .render_pass = self.window.render_pass,
-            .framebuffer = self.window.framebuffers[result.image_index],
+            .framebuffer = self.window.framebuffers[result.image_index].buffer,
             .render_area = render_area,
             .clear_value_count = 2,
             .p_clear_values = &[2]vk.ClearValue{ clear_color, clear_depth },
