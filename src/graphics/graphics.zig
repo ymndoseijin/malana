@@ -541,13 +541,27 @@ pub const Swapchain = struct {
         self.deinitExceptSwapchain(gc);
         self.* = try initRecycle(gc, allocator, new_extent, old_handle, format);
     }
+
+    pub const PresentInfo = struct {
+        wait: []const vk.Semaphore,
+        image_index: u32,
+    };
+
+    pub fn present(swapchain: *Swapchain, gc: *GraphicsContext, info: PresentInfo) !void {
+        _ = try gc.vkd.queuePresentKHR(gc.present_queue.handle, &.{
+            .wait_semaphore_count = @intCast(info.wait.len),
+            .p_wait_semaphores = info.wait.ptr,
+            .swapchain_count = 1,
+            .p_swapchains = @as([*]const vk.SwapchainKHR, @ptrCast(&swapchain.handle)),
+            .p_image_indices = @as([*]const u32, @ptrCast(&info.image_index)),
+        });
+    }
 };
 
 const SwapImage = struct {
     image: vk.Image,
     view: vk.ImageView,
     image_acquired: vk.Semaphore,
-    render_finished: vk.Semaphore,
     frame_fence: vk.Fence,
 
     fn init(gc: *const GraphicsContext, image: vk.Image, format: vk.Format) !SwapImage {
@@ -569,18 +583,14 @@ const SwapImage = struct {
         const image_acquired = try gc.vkd.createSemaphore(gc.dev, &.{}, null);
         errdefer gc.vkd.destroySemaphore(gc.dev, image_acquired, null);
 
-        const render_finished = try gc.vkd.createSemaphore(gc.dev, &.{}, null);
-        errdefer gc.vkd.destroySemaphore(gc.dev, render_finished, null);
-
         const frame_fence = try gc.vkd.createFence(gc.dev, &.{ .flags = .{ .signaled_bit = true } }, null);
         errdefer gc.vkd.destroyFence(gc.dev, frame_fence, null);
 
         return SwapImage{
             .image = image,
             .view = view,
-            .image_acquired = image_acquired,
-            .render_finished = render_finished,
             .frame_fence = frame_fence,
+            .image_acquired = image_acquired,
         };
     }
 
@@ -588,7 +598,6 @@ const SwapImage = struct {
         self.waitForFence(gc) catch return;
         gc.vkd.destroyImageView(gc.dev, self.view, null);
         gc.vkd.destroySemaphore(gc.dev, self.image_acquired, null);
-        gc.vkd.destroySemaphore(gc.dev, self.render_finished, null);
         gc.vkd.destroyFence(gc.dev, self.frame_fence, null);
     }
 
@@ -1220,7 +1229,7 @@ pub const Drawing = struct {
                     .p_dynamic_states = &dynstate,
                 },
                 .layout = pipeline_layout,
-                .render_pass = win.render_pass,
+                .render_pass = win.render_pass.pass,
                 .subpass = 0,
                 .base_pipeline_handle = .null_handle,
                 .base_pipeline_index = -1,
@@ -1629,7 +1638,7 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
             printError(err);
         };
 
-        win.framebuffers = Window.createFramebuffers(&win.gc, win.ally, win.render_pass, win.swapchain, win.depth_buffer) catch |err| {
+        win.framebuffers = Window.createFramebuffers(&win.gc, win.ally, win.render_pass.pass, win.swapchain, win.depth_buffer) catch |err| {
             printError(err);
         };
 
@@ -1723,6 +1732,77 @@ pub const Framebuffer = struct {
     }
 };
 
+pub const RenderPass = struct {
+    pass: vk.RenderPass,
+    render_finished: vk.Semaphore,
+
+    pub fn init(gc: *const GraphicsContext, format: vk.Format) !RenderPass {
+        const color_attachment = vk.AttachmentDescription{
+            .format = format,
+            .samples = .{ .@"1_bit" = true },
+            .load_op = .clear,
+            .store_op = .store,
+            .stencil_load_op = .dont_care,
+            .stencil_store_op = .dont_care,
+            .initial_layout = .undefined,
+            .final_layout = .present_src_khr,
+        };
+
+        const color_attachment_ref = vk.AttachmentReference{
+            .attachment = 0,
+            .layout = .color_attachment_optimal,
+        };
+
+        const depth_attachment = vk.AttachmentDescription{
+            .format = try gc.findDepthFormat(),
+            .samples = .{ .@"1_bit" = true },
+            .load_op = .clear,
+            .store_op = .dont_care,
+            .stencil_load_op = .dont_care,
+            .stencil_store_op = .dont_care,
+            .initial_layout = .undefined,
+            .final_layout = .depth_stencil_attachment_optimal,
+        };
+
+        const depth_attachment_ref = vk.AttachmentReference{
+            .attachment = 1,
+            .layout = .depth_stencil_attachment_optimal,
+        };
+
+        const subpass = vk.SubpassDescription{
+            .pipeline_bind_point = .graphics,
+            .color_attachment_count = 1,
+            .p_color_attachments = @ptrCast(&color_attachment_ref),
+            .p_depth_stencil_attachment = @ptrCast(&depth_attachment_ref),
+        };
+
+        // need to find a way to make two dependencies for the two passes idea to work
+        const dependency = vk.SubpassDependency{
+            .src_subpass = vk.SUBPASS_EXTERNAL,
+            .dst_subpass = 0,
+            .src_stage_mask = .{ .color_attachment_output_bit = true, .early_fragment_tests_bit = true },
+            .src_access_mask = .{},
+            .dst_stage_mask = .{ .color_attachment_output_bit = true, .early_fragment_tests_bit = true },
+            .dst_access_mask = .{ .color_attachment_write_bit = true, .depth_stencil_attachment_write_bit = true },
+        };
+
+        const attachments = &[2]vk.AttachmentDescription{ color_attachment, depth_attachment };
+        return .{ .render_finished = try gc.vkd.createSemaphore(gc.dev, &.{}, null), .pass = try gc.vkd.createRenderPass(gc.dev, &.{
+            .attachment_count = @intCast(attachments.len),
+            .p_attachments = attachments.ptr,
+            .subpass_count = 1,
+            .p_subpasses = @as([*]const vk.SubpassDescription, @ptrCast(&subpass)),
+            .dependency_count = 1,
+            .p_dependencies = @as([*]const vk.SubpassDependency, @ptrCast(&dependency)),
+        }, null) };
+    }
+
+    pub fn deinit(pass: RenderPass, gc: *const GraphicsContext) void {
+        gc.vkd.destroyRenderPass(gc.dev, pass.pass, null);
+        gc.vkd.destroySemaphore(gc.dev, pass.render_finished, null);
+    }
+};
+
 pub const Window = struct {
     glfw_win: *glfw.GLFWwindow,
     alive: bool,
@@ -1740,7 +1820,7 @@ pub const Window = struct {
 
     gc: GraphicsContext,
     swapchain: Swapchain,
-    render_pass: vk.RenderPass,
+    render_pass: RenderPass,
     pool: vk.CommandPool,
     framebuffers: []Framebuffer,
     depth_buffer: DepthBuffer,
@@ -1913,71 +1993,9 @@ pub const Window = struct {
         return win;
     }
 
-    fn createRenderPass(gc: *const GraphicsContext, format: vk.Format) !vk.RenderPass {
-        const color_attachment = vk.AttachmentDescription{
-            .format = format,
-            .samples = .{ .@"1_bit" = true },
-            .load_op = .clear,
-            .store_op = .store,
-            .stencil_load_op = .dont_care,
-            .stencil_store_op = .dont_care,
-            .initial_layout = .undefined,
-            .final_layout = .present_src_khr,
-        };
-
-        const color_attachment_ref = vk.AttachmentReference{
-            .attachment = 0,
-            .layout = .color_attachment_optimal,
-        };
-
-        const depth_attachment = vk.AttachmentDescription{
-            .format = try gc.findDepthFormat(),
-            .samples = .{ .@"1_bit" = true },
-            .load_op = .clear,
-            .store_op = .dont_care,
-            .stencil_load_op = .dont_care,
-            .stencil_store_op = .dont_care,
-            .initial_layout = .undefined,
-            .final_layout = .depth_stencil_attachment_optimal,
-        };
-
-        const depth_attachment_ref = vk.AttachmentReference{
-            .attachment = 1,
-            .layout = .depth_stencil_attachment_optimal,
-        };
-
-        const subpass = vk.SubpassDescription{
-            .pipeline_bind_point = .graphics,
-            .color_attachment_count = 1,
-            .p_color_attachments = @ptrCast(&color_attachment_ref),
-            .p_depth_stencil_attachment = @ptrCast(&depth_attachment_ref),
-        };
-
-        const dependency = vk.SubpassDependency{
-            .src_subpass = vk.SUBPASS_EXTERNAL,
-            .dst_subpass = 0,
-            .src_stage_mask = .{ .color_attachment_output_bit = true, .early_fragment_tests_bit = true },
-            .src_access_mask = .{},
-            .dst_stage_mask = .{ .color_attachment_output_bit = true, .early_fragment_tests_bit = true },
-            .dst_access_mask = .{ .color_attachment_write_bit = true, .depth_stencil_attachment_write_bit = true },
-        };
-
-        const attachments = &[2]vk.AttachmentDescription{ color_attachment, depth_attachment };
-
-        return try gc.vkd.createRenderPass(gc.dev, &.{
-            .attachment_count = @intCast(attachments.len),
-            .p_attachments = attachments.ptr,
-            .subpass_count = 1,
-            .p_subpasses = @as([*]const vk.SubpassDescription, @ptrCast(&subpass)),
-            .dependency_count = 1,
-            .p_dependencies = @as([*]const vk.SubpassDependency, @ptrCast(&dependency)),
-        }, null);
-    }
-
     pub fn initBare(info: WindowInfo, ally: std.mem.Allocator) !Window {
         glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, if (info.resizable) glfw.GLFW_TRUE else glfw.GLFW_FALSE);
         glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
-        std.debug.print("por que {any}\n", .{info});
         const win_or = glfw.glfwCreateWindow(info.width, info.height, info.name, null, null);
 
         const glfw_win = win_or orelse return GlfwError.FailedGlfwWindow;
@@ -1995,7 +2013,7 @@ pub const Window = struct {
 
         const swapchain = try Swapchain.init(&gc, ally, .{ .width = @intCast(info.width), .height = @intCast(info.height) }, info.preferred_format);
 
-        const render_pass = try createRenderPass(&gc, swapchain.surface_format.format);
+        const render_pass = try RenderPass.init(&gc, swapchain.surface_format.format);
 
         const pool = try gc.vkd.createCommandPool(gc.dev, &.{
             .queue_family_index = gc.graphics_queue.family,
@@ -2004,7 +2022,7 @@ pub const Window = struct {
 
         const depth_buffer = try createDepthBuffer(&gc, swapchain, pool);
 
-        const framebuffers = try createFramebuffers(&gc, ally, render_pass, swapchain, depth_buffer);
+        const framebuffers = try createFramebuffers(&gc, ally, render_pass.pass, swapchain, depth_buffer);
 
         const events: EventTable = .{
             .key_func = null,
@@ -2047,7 +2065,7 @@ pub const Window = struct {
         for (self.framebuffers) |fb| fb.deinit(self.gc);
         self.ally.free(self.framebuffers);
 
-        self.gc.vkd.destroyRenderPass(self.gc.dev, self.render_pass, null);
+        self.render_pass.deinit(&self.gc);
         self.depth_buffer.deinit(&self.gc);
 
         self.swapchain.deinit(&self.gc);
@@ -2141,13 +2159,16 @@ pub const Scene = struct {
         };
     }
 
-    pub fn update(self: *Self) !void {
-        const time = @as(f32, @floatCast(glfw.glfwGetTime()));
-        const now: f32 = time;
-        const resolution: math.Vec2 = .{ @floatFromInt(self.window.frame_width), @floatFromInt(self.window.frame_height) };
+    pub const RenderRegion = struct {
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    };
 
-        const gc = &self.window.gc;
-        const swapchain = &self.window.swapchain;
+    pub fn beginRenderPass(scene: Scene, render_pass: RenderPass, framebuffer: Framebuffer, region: RenderRegion) void {
+        const cmdbuf = scene.command_buffers[scene.frame_id];
+        const gc = &scene.window.gc;
 
         const clear_color = vk.ClearValue{
             .color = .{ .float_32 = .{ 0, 0, 0, 1 } },
@@ -2156,25 +2177,35 @@ pub const Scene = struct {
             .depth_stencil = .{ .depth = 1, .stencil = 0 },
         };
 
-        const extent = self.window.swapchain.extent;
-        //std.debug.print("{} {}\n", .{ extent.width, extent.height });
+        const render_area = vk.Rect2D{
+            .offset = .{ .x = region.x, .y = region.y },
+            .extent = .{ .width = region.width, .height = region.height },
+        };
+
+        gc.vkd.cmdBeginRenderPass(cmdbuf, &.{
+            .render_pass = render_pass.pass,
+            .framebuffer = framebuffer.buffer,
+            .render_area = render_area,
+            .clear_value_count = 2,
+            .p_clear_values = &[2]vk.ClearValue{ clear_color, clear_depth },
+        }, .@"inline");
+    }
+
+    // wait for before
+    // queue
+    pub fn update(self: *Self, framebuffer_id: u32) !void {
+        const time = @as(f32, @floatCast(glfw.glfwGetTime()));
+        const now: f32 = time;
+        const resolution: math.Vec2 = .{ @floatFromInt(self.window.frame_width), @floatFromInt(self.window.frame_height) };
+
+        const gc = &self.window.gc;
 
         const cmdbuf = self.command_buffers[self.frame_id];
-
-        const current = &swapchain.swap_images[self.frame_id];
-
-        try current.waitForFence(gc);
-
-        const result = try gc.vkd.acquireNextImageKHR(
-            gc.dev,
-            swapchain.handle,
-            std.math.maxInt(u64),
-            current.image_acquired,
-            .null_handle,
-        );
-
-        try gc.vkd.resetFences(gc.dev, 1, @ptrCast(&current.frame_fence));
         try gc.vkd.resetCommandBuffer(cmdbuf, .{});
+
+        // delim
+
+        const extent = self.window.swapchain.extent;
 
         try gc.vkd.beginCommandBuffer(cmdbuf, &.{});
         if (self.flip_z) {
@@ -2201,18 +2232,14 @@ pub const Scene = struct {
             .extent = extent,
         }));
 
-        const render_area = vk.Rect2D{
-            .offset = .{ .x = 0, .y = 0 },
-            .extent = extent,
-        };
+        // render pass delim
 
-        gc.vkd.cmdBeginRenderPass(cmdbuf, &.{
-            .render_pass = self.window.render_pass,
-            .framebuffer = self.window.framebuffers[result.image_index].buffer,
-            .render_area = render_area,
-            .clear_value_count = 2,
-            .p_clear_values = &[2]vk.ClearValue{ clear_color, clear_depth },
-        }, .@"inline");
+        self.beginRenderPass(self.window.render_pass, self.window.framebuffers[framebuffer_id], .{
+            .x = 0,
+            .y = 0,
+            .width = extent.width,
+            .height = extent.height,
+        });
 
         for (self.drawing_array.items) |elem| {
             if (elem.global_ubo) GlobalUniform.setUniform(elem, 0, .{ .time = now, .in_resolution = resolution });
@@ -2220,9 +2247,47 @@ pub const Scene = struct {
         }
 
         gc.vkd.cmdEndRenderPass(cmdbuf);
+
+        // delim
+
         try gc.vkd.endCommandBuffer(cmdbuf);
 
+        // loop through render passes sent, and figure out the right queue calls
+        // either assume a render pass has to come before another, or build a tree of dependencies
+        // or maybe even expose this nakedly to the user, so something like
+        //
+        // first_pass.render(.{});
+        // second_pass.render(.{ .wait = first_pass.finished });
+        //
+        // or something like that, ofc it has to be more detailed ideally
+        //
+        // so the inner render loop would be something like:
+        //
+        // scene.begin();
+        //
+        // scene.beginRenderPass(first_pass, first_framebuffer, window.getRenderRegion());
+        // for (first_drawings) |*d| d.draw();
+        // first_pass.end();
+        //
+        // second_pass.begin(second_framebuffer);
+        // for (second_drawings) |*d| d.draw();
+        // second_pass.end();
+        //
+        // scene.end();
+        //
+        // scene.queue(first_pass, .{});
+        // scene.queue(second_pass, .{ .wait = &.{ first_pass.semaphore }});
+        // scene.present();
+
+    }
+
+    pub fn queueSwap(scene: *Scene, pass: RenderPass, swapchain: *Swapchain) !void {
+        const current = &swapchain.swap_images[scene.frame_id];
         const wait_stage = [_]vk.PipelineStageFlags{.{ .color_attachment_output_bit = true }};
+
+        const gc = &scene.window.gc;
+        const cmdbuf = scene.command_buffers[scene.frame_id];
+
         try gc.vkd.queueSubmit(gc.graphics_queue.handle, 1, &[_]vk.SubmitInfo{.{
             .wait_semaphore_count = 1,
             .p_wait_semaphores = @ptrCast(&current.image_acquired),
@@ -2230,18 +2295,8 @@ pub const Scene = struct {
             .command_buffer_count = 1,
             .p_command_buffers = @ptrCast(&cmdbuf),
             .signal_semaphore_count = 1,
-            .p_signal_semaphores = @ptrCast(&current.render_finished),
+            .p_signal_semaphores = @ptrCast(&pass.render_finished),
         }}, current.frame_fence);
-
-        _ = try gc.vkd.queuePresentKHR(gc.present_queue.handle, &.{
-            .wait_semaphore_count = 1,
-            .p_wait_semaphores = @as([*]const vk.Semaphore, @ptrCast(&current.render_finished)),
-            .swapchain_count = 1,
-            .p_swapchains = @as([*]const vk.SwapchainKHR, @ptrCast(&swapchain.handle)),
-            .p_image_indices = @as([*]const u32, @ptrCast(&result.image_index)),
-        });
-
-        self.frame_id = (self.frame_id + 1) % frames_in_flight;
     }
 
     pub fn deinit(self: *Self) void {
@@ -2271,7 +2326,28 @@ pub const Scene = struct {
     }
 
     pub fn draw(self: *Self) !void {
-        try self.update();
+        const gc = &self.window.gc;
+        const swapchain = &self.window.swapchain;
+
+        const current = &swapchain.swap_images[self.frame_id];
+
+        try current.waitForFence(gc);
+        try gc.vkd.resetFences(gc.dev, 1, @ptrCast(&current.frame_fence));
+
+        const result = try gc.vkd.acquireNextImageKHR(
+            gc.dev,
+            swapchain.handle,
+            std.math.maxInt(u64),
+            current.image_acquired,
+            .null_handle,
+        );
+
+        try self.update(result.image_index);
+
+        try self.queueSwap(self.window.render_pass, swapchain);
+        try swapchain.present(gc, .{ .wait = &.{self.window.render_pass.render_finished}, .image_index = result.image_index });
+
+        self.frame_id = (self.frame_id + 1) % frames_in_flight;
     }
 };
 
