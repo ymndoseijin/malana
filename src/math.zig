@@ -40,24 +40,19 @@ pub fn Vec(comptime T: type, comptime size: usize) type {
             const factor: Self = @splat(dot(b, a) / dot(a, a));
             return factor * a;
         }
+
+        pub fn cross(a: Vec3, b: Vec3) Vec3 {
+            return .{ a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
+        }
+        pub fn crossn(a: Vec3, b: Vec3) Vec3 {
+            return Vec3Utils.norm(Vec3Utils.cross(a, b));
+        }
     };
 }
 
-pub const Vec2Utils = struct {
-    pub usingnamespace Vec(f32, 2);
-};
+pub const Vec2Utils = Vec(f32, 2);
 
-pub const Vec3Utils = struct {
-    pub usingnamespace Vec(f32, 3);
-
-    // eventually generalize to other dimensions
-    pub fn cross(a: Vec3, b: Vec3) Vec3 {
-        return .{ a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
-    }
-    pub fn crossn(a: Vec3, b: Vec3) Vec3 {
-        return Vec3Utils.norm(Vec3Utils.cross(a, b));
-    }
-};
+pub const Vec3Utils = Vec(f32, 3);
 
 pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type {
     return extern struct {
@@ -253,46 +248,29 @@ test "rot" {
 }
 
 pub fn perspectiveMatrix(fovy: f32, aspect: f32, nearZ: f32, farZ: f32) Mat4 {
-    var res = Mat4.zero();
-
     const f = 1.0 / std.math.tan(fovy * 0.5);
     const f_n = 1.0 / (nearZ - farZ);
 
-    res.columns[0][0] = f / aspect;
-    res.columns[1][1] = f;
-    res.columns[2][2] = (nearZ + farZ) * f_n;
-    res.columns[2][3] = -1.0;
-    res.columns[3][2] = 2.0 * nearZ * farZ * f_n;
-
-    return res;
+    return Mat4.init(.{
+        .{ f / aspect, 0, 0, 0 },
+        .{ 0, f, 0, 0 },
+        .{ 0, 0, (nearZ + farZ) * f_n, -1 },
+        .{ 0, 0, 2 * nearZ * farZ * f_n, 0 },
+    });
 }
 
 pub fn lookAtMatrix(eye: Vec3, center: Vec3, up: Vec3) Mat4 {
-    var res = Mat4.zero();
-
     const f = Vec3Utils.norm(center - eye);
 
     const s = Vec3Utils.norm(Vec3Utils.cross(f, up));
     const u = Vec3Utils.cross(s, f);
 
-    res.columns[0][0] = s[0];
-    res.columns[0][1] = u[0];
-    res.columns[0][2] = -f[0];
-    res.columns[1][0] = s[1];
-    res.columns[1][1] = u[1];
-    res.columns[1][2] = -f[1];
-    res.columns[2][0] = s[2];
-    res.columns[2][1] = u[2];
-    res.columns[2][2] = -f[2];
-    res.columns[3][0] = -Vec3Utils.dot(s, eye);
-    res.columns[3][1] = -Vec3Utils.dot(u, eye);
-    res.columns[3][2] = Vec3Utils.dot(f, eye);
-    res.columns[0][3] = 0.0;
-    res.columns[1][3] = 0.0;
-    res.columns[2][3] = 0.0;
-    res.columns[3][3] = 1.0;
-
-    return res;
+    return Mat4.init(.{
+        .{ s[0], u[0], -f[0], 0 },
+        .{ s[1], u[1], -f[1], 0 },
+        .{ s[2], u[2], -f[2], 0 },
+        .{ -Vec3Utils.dot(s, eye), -Vec3Utils.dot(u, eye), Vec3Utils.dot(f, eye), 1 },
+    });
 }
 
 pub fn main() !void {

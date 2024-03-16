@@ -109,13 +109,6 @@ pub const Mesh = struct {
         }
     }
 
-    pub const SubdivideEdge = enum {
-        fucked,
-        ok,
-    };
-
-    pub const SubdivideValue = struct { SubdivideEdge, [2]*HalfEdge };
-
     pub fn subdivideMesh(self: *Mesh, count: usize) !void {
         const allocator = self.arena.allocator();
 

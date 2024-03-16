@@ -287,6 +287,8 @@ pub fn build(b: *std.Build) void {
         .{ "text_vert", "src/graphics/elems/shaders/text/shader.vert" },
         .{ "textft_frag", "src/graphics/elems/shaders/textft/shader.frag" },
         .{ "textft_vert", "src/graphics/elems/shaders/textft/shader.vert" },
+        .{ "post_frag", "src/ui/shaders/post.frag" },
+        .{ "post_vert", "src/ui/shaders/post.vert" },
     };
     inline for (shader_list) |shader| {
         elem_shaders.add(shader[0], shader[1], .{});
@@ -356,6 +358,10 @@ pub fn build(b: *std.Build) void {
         .{
             "box-test",
             .{},
+        },
+        .{
+            "shadertoy",
+            .{.{ "vert", "shaders/shader.vert" }},
         },
     }) |app| {
         const exe = b.addExecutable(.{

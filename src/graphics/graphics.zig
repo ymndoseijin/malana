@@ -604,13 +604,13 @@ pub const Swapchain = struct {
             .null_handle,
         )).image_index);
     }
-    pub fn submit(swapchain: *Swapchain, gc: *GraphicsContext, builder: CommandBuilder) !void {
+    pub fn submit(swapchain: *Swapchain, gc: *GraphicsContext, builder: CommandBuilder, info: struct { wait: []const vk.Semaphore }) !void {
         const wait_stage = [_]vk.PipelineStageFlags{.{ .color_attachment_output_bit = true }};
         const cmdbuf = builder.getCurrent();
 
         try gc.vkd.queueSubmit(gc.graphics_queue.handle, 1, &[_]vk.SubmitInfo{.{
-            .wait_semaphore_count = 1,
-            .p_wait_semaphores = @ptrCast(&swapchain.image_acquired[builder.frame_id]),
+            .wait_semaphore_count = @intCast(info.wait.len),
+            .p_wait_semaphores = info.wait.ptr,
             .p_wait_dst_stage_mask = &wait_stage,
             .command_buffer_count = 1,
             .p_command_buffers = @ptrCast(&cmdbuf),
@@ -840,6 +840,7 @@ pub const TextureInfo = struct {
     texture_type: TextureType = .flat,
     mag_filter: FilterEnum = .nearest,
     min_filter: FilterEnum = .nearest,
+    preferred_format: PreferredFormat = .srgb,
 };
 
 pub const Texture = struct {
@@ -861,10 +862,17 @@ pub const Texture = struct {
             .extent = .{ .width = width, .height = height, .depth = 1 },
             .mip_levels = 1,
             .array_layers = 1,
-            .format = win.preferred_format.getSurfaceFormat(),
-            .tiling = .linear,
+            .format = info.preferred_format.getSurfaceFormat(),
+            .tiling = switch (info.preferred_format) {
+                .depth, .target => .optimal,
+                .unorm, .srgb => .linear,
+            },
             .initial_layout = .undefined,
-            .usage = .{ .transfer_dst_bit = true, .sampled_bit = true },
+            .usage = switch (info.preferred_format) {
+                .depth => .{ .depth_stencil_attachment_bit = true },
+                .unorm, .srgb => .{ .transfer_dst_bit = true, .sampled_bit = true },
+                .target => .{ .color_attachment_bit = true, .sampled_bit = true },
+            },
             .samples = .{ .@"1_bit" = true },
             .sharing_mode = .exclusive,
         };
@@ -874,14 +882,51 @@ pub const Texture = struct {
         const image_memory = try win.gc.allocate(mem_reqs, .{ .device_local_bit = true });
         try win.gc.vkd.bindImageMemory(win.gc.dev, image, image_memory, 0);
 
+        if (info.preferred_format == .depth) try transitionImageLayout(&win.gc, win.pool, image, .undefined, .depth_stencil_attachment_optimal);
+
+        const view_info: vk.ImageViewCreateInfo = .{
+            .image = image,
+            .view_type = .@"2d",
+            .format = info.preferred_format.getSurfaceFormat(),
+            .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
+            .subresource_range = .{
+                .aspect_mask = if (info.preferred_format == .depth) .{ .depth_bit = true } else .{ .color_bit = true },
+                .base_mip_level = 0,
+                .level_count = 1,
+                .base_array_layer = 0,
+                .layer_count = 1,
+            },
+        };
+
+        const properties = win.gc.vki.getPhysicalDeviceProperties(win.gc.pdev);
+
+        const sampler_info: vk.SamplerCreateInfo = .{
+            .mag_filter = info.mag_filter.getVulkan(),
+            .min_filter = info.min_filter.getVulkan(),
+            .address_mode_u = .repeat,
+            .address_mode_v = .repeat,
+            .address_mode_w = .repeat,
+            .anisotropy_enable = vk.TRUE,
+            .max_anisotropy = properties.limits.max_sampler_anisotropy,
+            .border_color = .int_opaque_black,
+            .unnormalized_coordinates = vk.FALSE,
+            .compare_enable = vk.FALSE,
+            .compare_op = .always,
+            .mipmap_mode = .linear,
+            .mip_lod_bias = 0,
+            .min_lod = 0,
+            .max_lod = 0,
+        };
+
         return .{
             .info = info,
             .image = image,
             .window = win,
             .width = width,
             .height = height,
-            .sampler = undefined,
-            .image_view = undefined,
+            .sampler = try win.gc.vkd.createSampler(win.gc.dev, &sampler_info, null),
+            .image_view = try win.gc.vkd.createImageView(win.gc.dev, &view_info, null),
+
             .memory = image_memory,
         };
     }
@@ -1129,6 +1174,8 @@ pub const Drawing = struct {
 
     global_ubo: bool,
 
+    render_pass: *RenderPass,
+
     const UniformBuffer = struct {
         buff_mem: BufferMemory,
         data: *anyopaque,
@@ -1136,7 +1183,7 @@ pub const Drawing = struct {
 
     const DrawingInfo = struct {
         win: *Window,
-        shaders: []Shader,
+        shaders: []const Shader,
         pipeline: RenderPipeline,
         flipped_z: bool = false,
     };
@@ -1294,7 +1341,7 @@ pub const Drawing = struct {
                     .p_dynamic_states = &dynstate,
                 },
                 .layout = pipeline_layout,
-                .render_pass = win.render_pass.pass,
+                .render_pass = drawing.render_pass.pass,
                 .subpass = 0,
                 .base_pipeline_handle = .null_handle,
                 .base_pipeline_index = -1,
@@ -1339,6 +1386,8 @@ pub const Drawing = struct {
             .descriptor_layout = descriptor_layout,
             .window = win,
             .global_ubo = pipeline.global_ubo,
+            // PLEASE FIGURE THIS OUT
+            .render_pass = drawing.render_pass,
             //.shader = shader,
             //.textures = std.ArrayList(Texture).init(ally),
         };
@@ -1752,10 +1801,13 @@ pub const EventTable = struct {
 const PreferredFormat = enum {
     unorm,
     srgb,
+    depth,
+    target,
 
     pub fn getSurfaceFormat(format: PreferredFormat) vk.Format {
         return switch (format) {
-            .srgb => .b8g8r8a8_srgb,
+            .target, .srgb => .b8g8r8a8_srgb,
+            .depth => .d32_sfloat,
             .unorm => .b8g8r8a8_unorm,
         };
     }
@@ -1782,8 +1834,6 @@ pub const Framebuffer = struct {
         gc.vkd.destroyFramebuffer(gc.dev, fb.buffer, null);
     }
     pub fn init(gc: *const GraphicsContext, info: FramebufferInfo) !Framebuffer {
-        //const attachments = [2]vk.ImageView{ info.view, info.depth_view };
-
         return .{
             .buffer = try gc.vkd.createFramebuffer(gc.dev, &.{
                 .render_pass = info.render_pass,
@@ -1800,16 +1850,16 @@ pub const Framebuffer = struct {
 pub const RenderPass = struct {
     pass: vk.RenderPass,
 
-    pub fn init(gc: *const GraphicsContext, format: vk.Format) !RenderPass {
+    pub fn init(gc: *const GraphicsContext, options: struct { format: vk.Format, target: bool = false }) !RenderPass {
         const color_attachment = vk.AttachmentDescription{
-            .format = format,
+            .format = options.format,
             .samples = .{ .@"1_bit" = true },
             .load_op = .clear,
             .store_op = .store,
             .stencil_load_op = .dont_care,
             .stencil_store_op = .dont_care,
             .initial_layout = .undefined,
-            .final_layout = .present_src_khr,
+            .final_layout = if (options.target) .shader_read_only_optimal else .present_src_khr,
         };
 
         const color_attachment_ref = vk.AttachmentReference{
@@ -1840,15 +1890,43 @@ pub const RenderPass = struct {
             .p_depth_stencil_attachment = @ptrCast(&depth_attachment_ref),
         };
 
-        // need to find a way to make two dependencies for the two passes idea to work
-        const dependency = vk.SubpassDependency{
+        const color_dependency = vk.SubpassDependency{
             .src_subpass = vk.SUBPASS_EXTERNAL,
             .dst_subpass = 0,
-            .src_stage_mask = .{ .color_attachment_output_bit = true, .early_fragment_tests_bit = true },
-            .src_access_mask = .{},
-            .dst_stage_mask = .{ .color_attachment_output_bit = true, .early_fragment_tests_bit = true },
-            .dst_access_mask = .{ .color_attachment_write_bit = true, .depth_stencil_attachment_write_bit = true },
+            .src_stage_mask = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
+            .dst_stage_mask = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
+            .src_access_mask = .{ .depth_stencil_attachment_write_bit = true },
+            .dst_access_mask = .{ .depth_stencil_attachment_write_bit = true, .depth_stencil_attachment_read_bit = true },
         };
+
+        const depth_dependency = vk.SubpassDependency{
+            .src_subpass = vk.SUBPASS_EXTERNAL,
+            .dst_subpass = 0,
+            .src_stage_mask = .{ .color_attachment_output_bit = true },
+            .dst_stage_mask = .{ .color_attachment_output_bit = true },
+            .src_access_mask = .{},
+            .dst_access_mask = .{ .color_attachment_write_bit = true, .color_attachment_read_bit = true },
+        };
+
+        const target_first_dependency = vk.SubpassDependency{
+            .src_subpass = vk.SUBPASS_EXTERNAL,
+            .dst_subpass = 0,
+            .src_stage_mask = .{ .fragment_shader_bit = true },
+            .dst_stage_mask = .{ .color_attachment_output_bit = true },
+            .src_access_mask = .{ .shader_read_bit = true },
+            .dst_access_mask = .{ .color_attachment_write_bit = true },
+        };
+
+        const target_second_dependency = vk.SubpassDependency{
+            .src_subpass = 0,
+            .dst_subpass = vk.SUBPASS_EXTERNAL,
+            .src_stage_mask = .{ .color_attachment_output_bit = true },
+            .dst_stage_mask = .{ .fragment_shader_bit = true },
+            .src_access_mask = .{ .color_attachment_write_bit = true },
+            .dst_access_mask = .{ .shader_read_bit = true },
+        };
+
+        const dependencies: []const vk.SubpassDependency = if (options.target) &.{ target_first_dependency, target_second_dependency } else &.{ color_dependency, depth_dependency };
 
         const attachments = &[2]vk.AttachmentDescription{ color_attachment, depth_attachment };
         return .{ .pass = try gc.vkd.createRenderPass(gc.dev, &.{
@@ -1856,8 +1934,8 @@ pub const RenderPass = struct {
             .p_attachments = attachments.ptr,
             .subpass_count = 1,
             .p_subpasses = @as([*]const vk.SubpassDescription, @ptrCast(&subpass)),
-            .dependency_count = 1,
-            .p_dependencies = @as([*]const vk.SubpassDependency, @ptrCast(&dependency)),
+            .dependency_count = @intCast(dependencies.len),
+            .p_dependencies = dependencies.ptr,
         }, null) };
     }
 
@@ -1901,11 +1979,8 @@ pub const CommandBuilder = struct {
         }, .@"inline");
     }
 
-    pub fn beginCommand(builder: *CommandBuilder, gc: *GraphicsContext, info: struct { flip_z: bool, width: u32, height: u32 }) !void {
+    pub fn setViewport(builder: *CommandBuilder, gc: *GraphicsContext, info: struct { flip_z: bool, width: u32, height: u32 }) !void {
         const cmdbuf = builder.getCurrent();
-        try gc.vkd.resetCommandBuffer(cmdbuf, .{});
-
-        try gc.vkd.beginCommandBuffer(cmdbuf, &.{});
         if (info.flip_z) {
             gc.vkd.cmdSetViewport(cmdbuf, 0, 1, @ptrCast(&vk.Viewport{
                 .x = 0,
@@ -1929,6 +2004,12 @@ pub const CommandBuilder = struct {
             .offset = .{ .x = 0, .y = 0 },
             .extent = .{ .width = info.width, .height = info.height },
         }));
+    }
+
+    pub fn beginCommand(builder: *CommandBuilder, gc: *GraphicsContext) !void {
+        const cmdbuf = builder.getCurrent();
+        try gc.vkd.resetCommandBuffer(cmdbuf, .{});
+        try gc.vkd.beginCommandBuffer(cmdbuf, &.{});
     }
 
     pub fn endRenderPass(builder: *CommandBuilder, gc: *GraphicsContext) void {
@@ -2011,6 +2092,7 @@ pub const Window = struct {
         color_shaders: [2]Shader,
         text_shaders: [2]Shader,
         textft_shaders: [2]Shader,
+        post_shaders: [2]Shader,
 
         pub fn init(gc: GraphicsContext) !DefaultShaders {
             const sprite_vert = try Shader.init(gc, &elem_shaders.sprite_vert, .vertex);
@@ -2025,11 +2107,15 @@ pub const Window = struct {
             const textft_vert = try Shader.init(gc, &elem_shaders.textft_vert, .vertex);
             const textft_frag = try Shader.init(gc, &elem_shaders.textft_frag, .fragment);
 
+            const post_vert = try Shader.init(gc, &elem_shaders.post_vert, .vertex);
+            const post_frag = try Shader.init(gc, &elem_shaders.post_frag, .fragment);
+
             return .{
                 .sprite_shaders = .{ sprite_vert, sprite_frag },
                 .color_shaders = .{ color_vert, color_frag },
                 .text_shaders = .{ text_vert, text_frag },
                 .textft_shaders = .{ textft_vert, textft_frag },
+                .post_shaders = .{ post_vert, post_frag },
             };
         }
 
@@ -2038,6 +2124,7 @@ pub const Window = struct {
             for (self.color_shaders) |s| s.deinit(gc);
             for (self.text_shaders) |s| s.deinit(gc);
             for (self.textft_shaders) |s| s.deinit(gc);
+            for (self.post_shaders) |s| s.deinit(gc);
         }
     };
 
@@ -2180,7 +2267,7 @@ pub const Window = struct {
 
         const swapchain = try Swapchain.init(&gc, ally, .{ .width = @intCast(info.width), .height = @intCast(info.height) }, info.preferred_format);
 
-        const render_pass = try RenderPass.init(&gc, swapchain.surface_format.format);
+        const render_pass = try RenderPass.init(&gc, .{ .format = swapchain.surface_format.format });
 
         const pool = try gc.vkd.createCommandPool(gc.dev, &.{
             .queue_family_index = gc.graphics_queue.family,
@@ -2297,18 +2384,20 @@ const frames_in_flight = 2;
 
 pub const SceneInfo = struct {
     flip_z: bool = false,
+    render_pass: ?*RenderPass = null,
 };
 
 pub const Scene = struct {
     drawing_array: std.ArrayList(*Drawing),
-
     window: *Window,
+    render_pass: *RenderPass,
     flip_z: bool,
 
     pub fn init(win: *Window, info: SceneInfo) !Scene {
         return Scene{
             .drawing_array = std.ArrayList(*Drawing).init(win.ally),
             .window = win,
+            .render_pass = if (info.render_pass) |pass| pass else &win.render_pass,
             .flip_z = info.flip_z,
         };
     }
@@ -2327,9 +2416,8 @@ pub const Scene = struct {
             .height = extent.height,
         });
 
-        const time = @as(f32, @floatCast(glfw.glfwGetTime()));
-        const now: f32 = time;
-        const resolution: math.Vec2 = .{ @floatFromInt(scene.window.frame_width), @floatFromInt(scene.window.frame_height) };
+        const now: f32 = @floatCast(glfw.glfwGetTime());
+        const resolution: math.Vec2 = .{ @floatFromInt(extent.width), @floatFromInt(extent.height) };
         for (scene.drawing_array.items) |elem| {
             if (elem.global_ubo) GlobalUniform.setUniform(elem, 0, .{ .time = now, .in_resolution = resolution });
             try elem.draw(scene.window.command_builder.frame_id, builder.getCurrent());
@@ -2351,6 +2439,7 @@ pub const Scene = struct {
     pub fn new(scene: *Scene) !*Drawing {
         const val = try scene.window.ally.create(Drawing);
         try scene.drawing_array.append(val);
+        val.render_pass = scene.render_pass;
 
         return val;
     }
@@ -2372,7 +2461,7 @@ pub const Scene = struct {
         const image_index = try swapchain.acquireImage(gc, frame_id);
         try scene.update(image_index);
 
-        try swapchain.submit(gc, scene.window.command_builder);
+        try swapchain.submit(gc, scene.window.command_builder, .{ .wait = &.{swapchain.image_acquired[scene.window.command_builder.frame_id]} });
         try swapchain.present(gc, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = image_index });
         scene.window.command_builder.next();
     }
