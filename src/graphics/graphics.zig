@@ -840,10 +840,12 @@ pub const TextureInfo = struct {
     texture_type: TextureType = .flat,
     mag_filter: FilterEnum = .nearest,
     min_filter: FilterEnum = .nearest,
-    preferred_format: PreferredFormat = .srgb,
+    preferred_format: ?PreferredFormat = null,
+    is_render_target: bool = false,
 };
 
 pub const Texture = struct {
+    // eventually remove
     info: TextureInfo,
 
     width: u32,
@@ -857,21 +859,34 @@ pub const Texture = struct {
     memory: vk.DeviceMemory,
 
     pub fn init(win: *Window, width: u32, height: u32, info: TextureInfo) !Texture {
+        const format = if (info.preferred_format) |f| f else win.preferred_format;
+
         const image_info: vk.ImageCreateInfo = .{
             .image_type = .@"2d",
             .extent = .{ .width = width, .height = height, .depth = 1 },
             .mip_levels = 1,
             .array_layers = 1,
-            .format = info.preferred_format.getSurfaceFormat(),
-            .tiling = switch (info.preferred_format) {
-                .depth, .target => .optimal,
-                .unorm, .srgb => .linear,
+            .format = format.getSurfaceFormat(),
+            .tiling = blk: {
+                if (info.is_render_target) {
+                    break :blk .optimal;
+                } else {
+                    break :blk switch (format) {
+                        .depth => .optimal,
+                        .unorm, .srgb => .linear,
+                    };
+                }
             },
             .initial_layout = .undefined,
-            .usage = switch (info.preferred_format) {
-                .depth => .{ .depth_stencil_attachment_bit = true },
-                .unorm, .srgb => .{ .transfer_dst_bit = true, .sampled_bit = true },
-                .target => .{ .color_attachment_bit = true, .sampled_bit = true },
+            .usage = blk: {
+                if (info.is_render_target) {
+                    break :blk .{ .color_attachment_bit = true, .sampled_bit = true };
+                } else {
+                    break :blk switch (format) {
+                        .depth => .{ .depth_stencil_attachment_bit = true },
+                        .unorm, .srgb => .{ .transfer_dst_bit = true, .sampled_bit = true },
+                    };
+                }
             },
             .samples = .{ .@"1_bit" = true },
             .sharing_mode = .exclusive,
@@ -882,15 +897,15 @@ pub const Texture = struct {
         const image_memory = try win.gc.allocate(mem_reqs, .{ .device_local_bit = true });
         try win.gc.vkd.bindImageMemory(win.gc.dev, image, image_memory, 0);
 
-        if (info.preferred_format == .depth) try transitionImageLayout(&win.gc, win.pool, image, .undefined, .depth_stencil_attachment_optimal);
+        if (format == .depth) try transitionImageLayout(&win.gc, win.pool, image, .undefined, .depth_stencil_attachment_optimal);
 
         const view_info: vk.ImageViewCreateInfo = .{
             .image = image,
             .view_type = .@"2d",
-            .format = info.preferred_format.getSurfaceFormat(),
+            .format = format.getSurfaceFormat(),
             .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
             .subresource_range = .{
-                .aspect_mask = if (info.preferred_format == .depth) .{ .depth_bit = true } else .{ .color_bit = true },
+                .aspect_mask = if (format == .depth) .{ .depth_bit = true } else .{ .color_bit = true },
                 .base_mip_level = 0,
                 .level_count = 1,
                 .base_array_layer = 0,
@@ -926,7 +941,6 @@ pub const Texture = struct {
             .height = height,
             .sampler = try win.gc.vkd.createSampler(win.gc.dev, &sampler_info, null),
             .image_view = try win.gc.vkd.createImageView(win.gc.dev, &view_info, null),
-
             .memory = image_memory,
         };
     }
@@ -1802,11 +1816,10 @@ const PreferredFormat = enum {
     unorm,
     srgb,
     depth,
-    target,
 
     pub fn getSurfaceFormat(format: PreferredFormat) vk.Format {
         return switch (format) {
-            .target, .srgb => .b8g8r8a8_srgb,
+            .srgb => .b8g8r8a8_srgb,
             .depth => .d32_sfloat,
             .unorm => .b8g8r8a8_unorm,
         };

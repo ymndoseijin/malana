@@ -150,7 +150,10 @@ pub const Ui = struct {
 
         // Create a separate render target for post processing
         const first_pass = try graphics.RenderPass.init(&main_win.gc, .{ .format = main_win.swapchain.surface_format.format, .target = true });
-        const post_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{ .preferred_format = .target });
+        const post_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{
+            .is_render_target = true,
+            .preferred_format = main_win.preferred_format,
+        });
         const depth_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{ .preferred_format = .depth });
 
         var post_scene = try graphics.Scene.init(main_win, info.scene);
@@ -324,7 +327,10 @@ pub const Ui = struct {
         state.post_color_tex.deinit();
         state.post_depth_tex.deinit();
 
-        state.post_color_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{ .preferred_format = .target });
+        state.post_color_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{
+            .is_render_target = true,
+            .preferred_format = state.main_win.preferred_format,
+        });
         state.post_depth_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{ .preferred_format = .depth });
 
         state.post_buffer.deinit(state.main_win.gc);
