@@ -1173,203 +1173,36 @@ pub const Drawing = struct {
     // vulkan
     vertex_buffer: ?BufferMemory,
     index_buffer: ?BufferMemory,
-    vk_pipeline: vk.Pipeline,
-
     uniform_buffers: [][]UniformBuffer,
-    //uniform_buffers: [pipeline.samplers][]UniformBuffer,
     descriptor_sets: []vk.DescriptorSet,
-
     descriptor_pool: vk.DescriptorPool,
-    descriptor_layout: vk.DescriptorSetLayout,
-
-    layout: vk.PipelineLayout,
 
     window: *Window,
-
     global_ubo: bool,
-
-    render_pass: *RenderPass,
+    pipeline: RenderPipeline,
 
     const UniformBuffer = struct {
         buff_mem: BufferMemory,
         data: *anyopaque,
     };
 
-    const DrawingInfo = struct {
+    pub const Info = struct {
         win: *Window,
-        shaders: []const Shader,
         pipeline: RenderPipeline,
-        flipped_z: bool = false,
+        samplers: []const Texture = &.{},
     };
 
-    pub fn init(drawing: *Drawing, ally: std.mem.Allocator, info: DrawingInfo) !void {
+    pub fn init(drawing: *Drawing, ally: std.mem.Allocator, info: Info) !void {
         const win = info.win;
-        const shaders = info.shaders;
         const pipeline = info.pipeline;
-
         const gc = &win.gc;
-
-        var bindings = try ally.alloc(vk.DescriptorSetLayoutBinding, pipeline.uniform_sizes.len + pipeline.samplers.len);
-        defer ally.free(bindings);
-        for (0..pipeline.uniform_sizes.len) |i| {
-            bindings[i] = vk.DescriptorSetLayoutBinding{
-                .binding = @intCast(i),
-                .descriptor_count = 1,
-                .descriptor_type = .uniform_buffer,
-                .p_immutable_samplers = null,
-                .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
-            };
-        }
-        for (0..pipeline.samplers.len) |i| {
-            bindings[pipeline.uniform_sizes.len + i] = vk.DescriptorSetLayoutBinding{
-                .binding = @intCast(pipeline.uniform_sizes.len + i),
-                .descriptor_count = 1,
-                .descriptor_type = .combined_image_sampler,
-                .p_immutable_samplers = null,
-                .stage_flags = .{ .fragment_bit = true },
-            };
-        }
-
-        const layout_info: vk.DescriptorSetLayoutCreateInfo = .{
-            .binding_count = @intCast(bindings.len),
-            .p_bindings = bindings.ptr,
-        };
-
-        const descriptor_layout = try gc.vkd.createDescriptorSetLayout(gc.dev, &layout_info, null);
-        const pipeline_layout = try gc.vkd.createPipelineLayout(gc.dev, &.{
-            .flags = .{},
-            .set_layout_count = 1,
-            .p_set_layouts = @ptrCast(&descriptor_layout),
-            .push_constant_range_count = 0,
-            .p_push_constant_ranges = undefined,
-        }, null);
-
-        var pssci = try ally.alloc(vk.PipelineShaderStageCreateInfo, shaders.len);
-        defer ally.free(pssci);
-        for (shaders, 0..) |shader, i| {
-            pssci[i] = .{
-                .stage = .{
-                    .fragment_bit = shader.type == .fragment,
-                    .vertex_bit = shader.type == .vertex,
-                    .compute_bit = shader.type == .compute,
-                },
-                .module = shader.module,
-                .p_name = "main",
-            };
-        }
-
-        var attribute_desc = try ally.alloc(vk.VertexInputAttributeDescription, pipeline.vertex_description.vertex_attribs.len);
-        defer ally.free(attribute_desc);
-        {
-            var off: u32 = 0;
-            for (pipeline.vertex_description.vertex_attribs, 0..) |attrib, i| {
-                attribute_desc[i] = .{
-                    .binding = 0,
-                    .location = @intCast(i),
-                    .format = try attrib.getVK(),
-                    .offset = off,
-                };
-                off += @intCast(attrib.getSize()); // ?
-            }
-        }
-
-        const binding_description = pipeline.getBindingDescription();
-
-        const dynstate = [_]vk.DynamicState{ .viewport, .scissor };
-
-        var vk_pipeline: vk.Pipeline = undefined;
-        _ = try gc.vkd.createGraphicsPipelines(
-            gc.dev,
-            .null_handle,
-            1,
-            @ptrCast(&vk.GraphicsPipelineCreateInfo{
-                .flags = .{},
-                .stage_count = @intCast(pssci.len),
-                .p_stages = pssci.ptr,
-                .p_vertex_input_state = &vk.PipelineVertexInputStateCreateInfo{
-                    .vertex_binding_description_count = 1,
-                    .p_vertex_binding_descriptions = @ptrCast(&binding_description),
-                    .vertex_attribute_description_count = @intCast(attribute_desc.len),
-                    .p_vertex_attribute_descriptions = attribute_desc.ptr,
-                },
-                .p_input_assembly_state = &vk.PipelineInputAssemblyStateCreateInfo{
-                    .topology = .triangle_list,
-                    .primitive_restart_enable = vk.FALSE,
-                },
-                .p_tessellation_state = null,
-                .p_viewport_state = &vk.PipelineViewportStateCreateInfo{
-                    .viewport_count = 1,
-                    .p_viewports = undefined,
-                    .scissor_count = 1,
-                    .p_scissors = undefined,
-                },
-                .p_rasterization_state = &vk.PipelineRasterizationStateCreateInfo{
-                    .depth_clamp_enable = vk.FALSE,
-                    .rasterizer_discard_enable = vk.FALSE,
-                    .polygon_mode = .fill,
-                    .cull_mode = .{ .back_bit = true },
-                    .front_face = if (info.flipped_z) .counter_clockwise else .clockwise,
-                    .depth_bias_enable = vk.FALSE,
-                    .depth_bias_constant_factor = 0,
-                    .depth_bias_clamp = 0,
-                    .depth_bias_slope_factor = 0,
-                    .line_width = 1,
-                },
-                .p_multisample_state = &vk.PipelineMultisampleStateCreateInfo{
-                    .rasterization_samples = .{ .@"1_bit" = true },
-                    .sample_shading_enable = vk.FALSE,
-                    .min_sample_shading = 1,
-                    .alpha_to_coverage_enable = vk.FALSE,
-                    .alpha_to_one_enable = vk.FALSE,
-                },
-                .p_depth_stencil_state = &vk.PipelineDepthStencilStateCreateInfo{
-                    .depth_test_enable = if (pipeline.depth_test) vk.TRUE else vk.FALSE,
-                    .depth_write_enable = if (pipeline.depth_test) vk.TRUE else vk.FALSE,
-                    .depth_compare_op = .less,
-                    .depth_bounds_test_enable = vk.FALSE,
-                    .min_depth_bounds = 0,
-                    .max_depth_bounds = 0,
-                    .stencil_test_enable = vk.FALSE,
-                    .front = undefined,
-                    .back = undefined,
-                },
-                .p_color_blend_state = &vk.PipelineColorBlendStateCreateInfo{
-                    .logic_op_enable = vk.FALSE,
-                    .logic_op = .clear,
-                    .attachment_count = 1,
-                    .p_attachments = @ptrCast(&vk.PipelineColorBlendAttachmentState{
-                        .blend_enable = vk.TRUE,
-                        .src_color_blend_factor = .src_alpha,
-                        .dst_color_blend_factor = .one_minus_src_alpha,
-                        .color_blend_op = .add,
-                        .src_alpha_blend_factor = .one,
-                        .dst_alpha_blend_factor = .one_minus_src_alpha,
-                        .alpha_blend_op = .add,
-                        .color_write_mask = .{ .r_bit = true, .g_bit = true, .b_bit = true, .a_bit = true },
-                    }),
-                    .blend_constants = [_]f32{ 0, 0, 0, 0 },
-                },
-                .p_dynamic_state = &vk.PipelineDynamicStateCreateInfo{
-                    .flags = .{},
-                    .dynamic_state_count = dynstate.len,
-                    .p_dynamic_states = &dynstate,
-                },
-                .layout = pipeline_layout,
-                .render_pass = drawing.render_pass.pass,
-                .subpass = 0,
-                .base_pipeline_handle = .null_handle,
-                .base_pipeline_index = -1,
-            }),
-            null,
-            @ptrCast(&vk_pipeline),
-        );
 
         const frames: u32 = frames_in_flight;
 
-        const pool_sizes = try ally.alloc(vk.DescriptorPoolSize, bindings.len);
+        const pool_sizes = try ally.alloc(vk.DescriptorPoolSize, pipeline.bindings.len);
         defer ally.free(pool_sizes);
 
-        for (pool_sizes, bindings) |*pool_size, binding| {
+        for (pool_sizes, pipeline.bindings) |*pool_size, binding| {
             pool_size.* = .{
                 .type = binding.descriptor_type,
                 //.descriptor_count = binding.descriptor_count * max_sets,
@@ -1380,51 +1213,34 @@ pub const Drawing = struct {
         const pool_info = vk.DescriptorPoolCreateInfo{
             .max_sets = frames,
             .p_pool_sizes = pool_sizes.ptr,
-            .pool_size_count = @intCast(bindings.len),
+            .pool_size_count = @intCast(pipeline.bindings.len),
         };
 
-        const uniforms = try ally.alloc([]UniformBuffer, pipeline.uniform_sizes.len);
+        const uniforms = try ally.alloc([]UniformBuffer, pipeline.description.uniform_sizes.len);
 
         for (uniforms) |*u| u.* = &.{};
 
         drawing.* = .{
             //.cube_textures = std.ArrayList(u32).init(ally),
             .vert_count = 0,
-            .vk_pipeline = vk_pipeline,
-            .layout = pipeline_layout,
+            .pipeline = info.pipeline,
             .vertex_buffer = null,
             .index_buffer = null,
             .descriptor_pool = try gc.vkd.createDescriptorPool(gc.dev, &pool_info, null),
             .uniform_buffers = uniforms,
             .descriptor_sets = &.{},
-            .descriptor_layout = descriptor_layout,
             .window = win,
-            .global_ubo = pipeline.global_ubo,
-            // PLEASE FIGURE THIS OUT
-            .render_pass = drawing.render_pass,
-            //.shader = shader,
-            //.textures = std.ArrayList(Texture).init(ally),
+            .global_ubo = pipeline.description.global_ubo,
         };
 
-        try drawing.createUniformBuffers(ally, pipeline);
-        try drawing.createDescriptorSets(ally, pipeline);
+        try drawing.createUniformBuffers(ally);
+        try drawing.createDescriptorSets(ally, info.samplers);
     }
 
-    pub fn deinit(
-        self: *Drawing,
-        ally: std.mem.Allocator,
-    ) void {
-        //self.textures.deinit();
-        //self.cube_textures.deinit();
-        //self.vertex_buffer.deinit(&self.window.gc);
-        //self.index_buffer.deinit(&self.window.gc);
-
+    pub fn deinit(self: *Drawing, ally: std.mem.Allocator) void {
         const win = self.window;
 
         win.gc.vkd.deviceWaitIdle(win.gc.dev) catch return;
-
-        win.gc.vkd.destroyPipeline(win.gc.dev, self.vk_pipeline, null);
-        win.gc.vkd.destroyPipelineLayout(win.gc.dev, self.layout, null);
 
         for (self.uniform_buffers) |ubs| {
             for (ubs) |ub| ub.buff_mem.deinit(&win.gc);
@@ -1433,30 +1249,10 @@ pub const Drawing = struct {
         ally.free(self.uniform_buffers);
 
         win.gc.vkd.destroyDescriptorPool(win.gc.dev, self.descriptor_pool, null);
-
-        win.gc.vkd.destroyDescriptorSetLayout(win.gc.dev, self.descriptor_layout, null);
-
         ally.free(self.descriptor_sets);
 
         if (self.index_buffer) |ib| ib.deinit(&win.gc);
         if (self.vertex_buffer) |vb| vb.deinit(&win.gc);
-
-        // for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        //     vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
-        //     vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
-        //     vkDestroyFence(device, inFlightFences[i], nullptr);
-        // }
-
-        // vkDestroyCommandPool(device, commandPool, nullptr);
-
-        // vkDestroyDevice(device, nullptr);
-
-        // if (enableValidationLayers) {
-        //     DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
-        // }
-
-        // vkDestroySurfaceKHR(instance, surface, nullptr);
-        // vkDestroyInstance(instance, nullptr);
     }
 
     const cubemapOrientation = enum { xp, yp, zp, xm, ym, zm };
@@ -1466,11 +1262,11 @@ pub const Drawing = struct {
         return @intCast(0x84C0 + i);
     }
 
-    pub fn createDescriptorSets(self: *Drawing, ally: std.mem.Allocator, pipeline: RenderPipeline) !void {
+    pub fn createDescriptorSets(self: *Drawing, ally: std.mem.Allocator, samplers: []const Texture) !void {
         var gc = &self.window.gc;
         const layouts = try ally.alloc(vk.DescriptorSetLayout, frames_in_flight);
         defer ally.free(layouts);
-        for (layouts) |*l| l.* = self.descriptor_layout;
+        for (layouts) |*l| l.* = self.pipeline.descriptor_layout;
 
         const frames: u32 = @intCast(frames_in_flight);
         const allocate_info = vk.DescriptorSetAllocateInfo{
@@ -1482,20 +1278,25 @@ pub const Drawing = struct {
         self.descriptor_sets = try ally.alloc(vk.DescriptorSet, frames_in_flight);
 
         try gc.vkd.allocateDescriptorSets(gc.dev, &allocate_info, self.descriptor_sets.ptr);
-        try self.updateDescriptorSets(ally, pipeline);
+        try self.updateDescriptorSets(ally, samplers);
     }
 
-    pub fn updateDescriptorSets(self: *Drawing, ally: std.mem.Allocator, pipeline: RenderPipeline) !void {
+    pub fn updateDescriptorSets(self: *Drawing, ally: std.mem.Allocator, samplers: []const Texture) !void {
         var gc = &self.window.gc;
         try gc.vkd.deviceWaitIdle(gc.dev);
+
+        const pipeline_desc = self.pipeline.description;
+
+        if (pipeline_desc.sampler_count != samplers.len) return error.InvalidSamplerCount;
+
         for (0..frames_in_flight) |i| {
-            var descriptor_writes = try ally.alloc(vk.WriteDescriptorSet, pipeline.samplers.len + pipeline.uniform_sizes.len);
-            var buffer_info = try ally.alloc(vk.DescriptorBufferInfo, pipeline.samplers.len + pipeline.uniform_sizes.len);
+            var descriptor_writes = try ally.alloc(vk.WriteDescriptorSet, samplers.len + pipeline_desc.uniform_sizes.len);
+            var buffer_info = try ally.alloc(vk.DescriptorBufferInfo, samplers.len + pipeline_desc.uniform_sizes.len);
 
             defer ally.free(descriptor_writes);
             defer ally.free(buffer_info);
 
-            for (0.., self.uniform_buffers, pipeline.uniform_sizes) |binding_i, *uniform, uniform_size| {
+            for (0.., self.uniform_buffers, pipeline_desc.uniform_sizes) |binding_i, *uniform, uniform_size| {
                 buffer_info[binding_i] = vk.DescriptorBufferInfo{
                     .buffer = uniform.*[i].buff_mem.buffer,
                     .offset = 0,
@@ -1514,19 +1315,19 @@ pub const Drawing = struct {
                 };
             }
 
-            var image_info = try ally.alloc(vk.DescriptorImageInfo, pipeline.samplers.len + pipeline.uniform_sizes.len);
+            var image_info = try ally.alloc(vk.DescriptorImageInfo, samplers.len + pipeline_desc.uniform_sizes.len);
             defer ally.free(image_info);
 
-            for (0.., pipeline.samplers) |texture_i, texture| {
+            for (0.., samplers) |texture_i, texture| {
                 image_info[texture_i] = vk.DescriptorImageInfo{
                     .image_layout = .shader_read_only_optimal,
                     .image_view = texture.image_view,
                     .sampler = texture.sampler,
                 };
 
-                descriptor_writes[pipeline.uniform_sizes.len + texture_i] = vk.WriteDescriptorSet{
+                descriptor_writes[pipeline_desc.uniform_sizes.len + texture_i] = vk.WriteDescriptorSet{
                     .dst_set = self.descriptor_sets[i],
-                    .dst_binding = @intCast(pipeline.uniform_sizes.len + texture_i),
+                    .dst_binding = @intCast(pipeline_desc.uniform_sizes.len + texture_i),
                     .dst_array_element = 0,
                     .descriptor_type = .combined_image_sampler,
                     .descriptor_count = 1,
@@ -1540,8 +1341,8 @@ pub const Drawing = struct {
         }
     }
 
-    pub fn createUniformBuffers(self: *Drawing, ally: std.mem.Allocator, pipeline: RenderPipeline) !void {
-        for (pipeline.uniform_sizes, self.uniform_buffers) |uniform_size, *uniform_buffer| {
+    pub fn createUniformBuffers(self: *Drawing, ally: std.mem.Allocator) !void {
+        for (self.pipeline.description.uniform_sizes, self.uniform_buffers) |uniform_size, *uniform_buffer| {
             var gc = &self.window.gc;
 
             uniform_buffer.* = try ally.alloc(UniformBuffer, frames_in_flight);
@@ -1609,13 +1410,13 @@ pub const Drawing = struct {
     pub fn draw(self: *Drawing, frame_id: usize, command_buffer: vk.CommandBuffer) !void {
         const gc = &self.window.gc;
 
-        gc.vkd.cmdBindPipeline(command_buffer, .graphics, self.vk_pipeline);
+        gc.vkd.cmdBindPipeline(command_buffer, .graphics, self.pipeline.vk_pipeline);
         const offset = [_]vk.DeviceSize{0};
         if (self.vertex_buffer) |vb| gc.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&vb.buffer), &offset);
         gc.vkd.cmdBindDescriptorSets(
             command_buffer,
             .graphics,
-            self.layout,
+            self.pipeline.layout,
             0,
             1,
             @ptrCast(&self.descriptor_sets[frame_id]),
@@ -2452,7 +2253,6 @@ pub const Scene = struct {
     pub fn new(scene: *Scene) !*Drawing {
         const val = try scene.window.ally.create(Drawing);
         try scene.drawing_array.append(val);
-        val.render_pass = scene.render_pass;
 
         return val;
     }
@@ -2599,24 +2399,18 @@ const CullType = enum {
     none,
 };
 
-pub const RenderPipeline = struct {
+pub const PipelineDescription = struct {
     vertex_description: VertexDescription,
     render_type: RenderType,
     depth_test: bool,
     cull_type: CullType = .none,
 
     uniform_sizes: []const usize = &.{},
-    samplers: []const Texture = &.{},
+    sampler_count: usize = 0,
     // assume DefaultUbo at index 0
     global_ubo: bool = false,
 
-    pub fn getInitType(comptime pipeline: RenderPipeline) type {
-        return struct {
-            samplers: [pipeline.samplers]Texture,
-        };
-    }
-
-    pub fn getBindingDescription(pipeline: RenderPipeline) vk.VertexInputBindingDescription {
+    pub fn getBindingDescription(pipeline: PipelineDescription) vk.VertexInputBindingDescription {
         return .{
             .binding = 0,
             .stride = @intCast(pipeline.vertex_description.getVertexSize()),
@@ -2624,7 +2418,7 @@ pub const RenderPipeline = struct {
         };
     }
 
-    pub fn getAttributeDescription(pipeline: RenderPipeline) []vk.VertexInputAttributeDescription {
+    pub fn getAttributeDescription(pipeline: PipelineDescription) []vk.VertexInputAttributeDescription {
         var loop: [pipeline.vertex_attrib.len]vk.VertexInputAttributeDescription = undefined;
         var off: u32 = 0;
         inline for (pipeline.vertex_attrib, 0..) |attrib, i| {
@@ -2640,13 +2434,205 @@ pub const RenderPipeline = struct {
         return loop;
     }
 
-    pub fn getAttributeType(comptime pipeline: RenderPipeline) type {
+    pub fn getAttributeType(comptime pipeline: PipelineDescription) type {
         var types: []const type = &.{};
         for (pipeline.vertex_description.vertex_attribs) |attrib| {
             const t = attrib.getType();
             types = types ++ .{t};
         }
         return std.meta.Tuple(types);
+    }
+};
+
+pub const RenderPipeline = struct {
+    vk_pipeline: vk.Pipeline,
+    descriptor_layout: vk.DescriptorSetLayout,
+    layout: vk.PipelineLayout,
+    ally: std.mem.Allocator,
+    bindings: []vk.DescriptorSetLayoutBinding,
+    description: PipelineDescription,
+
+    pub const Info = struct {
+        description: PipelineDescription,
+        shaders: []const Shader,
+        render_pass: RenderPass,
+        gc: *GraphicsContext,
+        flipped_z: bool = false,
+    };
+    pub fn init(ally: std.mem.Allocator, info: Info) !RenderPipeline {
+        const shaders = info.shaders;
+        const pipeline = info.description;
+        const gc = info.gc;
+
+        var bindings = try ally.alloc(vk.DescriptorSetLayoutBinding, pipeline.uniform_sizes.len + pipeline.sampler_count);
+        for (0..pipeline.uniform_sizes.len) |i| {
+            bindings[i] = vk.DescriptorSetLayoutBinding{
+                .binding = @intCast(i),
+                .descriptor_count = 1,
+                .descriptor_type = .uniform_buffer,
+                .p_immutable_samplers = null,
+                .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
+            };
+        }
+        for (0..pipeline.sampler_count) |i| {
+            bindings[pipeline.uniform_sizes.len + i] = vk.DescriptorSetLayoutBinding{
+                .binding = @intCast(pipeline.uniform_sizes.len + i),
+                .descriptor_count = 1,
+                .descriptor_type = .combined_image_sampler,
+                .p_immutable_samplers = null,
+                .stage_flags = .{ .fragment_bit = true },
+            };
+        }
+
+        const layout_info: vk.DescriptorSetLayoutCreateInfo = .{
+            .binding_count = @intCast(bindings.len),
+            .p_bindings = bindings.ptr,
+        };
+
+        const descriptor_layout = try gc.vkd.createDescriptorSetLayout(gc.dev, &layout_info, null);
+        const pipeline_layout = try gc.vkd.createPipelineLayout(gc.dev, &.{
+            .flags = .{},
+            .set_layout_count = 1,
+            .p_set_layouts = @ptrCast(&descriptor_layout),
+            .push_constant_range_count = 0,
+            .p_push_constant_ranges = undefined,
+        }, null);
+
+        var pssci = try ally.alloc(vk.PipelineShaderStageCreateInfo, shaders.len);
+        defer ally.free(pssci);
+        for (shaders, 0..) |shader, i| {
+            pssci[i] = .{
+                .stage = .{
+                    .fragment_bit = shader.type == .fragment,
+                    .vertex_bit = shader.type == .vertex,
+                    .compute_bit = shader.type == .compute,
+                },
+                .module = shader.module,
+                .p_name = "main",
+            };
+        }
+
+        var attribute_desc = try ally.alloc(vk.VertexInputAttributeDescription, pipeline.vertex_description.vertex_attribs.len);
+        defer ally.free(attribute_desc);
+        {
+            var off: u32 = 0;
+            for (pipeline.vertex_description.vertex_attribs, 0..) |attrib, i| {
+                attribute_desc[i] = .{
+                    .binding = 0,
+                    .location = @intCast(i),
+                    .format = try attrib.getVK(),
+                    .offset = off,
+                };
+                off += @intCast(attrib.getSize()); // ?
+            }
+        }
+
+        const binding_description = pipeline.getBindingDescription();
+
+        const dynstate = [_]vk.DynamicState{ .viewport, .scissor };
+
+        var vk_pipeline: vk.Pipeline = undefined;
+        _ = try gc.vkd.createGraphicsPipelines(
+            gc.dev,
+            .null_handle,
+            1,
+            @ptrCast(&vk.GraphicsPipelineCreateInfo{
+                .flags = .{},
+                .stage_count = @intCast(pssci.len),
+                .p_stages = pssci.ptr,
+                .p_vertex_input_state = &vk.PipelineVertexInputStateCreateInfo{
+                    .vertex_binding_description_count = 1,
+                    .p_vertex_binding_descriptions = @ptrCast(&binding_description),
+                    .vertex_attribute_description_count = @intCast(attribute_desc.len),
+                    .p_vertex_attribute_descriptions = attribute_desc.ptr,
+                },
+                .p_input_assembly_state = &vk.PipelineInputAssemblyStateCreateInfo{
+                    .topology = .triangle_list,
+                    .primitive_restart_enable = vk.FALSE,
+                },
+                .p_tessellation_state = null,
+                .p_viewport_state = &vk.PipelineViewportStateCreateInfo{
+                    .viewport_count = 1,
+                    .p_viewports = undefined,
+                    .scissor_count = 1,
+                    .p_scissors = undefined,
+                },
+                .p_rasterization_state = &vk.PipelineRasterizationStateCreateInfo{
+                    .depth_clamp_enable = vk.FALSE,
+                    .rasterizer_discard_enable = vk.FALSE,
+                    .polygon_mode = .fill,
+                    .cull_mode = .{ .back_bit = true },
+                    .front_face = if (info.flipped_z) .counter_clockwise else .clockwise,
+                    .depth_bias_enable = vk.FALSE,
+                    .depth_bias_constant_factor = 0,
+                    .depth_bias_clamp = 0,
+                    .depth_bias_slope_factor = 0,
+                    .line_width = 1,
+                },
+                .p_multisample_state = &vk.PipelineMultisampleStateCreateInfo{
+                    .rasterization_samples = .{ .@"1_bit" = true },
+                    .sample_shading_enable = vk.FALSE,
+                    .min_sample_shading = 1,
+                    .alpha_to_coverage_enable = vk.FALSE,
+                    .alpha_to_one_enable = vk.FALSE,
+                },
+                .p_depth_stencil_state = &vk.PipelineDepthStencilStateCreateInfo{
+                    .depth_test_enable = if (pipeline.depth_test) vk.TRUE else vk.FALSE,
+                    .depth_write_enable = if (pipeline.depth_test) vk.TRUE else vk.FALSE,
+                    .depth_compare_op = .less,
+                    .depth_bounds_test_enable = vk.FALSE,
+                    .min_depth_bounds = 0,
+                    .max_depth_bounds = 0,
+                    .stencil_test_enable = vk.FALSE,
+                    .front = undefined,
+                    .back = undefined,
+                },
+                .p_color_blend_state = &vk.PipelineColorBlendStateCreateInfo{
+                    .logic_op_enable = vk.FALSE,
+                    .logic_op = .clear,
+                    .attachment_count = 1,
+                    .p_attachments = @ptrCast(&vk.PipelineColorBlendAttachmentState{
+                        .blend_enable = vk.TRUE,
+                        .src_color_blend_factor = .src_alpha,
+                        .dst_color_blend_factor = .one_minus_src_alpha,
+                        .color_blend_op = .add,
+                        .src_alpha_blend_factor = .one,
+                        .dst_alpha_blend_factor = .one_minus_src_alpha,
+                        .alpha_blend_op = .add,
+                        .color_write_mask = .{ .r_bit = true, .g_bit = true, .b_bit = true, .a_bit = true },
+                    }),
+                    .blend_constants = [_]f32{ 0, 0, 0, 0 },
+                },
+                .p_dynamic_state = &vk.PipelineDynamicStateCreateInfo{
+                    .flags = .{},
+                    .dynamic_state_count = dynstate.len,
+                    .p_dynamic_states = &dynstate,
+                },
+                .layout = pipeline_layout,
+                .render_pass = info.render_pass.pass,
+                .subpass = 0,
+                .base_pipeline_handle = .null_handle,
+                .base_pipeline_index = -1,
+            }),
+            null,
+            @ptrCast(&vk_pipeline),
+        );
+        return .{
+            .vk_pipeline = vk_pipeline,
+            .layout = pipeline_layout,
+            .descriptor_layout = descriptor_layout,
+            .ally = ally,
+            .bindings = bindings,
+            .description = info.description,
+        };
+    }
+
+    pub fn deinit(self: *RenderPipeline, gc: *const GraphicsContext) void {
+        self.ally.free(self.bindings);
+        gc.vkd.deviceWaitIdle(gc.dev) catch return;
+        gc.vkd.destroyPipeline(gc.dev, self.vk_pipeline, null);
+        gc.vkd.destroyPipelineLayout(gc.dev, self.layout, null);
+        gc.vkd.destroyDescriptorSetLayout(gc.dev, self.descriptor_layout, null);
     }
 };
 
@@ -2690,7 +2676,7 @@ pub const SpatialUniform: UniformDescription = .{ .type = extern struct {
     cam_pos: math.Vec3,
 } };
 
-pub const SpritePipeline = RenderPipeline{
+pub const SpritePipeline: PipelineDescription = .{
     .vertex_description = .{
         .vertex_attribs = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 } },
     },
@@ -2700,7 +2686,7 @@ pub const SpritePipeline = RenderPipeline{
     .global_ubo = true,
 };
 
-pub const SpatialPipeline = RenderPipeline{
+pub const SpatialPipeline: PipelineDescription = .{
     .vertex_description = .{
         .vertex_attribs = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
     },

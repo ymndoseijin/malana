@@ -79,6 +79,7 @@ pub const Ui = struct {
     post_scene: graphics.Scene,
     first_pass: graphics.RenderPass,
     post_drawing: *graphics.Drawing,
+    post_pipeline: graphics.RenderPipeline,
     post_buffer: graphics.Framebuffer,
     post_color_tex: graphics.Texture,
     post_depth_tex: graphics.Texture,
@@ -112,13 +113,14 @@ pub const Ui = struct {
         scene: graphics.SceneInfo = .{},
     };
 
-    const pipeline = graphics.RenderPipeline{
+    const post_description = graphics.PipelineDescription{
         .vertex_description = .{
             .vertex_attribs = &[_]graphics.VertexAttribute{ .{ .size = 3 }, .{ .size = 2 } },
         },
         .render_type = .triangle,
         .depth_test = false,
         .uniform_sizes = &.{graphics.GlobalUniform.getSize()},
+        .sampler_count = 1,
         .global_ubo = true,
     };
 
@@ -158,16 +160,22 @@ pub const Ui = struct {
 
         var post_scene = try graphics.Scene.init(main_win, info.scene);
         const post_drawing = try post_scene.new();
-        var mut_pipeline = pipeline;
-        mut_pipeline.samplers = &.{post_tex};
+
+        const post_pipeline = try graphics.RenderPipeline.init(ally, .{
+            .description = post_description,
+            .shaders = &main_win.default_shaders.post_shaders,
+            .render_pass = main_win.render_pass,
+            .gc = &main_win.gc,
+            .flipped_z = post_scene.flip_z,
+        });
 
         try post_drawing.init(ally, .{
             .win = main_win,
-            .shaders = &main_win.default_shaders.post_shaders,
-            .pipeline = mut_pipeline,
+            .pipeline = post_pipeline,
+            .samplers = &.{post_tex},
         });
 
-        try pipeline.vertex_description.bindVertex(post_drawing, &.{
+        try post_description.vertex_description.bindVertex(post_drawing, &.{
             .{ .{ -1, -1, 1 }, .{ 0, 0 } },
             .{ .{ 1, -1, 1 }, .{ 1, 0 } },
             .{ .{ 1, 1, 1 }, .{ 1, 1 } },
@@ -197,6 +205,7 @@ pub const Ui = struct {
             .first_pass = first_pass,
             .post_drawing = post_drawing,
             .post_buffer = framebuffer,
+            .post_pipeline = post_pipeline,
             .last_time = @as(f32, @floatCast(graphics.glfw.glfwGetTime())),
             .callback = try Callback.init(ally, main_win),
         };
@@ -308,8 +317,17 @@ pub const Ui = struct {
     }
 
     pub fn deinit(self: *Ui, ally: std.mem.Allocator) void {
+        self.main_win.gc.vkd.deviceWaitIdle(self.main_win.gc.dev) catch return;
+
+        self.post_color_tex.deinit();
+        self.post_depth_tex.deinit();
+        self.post_buffer.deinit(self.main_win.gc);
+        self.first_pass.deinit(&self.main_win.gc);
+        self.post_pipeline.deinit(&self.main_win.gc);
+
         self.callback.deinit();
         self.scene.deinit();
+        self.post_scene.deinit();
         self.main_win.deinit();
         self.bdf.deinit();
         graphics.deinitGraphics();
@@ -341,9 +359,7 @@ pub const Ui = struct {
             .height = @intCast(height),
         });
 
-        var actual_pipeline = pipeline;
-        actual_pipeline.samplers = &.{state.post_color_tex};
-        try state.post_drawing.updateDescriptorSets(state.main_win.ally, actual_pipeline);
+        try state.post_drawing.updateDescriptorSets(state.main_win.ally, &.{state.post_color_tex});
 
         try state.callback.getFrame(width, height);
         try state.frame_func(width, height);

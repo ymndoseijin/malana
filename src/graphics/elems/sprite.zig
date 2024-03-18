@@ -25,7 +25,7 @@ const DefaultSpriteUniform: graphics.UniformDescription = .{ .type = extern stru
 const SpriteInfo = struct {
     shaders: ?[]graphics.Shader = null,
     tex: graphics.Texture,
-    pipeline: graphics.RenderPipeline = graphics.SpritePipeline,
+    pipeline: graphics.RenderPipeline,
 };
 
 pub const Sprite = CustomSprite(DefaultSpriteUniform);
@@ -45,13 +45,11 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
 
             var drawing = try scene.new();
 
-            var actual_pipeline = info.pipeline;
-
-            actual_pipeline.samplers = &.{info.tex};
             try drawing.init(scene.window.ally, .{
                 .win = scene.window,
                 .shaders = info.shaders orelse &scene.window.default_shaders.sprite_shaders,
-                .pipeline = actual_pipeline,
+                .pipeline = info.pipeline,
+                .samplers = &.{info.tex},
             });
 
             try graphics.SpritePipeline.vertex_description.bindVertex(drawing, &.{
