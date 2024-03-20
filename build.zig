@@ -338,6 +338,24 @@ pub fn build(b: *std.Build) void {
 
     inline for (.{
         .{
+            "simplest",
+            .{
+                .{ "vert", "shaders/shader.vert" },
+                .{ "frag", "shaders/shader.frag" },
+            },
+        },
+        .{
+            "base2d",
+            .{},
+        },
+        .{
+            "base3d",
+            .{
+                .{ "vert", "shaders/shader.vert" },
+                .{ "frag", "shaders/shader.frag" },
+            },
+        },
+        .{
             "box-test",
             .{},
         },

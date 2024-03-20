@@ -23,15 +23,25 @@ const elem_shaders = @import("elem_shaders");
 const DefaultSpriteUniform: graphics.UniformDescription = .{ .type = extern struct { transform: math.Mat4, opacity: f32 } };
 
 const SpriteInfo = struct {
-    shaders: ?[]graphics.Shader = null,
     tex: graphics.Texture,
-    pipeline: graphics.RenderPipeline,
+    pipeline: ?graphics.RenderPipeline = null,
 };
 
 pub const Sprite = CustomSprite(DefaultSpriteUniform);
 
 pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
     return struct {
+        pub const description: graphics.PipelineDescription = .{
+            .vertex_description = .{
+                .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 } },
+            },
+            .render_type = .triangle,
+            .depth_test = false,
+            .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), SpriteUniform.getSize() },
+            .global_ubo = true,
+            .sampler_count = 1,
+        };
+
         pub const Self = @This();
         pub fn init(scene: *graphics.Scene, info: SpriteInfo) !Self {
             const w: f32 = @floatFromInt(info.tex.width);
@@ -47,12 +57,11 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
 
             try drawing.init(scene.window.ally, .{
                 .win = scene.window,
-                .shaders = info.shaders orelse &scene.window.default_shaders.sprite_shaders,
-                .pipeline = info.pipeline,
+                .pipeline = if (info.pipeline) |p| p else scene.default_pipelines.sprite,
                 .samplers = &.{info.tex},
             });
 
-            try graphics.SpritePipeline.vertex_description.bindVertex(drawing, &.{
+            try description.vertex_description.bindVertex(drawing, &.{
                 .{ .{ 0, 0, 1 }, .{ 0, 0 } },
                 .{ .{ 1, 0, 1 }, .{ 1, 0 } },
                 .{ .{ 1, 1, 1 }, .{ 1, 1 } },
@@ -74,10 +83,7 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
         }
 
         pub fn updateTexture(self: *Sprite, ally: std.mem.Allocator, info: SpriteInfo) !void {
-            var actual_pipeline = info.pipeline;
-            actual_pipeline.samplers = &.{info.tex};
-
-            try self.drawing.updateDescriptorSets(ally, actual_pipeline);
+            try self.drawing.updateDescriptorSets(ally, &.{info.tex});
 
             const w: f32 = @floatFromInt(info.tex.width);
             const h: f32 = @floatFromInt(info.tex.height);

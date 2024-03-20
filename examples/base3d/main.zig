@@ -33,7 +33,12 @@ pub fn main() !void {
     });
     defer state.deinit(ally);
 
-    var text = try graphics.TextFt.init(ally, .{ .path = "resources/fonts/Fairfax.ttf", .size = 12, .line_spacing = 1, .bounding_width = 250 });
+    var text = try graphics.TextFt.init(ally, .{
+        .path = "resources/fonts/Fairfax.ttf",
+        .size = 12,
+        .line_spacing = 1,
+        .bounding_width = 250,
+    });
     defer text.deinit(ally);
 
     // get obj file
@@ -51,11 +56,18 @@ pub fn main() !void {
     const triangle_frag = try graphics.Shader.init(state.main_win.gc, &shaders.frag, .fragment);
     defer triangle_frag.deinit(state.main_win.gc);
 
-    var triangle_shaders = [_]graphics.Shader{ triangle_vert, triangle_frag };
+    var pipeline = try graphics.RenderPipeline.init(ally, .{
+        .description = graphics.SpatialPipeline,
+        .shaders = &.{ triangle_vert, triangle_frag },
+        .render_pass = state.first_pass,
+        .gc = &state.main_win.gc,
+        .flipped_z = true,
+    });
+    defer pipeline.deinit(&state.main_win.gc);
 
     const camera_obj = try graphics.SpatialMesh.init(&state.scene, .{
         .pos = .{ 0, 0, 0 },
-        .shaders = &triangle_shaders,
+        .pipeline = pipeline,
     });
 
     try graphics.SpatialPipeline.vertex_description.bindVertex(camera_obj.drawing, object.vertices.items, object.indices.items);
@@ -64,7 +76,7 @@ pub fn main() !void {
 
     while (state.main_win.alive) {
         try state.updateEvents();
-        try state.cam.linkDrawing(camera_obj.drawing);
+        try camera_obj.linkCamera(state.cam);
         //try text.printFmt(&state.scene, ally, "{d:.4} {d:.1}", .{ state.cam.move, 1 / state.dt });
         try state.render();
     }

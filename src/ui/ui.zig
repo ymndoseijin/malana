@@ -122,6 +122,7 @@ pub const Ui = struct {
         .uniform_sizes = &.{graphics.GlobalUniform.getSize()},
         .sampler_count = 1,
         .global_ubo = true,
+        .cull_type = .none,
     };
 
     pub fn init(ally: std.mem.Allocator, info: UiInfo) !*Ui {
@@ -189,16 +190,13 @@ pub const Ui = struct {
             .height = swapchain.extent.height,
         });
 
-        var info_mut = info.scene;
-        info_mut.render_pass = &state.first_pass;
-
         state.* = Ui{
             .main_win = main_win,
             .cam = cam,
             .bdf = bdf,
             .time = 0,
             .dt = 0,
-            .scene = try graphics.Scene.init(main_win, info_mut),
+            .scene = undefined,
             .post_color_tex = post_tex,
             .post_depth_tex = depth_tex,
             .post_scene = post_scene,
@@ -209,6 +207,11 @@ pub const Ui = struct {
             .last_time = @as(f32, @floatCast(graphics.glfw.glfwGetTime())),
             .callback = try Callback.init(ally, main_win),
         };
+
+        var info_mut = info.scene;
+        info_mut.render_pass = &state.first_pass;
+
+        state.scene = try graphics.Scene.init(main_win, info_mut);
 
         return state;
     }
@@ -277,12 +280,7 @@ pub const Ui = struct {
             .height = extent.height,
         });
 
-        const resolution: math.Vec2 = .{ @floatFromInt(scene.window.frame_width), @floatFromInt(scene.window.frame_height) };
-        const now: f32 = @floatCast(glfw.glfwGetTime());
-        for (scene.drawing_array.items) |elem| {
-            if (elem.global_ubo) graphics.GlobalUniform.setUniform(elem, 0, .{ .time = now, .in_resolution = resolution });
-            try elem.draw(scene.window.command_builder.frame_id, builder.getCurrent());
-        }
+        try scene.draw(builder);
 
         builder.endRenderPass(gc);
 
@@ -294,8 +292,10 @@ pub const Ui = struct {
             .height = extent.height,
         });
 
+        const resolution: math.Vec2 = .{ @floatFromInt(scene.window.frame_width), @floatFromInt(scene.window.frame_height) };
+        const now: f32 = @floatCast(glfw.glfwGetTime());
         graphics.GlobalUniform.setUniform(state.post_drawing, 0, .{ .time = now, .in_resolution = resolution });
-        try state.post_drawing.draw(scene.window.command_builder.frame_id, builder.getCurrent());
+        try state.post_drawing.draw(builder.getCurrent(), .{ .bind_pipeline = true, .frame_id = frame_id });
 
         builder.endRenderPass(gc);
 

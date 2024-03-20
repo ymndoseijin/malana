@@ -59,7 +59,7 @@ pub const Text = struct {
         index: usize,
         count: usize,
         shaders: ?[]graphics.Shader = null,
-        pipeline: graphics.RenderPipeline = CharacterPipeline,
+        pipeline: graphics.RenderPipeline,
     };
 
     const CharacterUniform: graphics.UniformDescription = .{ .type = extern struct {
@@ -70,7 +70,7 @@ pub const Text = struct {
         color: math.Vec3,
     } };
 
-    const CharacterPipeline = graphics.RenderPipeline{
+    pub const description: graphics.PipelineDescription = .{
         .vertex_description = .{
             .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 } },
         },
@@ -78,6 +78,7 @@ pub const Text = struct {
         .depth_test = false,
         .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), CharacterUniform.getSize() },
         .global_ubo = true,
+        .sampler_count = 1,
     };
 
     pub const Character = struct {
@@ -125,7 +126,6 @@ pub const Text = struct {
 
             const sprite = try graphics.CustomSprite(CharacterUniform).init(scene, .{
                 .tex = tex,
-                .shaders = info.shaders orelse &scene.window.default_shaders.textft_shaders,
                 .pipeline = info.pipeline,
             });
 
@@ -152,8 +152,7 @@ pub const Text = struct {
     const PrintInfo = struct {
         text: []const u8,
         color: math.Vec3 = .{ 1.0, 1.0, 1.0 },
-        shaders: ?[]graphics.Shader = null,
-        pipeline: graphics.RenderPipeline = CharacterPipeline,
+        pipeline: ?graphics.RenderPipeline = null,
     };
 
     pub fn printFmt(self: *Text, scene: *graphics.Scene, ally: std.mem.Allocator, comptime fmt: []const u8, fmt_args: anytype) !void {
@@ -210,10 +209,9 @@ pub const Text = struct {
             }
             const char = try Character.init(scene, ally, self, .{
                 .char = c,
-                .shaders = info.shaders,
                 .count = self.codepoints.items.len,
                 .index = index,
-                .pipeline = info.pipeline,
+                .pipeline = if (info.pipeline) |p| p else scene.default_pipelines.textft,
             });
             CharacterUniform.setUniformField(char.sprite.drawing, 1, .color, info.color);
             try self.characters.append(char);

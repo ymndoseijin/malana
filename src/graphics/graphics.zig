@@ -1407,10 +1407,13 @@ pub const Drawing = struct {
         self.index_buffer = .{ .buffer = buffer, .memory = memory };
     }
 
-    pub fn draw(self: *Drawing, frame_id: usize, command_buffer: vk.CommandBuffer) !void {
+    pub fn draw(self: *Drawing, command_buffer: vk.CommandBuffer, options: struct {
+        frame_id: usize,
+        bind_pipeline: bool,
+    }) !void {
         const gc = &self.window.gc;
 
-        gc.vkd.cmdBindPipeline(command_buffer, .graphics, self.pipeline.vk_pipeline);
+        if (options.bind_pipeline) gc.vkd.cmdBindPipeline(command_buffer, .graphics, self.pipeline.vk_pipeline);
         const offset = [_]vk.DeviceSize{0};
         if (self.vertex_buffer) |vb| gc.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&vb.buffer), &offset);
         gc.vkd.cmdBindDescriptorSets(
@@ -1419,7 +1422,7 @@ pub const Drawing = struct {
             self.pipeline.layout,
             0,
             1,
-            @ptrCast(&self.descriptor_sets[frame_id]),
+            @ptrCast(&self.descriptor_sets[options.frame_id]),
             0,
             null,
         );
@@ -2206,39 +2209,57 @@ pub const Scene = struct {
     window: *Window,
     render_pass: *RenderPass,
     flip_z: bool,
+    default_pipelines: DefaultPipelines,
+
+    const DefaultPipelines = struct {
+        color: RenderPipeline,
+        sprite: RenderPipeline,
+        textft: RenderPipeline,
+
+        pub fn init(win: *Window, render_pass: *RenderPass, flip_z: bool) !DefaultPipelines {
+            const shaders = win.default_shaders;
+
+            return .{
+                .color = try RenderPipeline.init(win.ally, .{
+                    .description = ColoredRect.description,
+                    .shaders = &shaders.color_shaders,
+                    .render_pass = render_pass.*,
+                    .gc = &win.gc,
+                    .flipped_z = flip_z,
+                }),
+                .sprite = try RenderPipeline.init(win.ally, .{
+                    .description = Sprite.description,
+                    .shaders = &shaders.sprite_shaders,
+                    .render_pass = render_pass.*,
+                    .gc = &win.gc,
+                    .flipped_z = flip_z,
+                }),
+                .textft = try RenderPipeline.init(win.ally, .{
+                    .description = TextFt.description,
+                    .shaders = &shaders.textft_shaders,
+                    .render_pass = render_pass.*,
+                    .gc = &win.gc,
+                    .flipped_z = flip_z,
+                }),
+            };
+        }
+
+        pub fn deinit(pipelines: *DefaultPipelines, gc: *const GraphicsContext) void {
+            pipelines.color.deinit(gc);
+            pipelines.sprite.deinit(gc);
+            pipelines.textft.deinit(gc);
+        }
+    };
 
     pub fn init(win: *Window, info: SceneInfo) !Scene {
+        const render_pass = if (info.render_pass) |pass| pass else &win.render_pass;
         return Scene{
             .drawing_array = std.ArrayList(*Drawing).init(win.ally),
             .window = win,
-            .render_pass = if (info.render_pass) |pass| pass else &win.render_pass,
+            .render_pass = render_pass,
             .flip_z = info.flip_z,
+            .default_pipelines = try DefaultPipelines.init(win, render_pass, info.flip_z),
         };
-    }
-
-    pub fn update(scene: *Scene, image_id: Swapchain.ImageIndex) !void {
-        var builder = &scene.window.command_builder;
-        const extent = scene.window.swapchain.extent;
-        const gc = &scene.window.gc;
-
-        try builder.beginCommand(gc, .{ .flip_z = scene.flip_z, .width = extent.width, .height = extent.height });
-
-        builder.beginRenderPass(gc, scene.window.render_pass, scene.window.framebuffers[@intFromEnum(image_id)], .{
-            .x = 0,
-            .y = 0,
-            .width = extent.width,
-            .height = extent.height,
-        });
-
-        const now: f32 = @floatCast(glfw.glfwGetTime());
-        const resolution: math.Vec2 = .{ @floatFromInt(extent.width), @floatFromInt(extent.height) };
-        for (scene.drawing_array.items) |elem| {
-            if (elem.global_ubo) GlobalUniform.setUniform(elem, 0, .{ .time = now, .in_resolution = resolution });
-            try elem.draw(scene.window.command_builder.frame_id, builder.getCurrent());
-        }
-
-        builder.endRenderPass(gc);
-        try builder.endCommand(gc);
     }
 
     pub fn deinit(scene: *Scene) void {
@@ -2246,8 +2267,8 @@ pub const Scene = struct {
             elem.deinit(scene.window.ally);
             scene.window.ally.destroy(elem);
         }
-
         scene.drawing_array.deinit();
+        scene.default_pipelines.deinit(&scene.window.gc);
     }
 
     pub fn new(scene: *Scene) !*Drawing {
@@ -2264,19 +2285,23 @@ pub const Scene = struct {
         ally.destroy(drawing);
     }
 
-    pub fn draw(scene: *Scene) !void {
-        const gc = &scene.window.gc;
-        const swapchain = &scene.window.swapchain;
-        const frame_id = scene.window.command_builder.frame_id;
+    pub fn draw(scene: *Scene, builder: *CommandBuilder) !void {
+        const extent = scene.window.swapchain.extent;
+        const now: f32 = @floatCast(glfw.glfwGetTime());
+        const resolution: math.Vec2 = .{ @floatFromInt(extent.width), @floatFromInt(extent.height) };
+        const frame_id = builder.frame_id;
 
-        try swapchain.wait(gc, frame_id);
-
-        const image_index = try swapchain.acquireImage(gc, frame_id);
-        try scene.update(image_index);
-
-        try swapchain.submit(gc, scene.window.command_builder, .{ .wait = &.{swapchain.image_acquired[scene.window.command_builder.frame_id]} });
-        try swapchain.present(gc, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = image_index });
-        scene.window.command_builder.next();
+        var last_pipeline: u64 = 0;
+        var is_first = true;
+        for (scene.drawing_array.items) |elem| {
+            if (elem.global_ubo) GlobalUniform.setUniform(elem, 0, .{ .time = now, .in_resolution = resolution });
+            try elem.draw(builder.getCurrent(), .{
+                .frame_id = frame_id,
+                .bind_pipeline = is_first or (last_pipeline != @intFromEnum(elem.pipeline.vk_pipeline)),
+            });
+            last_pipeline = @intFromEnum(elem.pipeline.vk_pipeline);
+            if (is_first) is_first = false;
+        }
     }
 };
 
@@ -2561,7 +2586,12 @@ pub const RenderPipeline = struct {
                     .depth_clamp_enable = vk.FALSE,
                     .rasterizer_discard_enable = vk.FALSE,
                     .polygon_mode = .fill,
-                    .cull_mode = .{ .back_bit = true },
+                    .cull_mode = switch (pipeline.cull_type) {
+                        .back => .{ .back_bit = true },
+                        .front => .{ .front_bit = true },
+                        .front_and_back => .{ .front_bit = true, .back_bit = true },
+                        .none => .{},
+                    },
                     .front_face = if (info.flipped_z) .counter_clockwise else .clockwise,
                     .depth_bias_enable = vk.FALSE,
                     .depth_bias_constant_factor = 0,

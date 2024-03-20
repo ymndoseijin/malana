@@ -17,29 +17,26 @@ const glfw = graphics.glfw;
 const Mat3 = math.Mat3;
 const Mat4 = math.Mat4;
 
-const elem_shaders = @import("elem_shaders");
-
 const ColoredRectUniform: graphics.UniformDescription = .{ .type = extern struct { transform: math.Mat4, color: math.Vec4 } };
 
-pub const ColoredRectPipeline = graphics.RenderPipeline{
-    .vertex_description = .{
-        .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 } },
-    },
-    .render_type = .triangle,
-    .depth_test = false,
-    .cull_type = .none,
-    .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), ColoredRectUniform.getSize() },
-    .global_ubo = true,
-};
-
 pub const ColoredRect = struct {
+    pub const description: graphics.PipelineDescription = .{
+        .vertex_description = .{
+            .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 } },
+        },
+        .render_type = .triangle,
+        .depth_test = false,
+        .cull_type = .none,
+        .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), ColoredRectUniform.getSize() },
+        .global_ubo = true,
+    };
+
     pub fn init(scene: *graphics.Scene, color: math.Vec4) !ColoredRect {
         var drawing = try scene.new();
 
         try drawing.init(scene.window.ally, .{
             .win = scene.window,
-            .shaders = &scene.window.default_shaders.color_shaders,
-            .pipeline = ColoredRectPipeline,
+            .pipeline = scene.default_pipelines.color,
         });
 
         const default_transform: graphics.Transform2D = .{
@@ -48,7 +45,7 @@ pub const ColoredRect = struct {
             .translation = .{ 0, 0 },
         };
 
-        try ColoredRectPipeline.vertex_description.bindVertex(drawing, &.{
+        try description.vertex_description.bindVertex(drawing, &.{
             .{ .{ 0, 0, 1 }, .{ 0, 0 } },
             .{ .{ 1, 0, 1 }, .{ 1, 0 } },
             .{ .{ 1, 1, 1 }, .{ 1, 1 } },

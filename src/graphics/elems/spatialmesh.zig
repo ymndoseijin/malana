@@ -19,26 +19,39 @@ const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
 
-pub const SpatialMesh = struct {
-    drawing: *Drawing,
-    pos: Vec3,
+pub const SpatialMesh = CustomSpatialMesh(graphics.SpatialUniform);
 
-    const SpatialInfo = struct {
-        pos: Vec3 = .{ 0, 0, 0 },
-        shaders: []graphics.Shader,
-        pipeline: graphics.RenderPipeline = graphics.SpatialPipeline,
-    };
+pub fn CustomSpatialMesh(comptime SpatialUniform: graphics.UniformDescription) type {
+    return struct {
+        drawing: *Drawing,
+        pos: Vec3,
 
-    pub fn init(scene: *graphics.Scene, info: SpatialInfo) !SpatialMesh {
-        var drawing = try scene.new();
-        try drawing.init(scene.window.ally, .{ .win = scene.window, .shaders = info.shaders, .pipeline = info.pipeline, .flipped_z = true });
-
-        graphics.SpatialUniform.setUniformField(drawing, 1, .spatial_pos, info.pos);
-        graphics.GlobalUniform.setUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
-
-        return SpatialMesh{
-            .drawing = drawing,
-            .pos = info.pos,
+        const SpatialInfo = struct {
+            pos: Vec3 = .{ 0, 0, 0 },
+            pipeline: graphics.RenderPipeline,
         };
-    }
-};
+
+        const Self = @This();
+
+        pub fn init(scene: *graphics.Scene, info: SpatialInfo) !Self {
+            var drawing = try scene.new();
+            try drawing.init(scene.window.ally, .{
+                .win = scene.window,
+                .pipeline = info.pipeline,
+            });
+
+            SpatialUniform.setUniformField(drawing, 1, .spatial_pos, info.pos);
+            graphics.GlobalUniform.setUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+
+            return .{
+                .drawing = drawing,
+                .pos = info.pos,
+            };
+        }
+
+        pub fn linkCamera(spatial: Self, cam: graphics.Camera) !void {
+            graphics.SpatialUniform.setUniformField(spatial.drawing, 1, .transform, cam.transform_mat);
+            graphics.SpatialUniform.setUniformField(spatial.drawing, 1, .cam_pos, cam.move);
+        }
+    };
+}

@@ -54,11 +54,6 @@ pub const Camera = struct {
         return Point.create(self.move).regressive(Point.create(self.move + eye));
     }
 
-    pub fn linkDrawing(self: *Camera, drawing: *Drawing) !void {
-        graphics.SpatialUniform.setUniformField(drawing, 1, .transform, self.transform_mat);
-        graphics.SpatialUniform.setUniformField(drawing, 1, .cam_pos, self.move);
-    }
-
     pub fn setParameters(self: *Camera, fovy: f32, aspect: f32, nearZ: f32, farZ: f32) !void {
         self.perspective_mat = math.perspectiveMatrix(fovy, aspect, nearZ, farZ);
         try self.updateMat();
@@ -147,37 +142,21 @@ pub const Camera = struct {
         //    main_win.alive = false;
         //}
 
-        if (keys[format.forward_key]) {
-            cam_pos.* += eye;
-        }
+        if (keys[format.forward_key]) cam_pos.* += eye;
 
-        if (keys[format.backward_key]) {
-            cam_pos.* -= eye;
-        }
+        if (keys[format.backward_key]) cam_pos.* -= eye;
 
-        if (keys[format.leftward_key]) {
-            cam_pos.* += cross_eye;
-        }
+        if (keys[format.leftward_key]) cam_pos.* += cross_eye;
 
-        if (keys[format.rightward_key]) {
-            cam_pos.* -= cross_eye;
-        }
+        if (keys[format.rightward_key]) cam_pos.* -= cross_eye;
 
-        if (keys[format.upward_key]) {
-            cam_pos.* += up_eye;
-        }
+        if (keys[format.upward_key]) cam_pos.* += up_eye;
 
-        if (keys[format.downward_key]) {
-            cam_pos.* -= up_eye;
-        }
+        if (keys[format.downward_key]) cam_pos.* -= up_eye;
 
-        if (keys[format.right_look_key]) {
-            cam.eye[0] += look_speed;
-        }
+        if (keys[format.right_look_key]) cam.eye[0] += look_speed;
 
-        if (keys[format.left_look_key]) {
-            cam.eye[0] -= look_speed;
-        }
+        if (keys[format.left_look_key]) cam.eye[0] -= look_speed;
 
         if (keys[format.up_look_key]) {
             if (cam.eye[1] < TAU) cam.eye[1] += look_speed;
