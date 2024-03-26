@@ -63,8 +63,8 @@ pub const TextBox = struct {
 
     pub fn update(text_box: *TextBox) !void {
         if (text_box.box) |b| {
-            b.fixed_size[0] = text_box.content.width;
-            b.fixed_size[1] = text_box.content.bounding_height;
+            b.fixed_size.val[0] = text_box.content.width;
+            b.fixed_size.val[1] = text_box.content.bounding_height;
             try b.resolveChildren(false);
         }
     }
@@ -72,7 +72,7 @@ pub const TextBox = struct {
     fn textBind(box: *Box, text_ptr: *anyopaque) !void {
         var text_box: *TextBox = @ptrCast(@alignCast(text_ptr));
 
-        text_box.content.bounding_width = box.current_size[0];
+        text_box.content.bounding_width = box.current_size.val[0];
         text_box.content.transform.translation = box.absolute_pos;
 
         try text_box.content.update();
@@ -141,16 +141,16 @@ pub const NineRectSprite = struct {
 
         const box = sprite.box orelse return;
 
-        box.leaves.items[0].leaves.items[0].fixed_size = .{ @floatFromInt(texture.top_left.width), @floatFromInt(texture.top_left.height) };
-        box.leaves.items[0].leaves.items[1].fixed_size = .{ @floatFromInt(texture.left.width), @floatFromInt(texture.left.height) };
-        box.leaves.items[0].leaves.items[2].fixed_size = .{ @floatFromInt(texture.bottom_left.width), @floatFromInt(texture.bottom_left.height) };
+        box.leaves.items[0].leaves.items[0].fixed_size.val = .{ @floatFromInt(texture.top_left.width), @floatFromInt(texture.top_left.height) };
+        box.leaves.items[0].leaves.items[1].fixed_size.val = .{ @floatFromInt(texture.left.width), @floatFromInt(texture.left.height) };
+        box.leaves.items[0].leaves.items[2].fixed_size.val = .{ @floatFromInt(texture.bottom_left.width), @floatFromInt(texture.bottom_left.height) };
 
-        box.leaves.items[1].leaves.items[0].fixed_size = .{ @floatFromInt(texture.top.width), @floatFromInt(texture.top.height) };
-        box.leaves.items[1].leaves.items[2].fixed_size = .{ @floatFromInt(texture.bottom.width), @floatFromInt(texture.bottom.height) };
+        box.leaves.items[1].leaves.items[0].fixed_size.val = .{ @floatFromInt(texture.top.width), @floatFromInt(texture.top.height) };
+        box.leaves.items[1].leaves.items[2].fixed_size.val = .{ @floatFromInt(texture.bottom.width), @floatFromInt(texture.bottom.height) };
 
-        box.leaves.items[2].leaves.items[0].fixed_size = .{ @floatFromInt(texture.top_right.width), @floatFromInt(texture.top_right.height) };
-        box.leaves.items[2].leaves.items[1].fixed_size = .{ @floatFromInt(texture.right.width), @floatFromInt(texture.right.height) };
-        box.leaves.items[2].leaves.items[2].fixed_size = .{ @floatFromInt(texture.bottom_right.width), @floatFromInt(texture.bottom_right.height) };
+        box.leaves.items[2].leaves.items[0].fixed_size.val = .{ @floatFromInt(texture.top_right.width), @floatFromInt(texture.top_right.height) };
+        box.leaves.items[2].leaves.items[1].fixed_size.val = .{ @floatFromInt(texture.right.width), @floatFromInt(texture.right.height) };
+        box.leaves.items[2].leaves.items[2].fixed_size.val = .{ @floatFromInt(texture.bottom_right.width), @floatFromInt(texture.bottom_right.height) };
 
         try box.resolve();
     }
@@ -338,7 +338,7 @@ pub const Button = struct {
 
     pub fn deinit(button: *Button, scene: *graphics.Scene) void {
         button.border.deinit(button.ally, scene);
-        button.text.content.deinit(button.ally);
+        button.text.content.deinit(button.ally, scene);
         scene.delete(button.ally, button.inner.drawing);
     }
 
@@ -427,7 +427,7 @@ pub const InputBox = struct {
 
     pub fn deinit(input: *InputBox) void {
         input.border.deinit(input.ally, input.scene);
-        input.text_box.content.deinit(input.ally);
+        input.text_box.content.deinit(input.ally, input.scene);
         input.scene.delete(input.ally, input.background.drawing);
     }
 

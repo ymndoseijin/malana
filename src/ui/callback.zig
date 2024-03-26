@@ -11,8 +11,9 @@ const Vec2 = math.Vec2;
 pub const Region = struct {
     transform: graphics.Transform2D,
 
-    pub fn isInside(self: Region, pos: Vec2) bool {
-        const relative = self.transform.reverse(pos);
+    pub fn isInside(self: Region, in_pos: [2]f32) bool {
+        const pos = Vec2.init(in_pos);
+        const relative = self.transform.reverse(pos).val;
         return 0 <= relative[0] and relative[0] <= 1 and 0 <= relative[1] and relative[1] <= 1;
     }
 };

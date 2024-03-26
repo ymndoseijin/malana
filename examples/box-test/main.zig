@@ -192,8 +192,8 @@ const Program = struct {
 };
 
 pub fn frameUpdate(width: i32, height: i32) !void {
-    main_program.root.fixed_size = .{ @floatFromInt(width), @floatFromInt(height) };
-    main_program.root.current_size = .{ @floatFromInt(width), @floatFromInt(height) };
+    main_program.root.fixed_size = math.Vec2.init(.{ @floatFromInt(width), @floatFromInt(height) });
+    main_program.root.current_size = math.Vec2.init(.{ @floatFromInt(width), @floatFromInt(height) });
     try main_program.root.resolve();
 }
 
@@ -206,7 +206,7 @@ const Message = struct {
     pub fn deinit(message: *Message, program: *Program) void {
         message.border.deinit(program.ally, &program.state.scene);
         program.state.scene.delete(program.ally, message.background.drawing);
-        message.text.content.deinit(program.ally);
+        message.text.content.deinit(program.ally, &program.state.scene);
         message.box.deinit();
     }
 

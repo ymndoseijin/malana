@@ -52,8 +52,8 @@ pub fn main() !void {
     var sprite = try graphics.Sprite.init(&state.scene, .{ .tex = tex });
 
     color = try graphics.ColoredRect.init(&state.scene, .{ 0.3, 0.3, 1, 1 });
-    color.transform.scale = .{ 200, 200 };
-    color.transform.translation = .{ 0, 0 };
+    color.transform.scale = math.Vec2.init(.{ 200, 200 });
+    color.transform.translation = math.Vec2.init(.{ 0, 0 });
     color.transform.rotation.angle = 0.5;
     color.updateTransform();
 
@@ -62,11 +62,11 @@ pub fn main() !void {
     try state.callback.elements.append(.{ @ptrCast(&color), .{ .mouse_func = nice, .region = &color_region } });
 
     var char_test = try graphics.TextFt.init(ally, .{ .path = "resources/cmunrm.ttf", .size = 50, .line_spacing = 1, .bounding_width = 250 });
-    char_test.transform.translation = .{ 0, 200 };
+    char_test.transform.translation = math.Vec2.init(.{ 0, 200 });
     try char_test.print(&state.scene, ally, .{ .text = "hello world! " });
     try char_test.print(&state.scene, ally, .{ .text = "I'm here!" });
     char_test.setOpacity(0.5);
-    defer char_test.deinit(ally);
+    defer char_test.deinit(ally, &state.scene);
 
     state.key_down = keyDown;
 

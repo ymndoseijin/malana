@@ -75,25 +75,28 @@ pub const KeyState = struct {
 pub const Ui = struct {
     main_win: *graphics.Window,
     scene: graphics.Scene,
+    command_builder: graphics.CommandBuilder,
 
     post_scene: graphics.Scene,
     first_pass: graphics.RenderPass,
     post_drawing: *graphics.Drawing,
     post_pipeline: graphics.RenderPipeline,
     post_buffer: graphics.Framebuffer,
+
+    multisampling_tex: graphics.Texture,
     post_color_tex: graphics.Texture,
     post_depth_tex: graphics.Texture,
 
-    cam: Camera,
+    image_index: graphics.Swapchain.ImageIndex = @enumFromInt(0),
 
-    time: f64,
+    cam: Camera,
 
     current_keys: [glfw.GLFW_KEY_MENU + 1]bool = .{false} ** (glfw.GLFW_KEY_MENU + 1),
     last_interact_keys: [glfw.GLFW_KEY_MENU + 1]f64 = .{0} ** (glfw.GLFW_KEY_MENU + 1),
 
     down_num: usize = 0,
     last_mods: i32 = 0,
-
+    time: f64,
     last_time: f32,
     dt: f32,
 
@@ -147,17 +150,29 @@ pub const Ui = struct {
         main_win.setMouseButtonCallback(mouseFunc);
 
         var cam = try Camera.init(0.6, 1, 0.1, 2048);
-        cam.move = .{ 0, 0, 0 };
+        cam.move = Vec3.init(.{ 0, 0, 0 });
         try cam.updateMat();
         const swapchain = main_win.swapchain;
 
         // Create a separate render target for post processing
-        const first_pass = try graphics.RenderPass.init(&main_win.gc, .{ .format = main_win.swapchain.surface_format.format, .target = true });
+        const first_pass = try graphics.RenderPass.init(&main_win.gc, .{
+            .format = main_win.swapchain.surface_format.format,
+            .target = true,
+            .multisampling = true,
+        });
+
+        const multisampling_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{
+            .multisampling = true,
+            .preferred_format = main_win.preferred_format,
+        });
+        const depth_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{
+            .preferred_format = .depth,
+            .multisampling = true,
+        });
         const post_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{
             .is_render_target = true,
             .preferred_format = main_win.preferred_format,
         });
-        const depth_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{ .preferred_format = .depth });
 
         var post_scene = try graphics.Scene.init(main_win, info.scene);
         const post_drawing = try post_scene.new();
@@ -184,7 +199,7 @@ pub const Ui = struct {
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
         const framebuffer = try graphics.Framebuffer.init(&main_win.gc, .{
-            .attachments = &.{ post_tex.image_view, depth_tex.image_view },
+            .attachments = &.{ multisampling_tex.image_view, depth_tex.image_view, post_tex.image_view },
             .render_pass = first_pass.pass,
             .width = swapchain.extent.width,
             .height = swapchain.extent.height,
@@ -197,6 +212,8 @@ pub const Ui = struct {
             .time = 0,
             .dt = 0,
             .scene = undefined,
+            .command_builder = try graphics.CommandBuilder.init(&main_win.gc, main_win.pool, ally),
+            .multisampling_tex = multisampling_tex,
             .post_color_tex = post_tex,
             .post_depth_tex = depth_tex,
             .post_scene = post_scene,
@@ -262,49 +279,49 @@ pub const Ui = struct {
 
         const gc = &scene.window.gc;
         const swapchain = &scene.window.swapchain;
-        const frame_id = scene.window.command_builder.frame_id;
+        const frame_id = state.command_builder.frame_id;
         const extent = scene.window.swapchain.extent;
-        const builder = &scene.window.command_builder;
+        const builder = &state.command_builder;
 
         try swapchain.wait(gc, frame_id);
 
-        const image_index = try swapchain.acquireImage(gc, frame_id);
+        state.image_index = try swapchain.acquireImage(gc, frame_id);
         // build command
         try builder.beginCommand(gc);
-        try builder.setViewport(gc, .{ .flip_z = scene.flip_z, .width = extent.width, .height = extent.height });
 
+        try builder.setViewport(gc, .{ .flip_z = scene.flip_z, .width = extent.width, .height = extent.height });
         builder.beginRenderPass(gc, state.first_pass, state.post_buffer, .{
             .x = 0,
             .y = 0,
             .width = extent.width,
             .height = extent.height,
         });
-
         try scene.draw(builder);
-
         builder.endRenderPass(gc);
 
         try builder.setViewport(gc, .{ .flip_z = false, .width = extent.width, .height = extent.height });
-        builder.beginRenderPass(gc, scene.window.render_pass, scene.window.framebuffers[@intFromEnum(image_index)], .{
+        builder.beginRenderPass(gc, scene.window.render_pass, scene.window.framebuffers[@intFromEnum(state.image_index)], .{
             .x = 0,
             .y = 0,
             .width = extent.width,
             .height = extent.height,
         });
-
-        const resolution: math.Vec2 = .{ @floatFromInt(scene.window.frame_width), @floatFromInt(scene.window.frame_height) };
-        const now: f32 = @floatCast(glfw.glfwGetTime());
-        graphics.GlobalUniform.setUniform(state.post_drawing, 0, .{ .time = now, .in_resolution = resolution });
-        try state.post_drawing.draw(builder.getCurrent(), .{ .bind_pipeline = true, .frame_id = frame_id });
-
+        try state.post_scene.draw(builder);
         builder.endRenderPass(gc);
 
         try builder.endCommand(gc);
+        try state.submit();
+    }
 
-        // submit
-        try swapchain.submit(gc, scene.window.command_builder, .{ .wait = &.{swapchain.image_acquired[scene.window.command_builder.frame_id]} });
-        try swapchain.present(gc, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = image_index });
-        scene.window.command_builder.next();
+    pub fn submit(state: *Ui) !void {
+        const scene = &state.scene;
+        const swapchain = &scene.window.swapchain;
+        const gc = &scene.window.gc;
+        const frame_id = state.command_builder.frame_id;
+
+        try swapchain.submit(gc, state.command_builder, .{ .wait = &.{swapchain.image_acquired[frame_id]} });
+        try swapchain.present(gc, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = state.image_index });
+        state.command_builder.next();
     }
 
     pub fn render(state: *Ui) !void {
@@ -312,14 +329,14 @@ pub const Ui = struct {
         try state.cam.updateMat();
 
         try state.draw();
-
-        graphics.glfw.glfwSwapBuffers(state.main_win.glfw_win);
+        state.main_win.swapBuffers();
     }
 
     pub fn deinit(self: *Ui, ally: std.mem.Allocator) void {
         self.main_win.gc.vkd.deviceWaitIdle(self.main_win.gc.dev) catch return;
 
         self.post_color_tex.deinit();
+        self.multisampling_tex.deinit();
         self.post_depth_tex.deinit();
         self.post_buffer.deinit(self.main_win.gc);
         self.first_pass.deinit(&self.main_win.gc);
@@ -328,6 +345,7 @@ pub const Ui = struct {
         self.callback.deinit();
         self.scene.deinit();
         self.post_scene.deinit();
+        self.command_builder.deinit(&self.main_win.gc, self.main_win.pool, self.main_win.ally);
         self.main_win.deinit();
         self.bdf.deinit();
         graphics.deinitGraphics();
@@ -343,17 +361,25 @@ pub const Ui = struct {
         try state.cam.setParameters(0.6, w / h, 0.1, 2048);
 
         state.post_color_tex.deinit();
+        state.multisampling_tex.deinit();
         state.post_depth_tex.deinit();
 
+        state.multisampling_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{
+            .multisampling = true,
+            .preferred_format = state.main_win.preferred_format,
+        });
+        state.post_depth_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{
+            .multisampling = true,
+            .preferred_format = .depth,
+        });
         state.post_color_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{
             .is_render_target = true,
             .preferred_format = state.main_win.preferred_format,
         });
-        state.post_depth_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{ .preferred_format = .depth });
 
         state.post_buffer.deinit(state.main_win.gc);
         state.post_buffer = try graphics.Framebuffer.init(&state.main_win.gc, .{
-            .attachments = &.{ state.post_color_tex.image_view, state.post_depth_tex.image_view },
+            .attachments = &.{ state.multisampling_tex.image_view, state.post_depth_tex.image_view, state.post_color_tex.image_view },
             .render_pass = state.first_pass.pass,
             .width = @intCast(width),
             .height = @intCast(height),
@@ -366,6 +392,8 @@ pub const Ui = struct {
     }
 
     fn keyFunc(ptr: *anyopaque, key: i32, scancode: i32, action: graphics.Action, mods: i32) !void {
+        if (key < 0) return;
+
         var state: *Ui = @ptrCast(@alignCast(ptr));
 
         try state.callback.getKey(key, scancode, action, mods);

@@ -32,9 +32,9 @@ pub const MeshBuilder = struct {
 
     pub fn addTri(self: *MeshBuilder, v: [3]Vertex) !void {
         const vertices = [_]VertTuple{
-            .{ .{ v[0].pos[0], v[0].pos[1], v[0].pos[2] }, .{ v[0].uv[0], v[0].uv[1] }, .{ v[0].norm[0], v[0].norm[1], v[0].norm[2] } },
-            .{ .{ v[1].pos[0], v[1].pos[1], v[1].pos[2] }, .{ v[1].uv[0], v[1].uv[1] }, .{ v[1].norm[0], v[1].norm[1], v[1].norm[2] } },
-            .{ .{ v[2].pos[0], v[2].pos[1], v[2].pos[2] }, .{ v[2].uv[0], v[2].uv[1] }, .{ v[2].norm[0], v[2].norm[1], v[2].norm[2] } },
+            .{ .{ v[0].pos.val[0], v[0].pos.val[1], v[0].pos.val[2] }, .{ v[0].uv.val[0], v[0].uv.val[1] }, .{ v[0].norm.val[0], v[0].norm.val[1], v[0].norm.val[2] } },
+            .{ .{ v[1].pos.val[0], v[1].pos.val[1], v[1].pos.val[2] }, .{ v[1].uv.val[0], v[1].uv.val[1] }, .{ v[1].norm.val[0], v[1].norm.val[1], v[1].norm.val[2] } },
+            .{ .{ v[2].pos.val[0], v[2].pos.val[1], v[2].pos.val[2] }, .{ v[2].uv.val[0], v[2].uv.val[1] }, .{ v[2].norm.val[0], v[2].norm.val[1], v[2].norm.val[2] } },
         };
 
         const indices = [_]u32{

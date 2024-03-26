@@ -20,7 +20,7 @@ const Vec3Utils = math.Vec3Utils;
 
 const elem_shaders = @import("elem_shaders");
 
-const DefaultSpriteUniform: graphics.UniformDescription = .{ .type = extern struct { transform: math.Mat4, opacity: f32 } };
+const DefaultSpriteUniform: graphics.DataDescription = .{ .T = extern struct { transform: math.Mat4, opacity: f32 } };
 
 const SpriteInfo = struct {
     tex: graphics.Texture,
@@ -29,7 +29,7 @@ const SpriteInfo = struct {
 
 pub const Sprite = CustomSprite(DefaultSpriteUniform);
 
-pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
+pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
     return struct {
         pub const description: graphics.PipelineDescription = .{
             .vertex_description = .{
@@ -48,9 +48,9 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
             const h: f32 = @floatFromInt(info.tex.height);
 
             const default_transform: graphics.Transform2D = .{
-                .scale = .{ 1, 1 },
-                .rotation = .{ .angle = 0, .center = .{ 0.5, 0.5 } },
-                .translation = .{ 0, 0 },
+                .scale = math.Vec2.init(.{ 1, 1 }),
+                .rotation = .{ .angle = 0, .center = math.Vec2.init(.{ 0.5, 0.5 }) },
+                .translation = math.Vec2.init(.{ 0, 0 }),
             };
 
             var drawing = try scene.new();
@@ -68,10 +68,10 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
                 .{ .{ 0, 1, 1 }, .{ 0, 1 } },
             }, &.{ 0, 1, 2, 2, 3, 0 });
 
-            SpriteUniform.setUniformField(drawing, 1, .transform, default_transform.getMat().cast(4, 4));
-            SpriteUniform.setUniformField(drawing, 1, .opacity, 1);
+            SpriteUniform.setAsUniformField(drawing, 1, .transform, default_transform.getMat().cast(4, 4));
+            SpriteUniform.setAsUniformField(drawing, 1, .opacity, 1);
 
-            graphics.GlobalUniform.setUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+            graphics.GlobalUniform.setAsUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
             return Self{
                 .drawing = drawing,
@@ -110,12 +110,12 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.UniformDescription) type {
         }
 
         pub fn updateTransform(self: Self) void {
-            SpriteUniform.setUniformField(self.drawing, 1, .transform, self.transform.getMat().cast(4, 4));
+            SpriteUniform.setAsUniformField(self.drawing, 1, .transform, self.transform.getMat().cast(4, 4));
         }
 
         pub fn setOpacity(self: *Self, opacity: f32) void {
             self.opacity = opacity;
-            SpriteUniform.setUniformField(self.drawing, 1, .opacity, opacity);
+            SpriteUniform.setAsUniformField(self.drawing, 1, .opacity, opacity);
         }
 
         width: f32,

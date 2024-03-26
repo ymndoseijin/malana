@@ -34,6 +34,10 @@ pub const SpatialMesh = @import("elems/spatialmesh.zig").SpatialMesh;
 pub const ObjParse = @import("obj.zig").ObjParse;
 pub const ComptimeMeshBuilder = @import("comptime_meshbuilder.zig").ComptimeMeshBuilder;
 
+const Vec2 = math.Vec2;
+const Vec3 = math.Vec3;
+const Vec4 = math.Vec3;
+
 const elem_shaders = @import("elem_shaders");
 
 // vulkan stuff copy pasted
@@ -111,6 +115,7 @@ const DeviceDispatch = vk.DeviceWrapper(.{
     .cmdDraw = true,
     .cmdDrawIndexed = true,
     .cmdSetViewport = true,
+    .cmdPushConstants = true,
     .cmdSetScissor = true,
     .cmdBindVertexBuffers = true,
     .cmdBindIndexBuffer = true,
@@ -147,6 +152,8 @@ pub const GraphicsContext = struct {
     dev: vk.Device,
     graphics_queue: Queue,
     present_queue: Queue,
+
+    depth_format: vk.Format,
 
     pub fn init(allocator: std.mem.Allocator, app_name: [*:0]const u8, window: *glfw.GLFWwindow) !GraphicsContext {
         var self: GraphicsContext = undefined;
@@ -190,6 +197,7 @@ pub const GraphicsContext = struct {
         self.present_queue = Queue.init(self.vkd, self.dev, candidate.queues.present_family);
 
         self.mem_props = self.vki.getPhysicalDeviceMemoryProperties(self.pdev);
+        self.depth_format = try self.findDepthFormat();
 
         return self;
     }
@@ -501,7 +509,7 @@ pub const Swapchain = struct {
         }
 
         const surface_format = try findSurfaceFormat(gc, ally, options.format);
-        const present_mode = try findPresentMode(gc, ally);
+        const present_mode: vk.PresentModeKHR = .fifo_khr;
 
         var image_count = caps.min_image_count + 1;
         if (caps.max_image_count > 0) {
@@ -694,7 +702,7 @@ fn initSwapchainImages(gc: *const GraphicsContext, swapchain: vk.SwapchainKHR, f
 
 fn findSurfaceFormat(gc: *const GraphicsContext, allocator: Allocator, format: PreferredFormat) !vk.SurfaceFormatKHR {
     const preferred = vk.SurfaceFormatKHR{
-        .format = format.getSurfaceFormat(),
+        .format = format.getSurfaceFormat(gc.*),
         .color_space = .srgb_nonlinear_khr,
     };
 
@@ -840,6 +848,7 @@ pub const TextureInfo = struct {
     texture_type: TextureType = .flat,
     mag_filter: FilterEnum = .nearest,
     min_filter: FilterEnum = .nearest,
+    multisampling: bool = false,
     preferred_format: ?PreferredFormat = null,
     is_render_target: bool = false,
 };
@@ -866,9 +875,9 @@ pub const Texture = struct {
             .extent = .{ .width = width, .height = height, .depth = 1 },
             .mip_levels = 1,
             .array_layers = 1,
-            .format = format.getSurfaceFormat(),
+            .format = if (info.multisampling and info.preferred_format != .depth) win.preferred_format.getSurfaceFormat(win.gc) else format.getSurfaceFormat(win.gc),
             .tiling = blk: {
-                if (info.is_render_target) {
+                if (info.is_render_target or info.multisampling) {
                     break :blk .optimal;
                 } else {
                     break :blk switch (format) {
@@ -879,6 +888,7 @@ pub const Texture = struct {
             },
             .initial_layout = .undefined,
             .usage = blk: {
+                if (info.multisampling and info.preferred_format != .depth) break :blk .{ .transient_attachment_bit = true, .color_attachment_bit = true };
                 if (info.is_render_target) {
                     break :blk .{ .color_attachment_bit = true, .sampled_bit = true };
                 } else {
@@ -888,8 +898,10 @@ pub const Texture = struct {
                     };
                 }
             },
-            .samples = .{ .@"1_bit" = true },
+            .samples = if (info.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
             .sharing_mode = .exclusive,
+            // why?
+            .flags = .{ .cube_compatible_bit = false },
         };
 
         const image = try win.gc.vkd.createImage(win.gc.dev, &image_info, null);
@@ -902,7 +914,7 @@ pub const Texture = struct {
         const view_info: vk.ImageViewCreateInfo = .{
             .image = image,
             .view_type = .@"2d",
-            .format = format.getSurfaceFormat(),
+            .format = format.getSurfaceFormat(win.gc),
             .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
             .subresource_range = .{
                 .aspect_mask = if (format == .depth) .{ .depth_bit = true } else .{ .color_bit = true },
@@ -1011,6 +1023,8 @@ pub const Texture = struct {
             .max_lod = 0,
         };
 
+        const win = tex.window;
+        win.gc.vkd.destroySampler(win.gc.dev, tex.sampler, null);
         tex.sampler = try gc.vkd.createSampler(gc.dev, &sampler_info, null);
     }
 
@@ -1020,7 +1034,7 @@ pub const Texture = struct {
         const view_info: vk.ImageViewCreateInfo = .{
             .image = tex.image,
             .view_type = .@"2d",
-            .format = tex.window.preferred_format.getSurfaceFormat(),
+            .format = tex.window.preferred_format.getSurfaceFormat(gc.*),
             .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
             .subresource_range = .{
                 .aspect_mask = .{ .color_bit = true },
@@ -1031,6 +1045,8 @@ pub const Texture = struct {
             },
         };
 
+        const win = tex.window;
+        win.gc.vkd.destroyImageView(win.gc.dev, tex.image_view, null);
         tex.image_view = try gc.vkd.createImageView(gc.dev, &view_info, null);
     }
 
@@ -1296,7 +1312,8 @@ pub const Drawing = struct {
             defer ally.free(descriptor_writes);
             defer ally.free(buffer_info);
 
-            for (0.., self.uniform_buffers, pipeline_desc.uniform_sizes) |binding_i, *uniform, uniform_size| {
+            for (0.., self.uniform_buffers, pipeline_desc.uniform_sizes) |binding_i, *uniform, uniform_enum| {
+                const uniform_size: usize = @intFromEnum(uniform_enum);
                 buffer_info[binding_i] = vk.DescriptorBufferInfo{
                     .buffer = uniform.*[i].buff_mem.buffer,
                     .offset = 0,
@@ -1342,8 +1359,9 @@ pub const Drawing = struct {
     }
 
     pub fn createUniformBuffers(self: *Drawing, ally: std.mem.Allocator) !void {
-        for (self.pipeline.description.uniform_sizes, self.uniform_buffers) |uniform_size, *uniform_buffer| {
+        for (self.pipeline.description.uniform_sizes, self.uniform_buffers) |uniform_enum, *uniform_buffer| {
             var gc = &self.window.gc;
+            const uniform_size: usize = @intFromEnum(uniform_enum);
 
             uniform_buffer.* = try ally.alloc(UniformBuffer, frames_in_flight);
 
@@ -1545,11 +1563,12 @@ pub fn getGlfwChar(win_or: ?*glfw.GLFWwindow, codepoint: c_uint) callconv(.C) vo
     }
 }
 
-pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int) callconv(.C) void {
+pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, in_width: c_int, in_height: c_int) callconv(.C) void {
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
         var win = map[1];
+        var swapchain = &map[1].swapchain;
 
         win.gc.vkd.deviceWaitIdle(win.gc.dev) catch |err| {
             printError(err);
@@ -1560,17 +1579,20 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, width: c_int, height: c_int
             if (!win.size_dirty) return;
         }
 
-        win.swapchain.recreate(&win.gc, .{ .width = @intCast(width), .height = @intCast(height) }, win.preferred_format) catch |err| {
+        swapchain.recreate(&win.gc, .{ .width = @intCast(in_width), .height = @intCast(in_height) }, win.preferred_format) catch |err| {
             printError(err);
         };
+
+        const width: i32 = @intCast(swapchain.extent.width);
+        const height: i32 = @intCast(swapchain.extent.height);
 
         win.destroyFramebuffers();
         win.depth_buffer.deinit(&win.gc);
-        win.depth_buffer = Window.createDepthBuffer(&win.gc, win.swapchain, win.pool) catch |err| {
+        win.depth_buffer = Window.createDepthBuffer(&win.gc, swapchain.*, win.pool) catch |err| {
             printError(err);
         };
 
-        win.framebuffers = Window.createFramebuffers(&win.gc, win.ally, win.render_pass.pass, win.swapchain, win.depth_buffer) catch |err| {
+        win.framebuffers = Window.createFramebuffers(&win.gc, win.ally, win.render_pass.pass, swapchain.*, win.depth_buffer) catch |err| {
             printError(err);
         };
 
@@ -1621,11 +1643,11 @@ const PreferredFormat = enum {
     srgb,
     depth,
 
-    pub fn getSurfaceFormat(format: PreferredFormat) vk.Format {
+    pub fn getSurfaceFormat(format: PreferredFormat, gc: GraphicsContext) vk.Format {
         return switch (format) {
             .srgb => .b8g8r8a8_srgb,
-            .depth => .d32_sfloat,
             .unorm => .b8g8r8a8_unorm,
+            .depth => gc.depth_format,
         };
     }
 };
@@ -1666,27 +1688,41 @@ pub const Framebuffer = struct {
 
 pub const RenderPass = struct {
     pass: vk.RenderPass,
+    info: Info,
 
-    pub fn init(gc: *const GraphicsContext, options: struct { format: vk.Format, target: bool = false }) !RenderPass {
-        const color_attachment = vk.AttachmentDescription{
-            .format = options.format,
-            .samples = .{ .@"1_bit" = true },
+    pub const Info = struct {
+        format: vk.Format,
+        multisampling: bool = false,
+        target: bool = false,
+    };
+
+    pub fn init(gc: *const GraphicsContext, info: Info) !RenderPass {
+        const color_attachment: vk.AttachmentDescription = .{
+            .format = info.format,
+            .samples = if (info.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
             .load_op = .clear,
             .store_op = .store,
             .stencil_load_op = .dont_care,
             .stencil_store_op = .dont_care,
             .initial_layout = .undefined,
-            .final_layout = if (options.target) .shader_read_only_optimal else .present_src_khr,
+            .final_layout = blk: {
+                if (info.multisampling) break :blk .color_attachment_optimal;
+                if (info.target) {
+                    break :blk .shader_read_only_optimal;
+                } else {
+                    break :blk .present_src_khr;
+                }
+            },
         };
 
-        const color_attachment_ref = vk.AttachmentReference{
+        const color_attachment_ref: vk.AttachmentReference = .{
             .attachment = 0,
             .layout = .color_attachment_optimal,
         };
 
-        const depth_attachment = vk.AttachmentDescription{
+        const depth_attachment: vk.AttachmentDescription = .{
             .format = try gc.findDepthFormat(),
-            .samples = .{ .@"1_bit" = true },
+            .samples = if (info.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
             .load_op = .clear,
             .store_op = .dont_care,
             .stencil_load_op = .dont_care,
@@ -1695,9 +1731,31 @@ pub const RenderPass = struct {
             .final_layout = .depth_stencil_attachment_optimal,
         };
 
-        const depth_attachment_ref = vk.AttachmentReference{
+        const depth_attachment_ref: vk.AttachmentReference = .{
             .attachment = 1,
             .layout = .depth_stencil_attachment_optimal,
+        };
+
+        const color_resolve_attachment: vk.AttachmentDescription = .{
+            .format = info.format,
+            .samples = .{ .@"1_bit" = true },
+            .load_op = .clear,
+            .store_op = .store,
+            .stencil_load_op = .dont_care,
+            .stencil_store_op = .dont_care,
+            .initial_layout = .undefined,
+            .final_layout = blk: {
+                if (info.target) {
+                    break :blk .shader_read_only_optimal;
+                } else {
+                    break :blk .present_src_khr;
+                }
+            },
+        };
+
+        const color_resolve_attachment_ref: vk.AttachmentReference = .{
+            .attachment = 2,
+            .layout = .color_attachment_optimal,
         };
 
         const subpass = vk.SubpassDescription{
@@ -1705,6 +1763,7 @@ pub const RenderPass = struct {
             .color_attachment_count = 1,
             .p_color_attachments = @ptrCast(&color_attachment_ref),
             .p_depth_stencil_attachment = @ptrCast(&depth_attachment_ref),
+            .p_resolve_attachments = if (info.multisampling) @ptrCast(&color_resolve_attachment_ref) else null,
         };
 
         const color_dependency = vk.SubpassDependency{
@@ -1743,17 +1802,32 @@ pub const RenderPass = struct {
             .dst_access_mask = .{ .shader_read_bit = true },
         };
 
-        const dependencies: []const vk.SubpassDependency = if (options.target) &.{ target_first_dependency, target_second_dependency } else &.{ color_dependency, depth_dependency };
+        const dependencies: []const vk.SubpassDependency = blk: {
+            if (info.target) {
+                break :blk &.{ target_first_dependency, target_second_dependency };
+            } else {
+                break :blk &.{ color_dependency, depth_dependency };
+            }
+        };
 
-        const attachments = &[2]vk.AttachmentDescription{ color_attachment, depth_attachment };
-        return .{ .pass = try gc.vkd.createRenderPass(gc.dev, &.{
-            .attachment_count = @intCast(attachments.len),
-            .p_attachments = attachments.ptr,
-            .subpass_count = 1,
-            .p_subpasses = @as([*]const vk.SubpassDescription, @ptrCast(&subpass)),
-            .dependency_count = @intCast(dependencies.len),
-            .p_dependencies = dependencies.ptr,
-        }, null) };
+        const attachments: []const vk.AttachmentDescription = blk: {
+            if (info.multisampling) {
+                break :blk &.{ color_attachment, depth_attachment, color_resolve_attachment };
+            } else {
+                break :blk &.{ color_attachment, depth_attachment };
+            }
+        };
+        return .{
+            .pass = try gc.vkd.createRenderPass(gc.dev, &.{
+                .attachment_count = @intCast(attachments.len),
+                .p_attachments = attachments.ptr,
+                .subpass_count = 1,
+                .p_subpasses = @as([*]const vk.SubpassDescription, @ptrCast(&subpass)),
+                .dependency_count = @intCast(dependencies.len),
+                .p_dependencies = dependencies.ptr,
+            }, null),
+            .info = info,
+        };
     }
 
     pub fn deinit(pass: RenderPass, gc: *const GraphicsContext) void {
@@ -1787,12 +1861,20 @@ pub const CommandBuilder = struct {
             .extent = .{ .width = region.width, .height = region.height },
         };
 
+        const clear_values: []const vk.ClearValue = blk: {
+            if (render_pass.info.multisampling) {
+                break :blk &.{ clear_color, clear_depth, clear_color };
+            } else {
+                break :blk &.{ clear_color, clear_depth };
+            }
+        };
+
         gc.vkd.cmdBeginRenderPass(cmdbuf, &.{
             .render_pass = render_pass.pass,
             .framebuffer = framebuffer.buffer,
             .render_area = render_area,
-            .clear_value_count = 2,
-            .p_clear_values = &[2]vk.ClearValue{ clear_color, clear_depth },
+            .clear_value_count = @intCast(clear_values.len),
+            .p_clear_values = clear_values.ptr,
         }, .@"inline");
     }
 
@@ -1821,6 +1903,11 @@ pub const CommandBuilder = struct {
             .offset = .{ .x = 0, .y = 0 },
             .extent = .{ .width = info.width, .height = info.height },
         }));
+    }
+
+    pub fn push(builder: *CommandBuilder, comptime self: DataDescription, gc: *GraphicsContext, pipeline: RenderPipeline, constants: *const self.T) void {
+        const cmdbuf = builder.getCurrent();
+        gc.vkd.cmdPushConstants(cmdbuf, pipeline.layout, .{ .vertex_bit = true, .fragment_bit = true }, 0, @intCast(@intFromEnum(self.getSize())), @alignCast(@ptrCast(constants)));
     }
 
     pub fn beginCommand(builder: *CommandBuilder, gc: *GraphicsContext) !void {
@@ -1888,7 +1975,6 @@ pub const Window = struct {
     pool: vk.CommandPool,
     framebuffers: []Framebuffer,
     depth_buffer: DepthBuffer,
-    command_builder: CommandBuilder,
 
     default_shaders: DefaultShaders,
 
@@ -1944,6 +2030,10 @@ pub const Window = struct {
             for (self.post_shaders) |s| s.deinit(gc);
         }
     };
+
+    pub fn swapBuffers(self: Window) void {
+        glfw.glfwSwapBuffers(self.glfw_win);
+    }
 
     pub fn shouldClose(self: Window) bool {
         return glfw.glfwWindowShouldClose(self.glfw_win) != 0;
@@ -2017,6 +2107,7 @@ pub const Window = struct {
 
     pub fn createDepthBuffer(gc: *GraphicsContext, swapchain: Swapchain, pool: vk.CommandPool) !DepthBuffer {
         const format = try gc.findDepthFormat();
+
         const width = swapchain.extent.width;
         const height = swapchain.extent.height;
         const image_info: vk.ImageCreateInfo = .{
@@ -2124,15 +2215,12 @@ pub const Window = struct {
             .pool = pool,
             .framebuffers = framebuffers,
             .depth_buffer = depth_buffer,
-            .command_builder = try CommandBuilder.init(&gc, pool, ally),
-
             .default_shaders = try DefaultShaders.init(gc),
         };
     }
 
     pub fn deinit(win: *Window) void {
         win.default_shaders.deinit(win.gc);
-        win.command_builder.deinit(&win.gc, win.pool, win.ally);
         win.gc.vkd.destroyCommandPool(win.gc.dev, win.pool, null);
 
         for (win.framebuffers) |fb| fb.deinit(win.gc);
@@ -2151,23 +2239,28 @@ pub const Window = struct {
 };
 
 pub const Transform2D = struct {
-    scale: math.Vec2 = .{ 1, 1 },
-    rotation: struct { angle: f32, center: math.Vec2 } = .{ .angle = 0, .center = .{ 0, 0 } },
-    translation: math.Vec2 = .{ 0, 0 },
+    scale: Vec2 = Vec2.init(.{ 1, 1 }),
+    rotation: struct { angle: f32, center: Vec2 } = .{ .angle = 0, .center = Vec2.init(.{ 0, 0 }) },
+    translation: Vec2 = Vec2.init(.{ 0, 0 }),
     pub fn getMat(self: Transform2D) math.Mat3 {
-        return math.transform2D(f32, self.scale, self.rotation, self.translation);
+        return math.transform2D(f32, self.scale, .{ .angle = self.rotation.angle, .center = self.rotation.center }, self.translation);
     }
     pub fn getInverseMat(self: Transform2D) math.Mat3 {
-        return math.transform2D(f32, math.Vec2{ 1, 1 } / self.scale, .{ .angle = -self.rotation.angle, .center = self.rotation.center }, math.Vec2{ -1, -1 } * self.translation / self.scale);
+        return math.transform2D(
+            f32,
+            Vec2.init(.{ 1, 1 }).div(self.scale),
+            .{ .angle = -self.rotation.angle, .center = self.rotation.center },
+            Vec2.init(.{ -1, -1 }).div(self.scale).mul(self.translation),
+        );
     }
-    pub fn apply(self: Transform2D, v: math.Vec2) math.Vec2 {
-        var res: [3]f32 = self.getMat().dot(.{ v[0], v[1], 1 });
-        return res[0..2].*;
+    pub fn apply(self: Transform2D, v: Vec2) Vec2 {
+        var res: [3]f32 = self.getMat().dot(Vec3.init(.{ v.val[0], v.val[1], 1 })).val;
+        return Vec2.init(res[0..2].*);
     }
 
-    pub fn reverse(self: Transform2D, v: math.Vec2) math.Vec2 {
-        var res: [3]f32 = self.getInverseMat().dot(.{ v[0], v[1], 1 });
-        return res[0..2].*;
+    pub fn reverse(self: Transform2D, v: Vec2) Vec2 {
+        var res: [3]f32 = self.getInverseMat().dot(Vec3.init(.{ v.val[0], v.val[1], 1 })).val;
+        return Vec2.init(res[0..2].*);
     }
 };
 
@@ -2178,7 +2271,7 @@ const Uniform1f = struct {
 
 const Uniform3f = struct {
     name: [:0]const u8,
-    value: *math.Vec3,
+    value: *Vec3,
 };
 
 const Uniform3fv = struct {
@@ -2288,13 +2381,13 @@ pub const Scene = struct {
     pub fn draw(scene: *Scene, builder: *CommandBuilder) !void {
         const extent = scene.window.swapchain.extent;
         const now: f32 = @floatCast(glfw.glfwGetTime());
-        const resolution: math.Vec2 = .{ @floatFromInt(extent.width), @floatFromInt(extent.height) };
+        const resolution: [2]f32 = .{ @floatFromInt(extent.width), @floatFromInt(extent.height) };
         const frame_id = builder.frame_id;
 
         var last_pipeline: u64 = 0;
         var is_first = true;
         for (scene.drawing_array.items) |elem| {
-            if (elem.global_ubo) GlobalUniform.setUniform(elem, 0, .{ .time = now, .in_resolution = resolution });
+            if (elem.global_ubo) GlobalUniform.setAsUniform(elem, 0, .{ .time = now, .in_resolution = resolution });
             try elem.draw(builder.getCurrent(), .{
                 .frame_id = frame_id,
                 .bind_pipeline = is_first or (last_pipeline != @intFromEnum(elem.pipeline.vk_pipeline)),
@@ -2430,7 +2523,8 @@ pub const PipelineDescription = struct {
     depth_test: bool,
     cull_type: CullType = .none,
 
-    uniform_sizes: []const usize = &.{},
+    constants_size: ?DataSize = null,
+    uniform_sizes: []const DataSize = &.{},
     sampler_count: usize = 0,
     // assume DefaultUbo at index 0
     global_ubo: bool = false,
@@ -2519,8 +2613,12 @@ pub const RenderPipeline = struct {
             .flags = .{},
             .set_layout_count = 1,
             .p_set_layouts = @ptrCast(&descriptor_layout),
-            .push_constant_range_count = 0,
-            .p_push_constant_ranges = undefined,
+            .push_constant_range_count = if (pipeline.constants_size) |_| 1 else 0,
+            .p_push_constant_ranges = if (pipeline.constants_size) |size| @ptrCast(&vk.PushConstantRange{
+                .offset = 0,
+                .size = @intCast(@intFromEnum(size)),
+                .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
+            }) else undefined,
         }, null);
 
         var pssci = try ally.alloc(vk.PipelineShaderStageCreateInfo, shaders.len);
@@ -2600,7 +2698,7 @@ pub const RenderPipeline = struct {
                     .line_width = 1,
                 },
                 .p_multisample_state = &vk.PipelineMultisampleStateCreateInfo{
-                    .rasterization_samples = .{ .@"1_bit" = true },
+                    .rasterization_samples = if (info.render_pass.info.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
                     .sample_shading_enable = vk.FALSE,
                     .min_sample_shading = 1,
                     .alpha_to_coverage_enable = vk.FALSE,
@@ -2678,51 +2776,37 @@ pub const LinePipeline = RenderPipeline{
     .depth_test = true,
 };
 
-pub const UniformDescription = struct {
-    type: type,
+pub const DataSize = enum(usize) { _ };
 
-    pub fn getSize(comptime self: UniformDescription) usize {
-        std.mem.doNotOptimizeAway(@sizeOf(self.type));
-        return @sizeOf(self.type);
+pub const DataDescription = struct {
+    T: type,
+
+    pub fn getSize(comptime self: DataDescription) DataSize {
+        std.mem.doNotOptimizeAway(@sizeOf(self.T));
+        return @enumFromInt(@sizeOf(self.T));
     }
 
-    pub fn setUniform(comptime self: UniformDescription, draw: *Drawing, binding_idx: usize, ubo: self.type) void {
+    pub fn setAsUniform(comptime self: DataDescription, draw: *Drawing, binding_idx: usize, ubo: self.T) void {
         for (draw.uniform_buffers[binding_idx]) |mapped_buff| {
-            @as(*self.type, @alignCast(@ptrCast(mapped_buff.data))).* = ubo;
+            @as(*self.T, @alignCast(@ptrCast(mapped_buff.data))).* = ubo;
         }
     }
-    pub fn setUniformField(comptime self: UniformDescription, draw: *Drawing, binding_idx: usize, comptime field: std.meta.FieldEnum(self.type), target: anytype) void {
+    pub fn setAsUniformField(comptime self: DataDescription, draw: *Drawing, binding_idx: usize, comptime field: std.meta.FieldEnum(self.T), target: anytype) void {
         for (draw.uniform_buffers[binding_idx]) |mapped_buff| {
-            @field(@as(*self.type, @alignCast(@ptrCast(mapped_buff.data))), @tagName(field)) = target;
+            @field(@as(*self.T, @alignCast(@ptrCast(mapped_buff.data))), @tagName(field)) = target;
         }
     }
 };
 
-pub const GlobalUniform: UniformDescription = .{ .type = extern struct { time: f32, in_resolution: math.Vec2 } };
-pub const SpriteUniform: UniformDescription = .{ .type = extern struct { transform: math.Mat4, opacity: f32 } };
-pub const SpatialUniform: UniformDescription = .{ .type = extern struct {
-    spatial_pos: math.Vec3,
-    transform: math.Mat4,
-    cam_pos: math.Vec3,
-} };
+pub const GlobalUniform: DataDescription = .{ .T = extern struct { time: f32, in_resolution: [2]f32 align(2 * 4) } };
+pub const SpriteUniform: DataDescription = .{ .T = extern struct { transform: math.Mat4, opacity: f32 } };
 
 pub const SpritePipeline: PipelineDescription = .{
     .vertex_description = .{
-        .vertex_attribs = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 } },
+        .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 } },
     },
     .render_type = .triangle,
     .depth_test = false,
     .uniform_sizes = &.{ GlobalUniform.getSize(), SpriteUniform.getSize() },
-    .global_ubo = true,
-};
-
-pub const SpatialPipeline: PipelineDescription = .{
-    .vertex_description = .{
-        .vertex_attribs = &[_]VertexAttribute{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
-    },
-    .render_type = .triangle,
-    .depth_test = true,
-    .cull_type = .back,
-    .uniform_sizes = &.{ GlobalUniform.getSize(), SpatialUniform.getSize() },
     .global_ubo = true,
 };

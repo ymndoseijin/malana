@@ -62,12 +62,12 @@ pub const Text = struct {
         pipeline: graphics.RenderPipeline,
     };
 
-    const CharacterUniform: graphics.UniformDescription = .{ .type = extern struct {
+    const CharacterUniform: graphics.DataDescription = .{ .T = extern struct {
         transform: math.Mat4,
         opacity: f32,
         index: u32,
         count: u32,
-        color: math.Vec3,
+        color: [3]f32 align(4 * 4),
     } };
 
     pub const description: graphics.PipelineDescription = .{
@@ -106,11 +106,11 @@ pub const Text = struct {
             };
 
             const metrics = glyph.metrics();
-            var offset: math.Vec2 = .{ @floatFromInt(metrics.horiBearingX), @floatFromInt(-metrics.height + metrics.horiBearingY) };
-            offset[1] *= -1;
+            var offset = math.Vec2.init(.{ @floatFromInt(metrics.horiBearingX), @floatFromInt(-metrics.height + metrics.horiBearingY) });
+            offset.val[1] *= -1;
 
-            const metrics_scale: math.Vec2 = @splat(1.0 / 64.0);
-            offset *= metrics_scale;
+            const metrics_scale: f32 = 1.0 / 64.0;
+            offset = offset.scale(metrics_scale);
 
             const advance: f32 = @floatFromInt(metrics.horiAdvance);
 
@@ -129,9 +129,9 @@ pub const Text = struct {
                 .pipeline = info.pipeline,
             });
 
-            CharacterUniform.setUniformField(sprite.drawing, 1, .index, @as(u32, @intCast(info.index)));
-            CharacterUniform.setUniformField(sprite.drawing, 1, .count, @as(u32, @intCast(info.count)));
-            CharacterUniform.setUniformField(sprite.drawing, 1, .opacity, parent.opacity);
+            CharacterUniform.setAsUniformField(sprite.drawing, 1, .index, @as(u32, @intCast(info.index)));
+            CharacterUniform.setAsUniformField(sprite.drawing, 1, .count, @as(u32, @intCast(info.count)));
+            CharacterUniform.setAsUniformField(sprite.drawing, 1, .opacity, parent.opacity);
 
             return .{
                 .image = image,
@@ -151,7 +151,7 @@ pub const Text = struct {
 
     const PrintInfo = struct {
         text: []const u8,
-        color: math.Vec3 = .{ 1.0, 1.0, 1.0 },
+        color: [3]f32 = .{ 1.0, 1.0, 1.0 },
         pipeline: ?graphics.RenderPipeline = null,
     };
 
@@ -213,21 +213,21 @@ pub const Text = struct {
                 .index = index,
                 .pipeline = if (info.pipeline) |p| p else scene.default_pipelines.textft,
             });
-            CharacterUniform.setUniformField(char.sprite.drawing, 1, .color, info.color);
+            CharacterUniform.setAsUniformField(char.sprite.drawing, 1, .color, info.color);
             try self.characters.append(char);
         }
 
         try self.update();
 
         for (self.characters.items) |c| {
-            CharacterUniform.setUniformField(c.sprite.drawing, 1, .count, @as(u32, @intCast(self.codepoints.items.len)));
+            CharacterUniform.setAsUniformField(c.sprite.drawing, 1, .count, @as(u32, @intCast(self.codepoints.items.len)));
         }
     }
 
     pub fn update(self: *Text) !void {
         if (self.characters.items.len == 0) return;
         var start: math.Vec2 = self.transform.translation;
-        start[1] += self.line_spacing;
+        start.val[1] += self.line_spacing;
 
         const space_width: f32 = 10;
 
@@ -240,42 +240,43 @@ pub const Text = struct {
         self.width = 0;
 
         while (it.next()) |word| {
-            if (self.wrap and try self.getExtent(word) + start[0] > self.bounding_width + self.transform.translation[0] and self.codepoints.items.len != 0) {
-                start = .{ self.transform.translation[0], start[1] + self.line_spacing };
+            if (self.wrap and try self.getExtent(word) + start.val[0] > self.bounding_width + self.transform.translation.val[0] and self.codepoints.items.len != 0) {
+                start.val = .{ self.transform.translation.val[0], start.val[1] + self.line_spacing };
                 height += self.line_spacing;
             }
 
             for (word) |c| {
                 if (c == '\n') {
-                    start = .{ self.transform.translation[0], start[1] + self.line_spacing };
+                    start.val = .{ self.transform.translation.val[0], start.val[1] + self.line_spacing };
                     height += self.line_spacing;
                     continue;
                 }
 
                 var char = &self.characters.items[character_index];
 
-                if (self.wrap and char.advance + start[0] > self.bounding_width + self.transform.translation[0]) {
-                    start = .{ self.transform.translation[0], start[1] + self.line_spacing };
+                if (self.wrap and char.advance + start.val[0] > self.bounding_width + self.transform.translation.val[0]) {
+                    start.val = .{ self.transform.translation.val[0], start.val[1] + self.line_spacing };
                     height += self.line_spacing;
                 }
 
-                char.sprite.transform.translation = start + char.offset - math.Vec2{ 0, @floatFromInt(char.image.height) };
-                char.sprite.transform.scale = .{ @floatFromInt(char.image.width), @floatFromInt(char.image.height) };
+                char.sprite.transform.translation = start.add(char.offset).sub(math.Vec2.init(.{ 0, @floatFromInt(char.image.height) }));
+                char.sprite.transform.scale = math.Vec2.init(.{ @floatFromInt(char.image.width), @floatFromInt(char.image.height) });
                 char.sprite.updateTransform();
                 self.width = @max(self.width + char.advance, self.width);
-                start += .{ char.advance, 0 };
+                start.val[0] += char.advance;
                 character_index += 1;
             }
             if (it.peek() != null) {
-                start += .{ space_width, 0 };
+                start.val[0] += space_width;
             }
         }
 
         self.bounding_height = height;
     }
 
-    pub fn deinit(self: *Text, ally: std.mem.Allocator) void {
+    pub fn deinit(self: *Text, ally: std.mem.Allocator, scene: *graphics.Scene) void {
         for (self.characters.items) |c| {
+            scene.delete(ally, c.sprite.drawing);
             c.deinit(ally);
         }
         self.characters.deinit();
@@ -306,9 +307,9 @@ pub const Text = struct {
             .codepoints = std.ArrayList(u32).init(ally),
             .wrap = info.wrap,
             .transform = .{
-                .scale = .{ 1, 1 },
-                .rotation = .{ .angle = 0, .center = .{ 0.5, 0.5 } },
-                .translation = .{ 0, 0 },
+                .scale = math.Vec2.init(.{ 1, 1 }),
+                .rotation = .{ .angle = 0, .center = math.Vec2.init(.{ 0.5, 0.5 }) },
+                .translation = math.Vec2.init(.{ 0, 0 }),
             },
         };
     }

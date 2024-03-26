@@ -33,13 +33,8 @@ pub fn main() !void {
     });
     defer state.deinit(ally);
 
-    var text = try graphics.TextFt.init(ally, .{
-        .path = "resources/fonts/Fairfax.ttf",
-        .size = 12,
-        .line_spacing = 1,
-        .bounding_width = 250,
-    });
-    defer text.deinit(ally);
+    const gc = &state.main_win.gc;
+    const builder = &state.command_builder;
 
     // get obj file
     var arg_it = std.process.args();
@@ -56,8 +51,22 @@ pub fn main() !void {
     const triangle_frag = try graphics.Shader.init(state.main_win.gc, &shaders.frag, .fragment);
     defer triangle_frag.deinit(state.main_win.gc);
 
+    const PushConstants: graphics.DataDescription = .{ .T = extern struct { cam_pos: [3]f32 align(4 * 4), cam_transform: math.Mat4 align(4 * 4) } };
+
+    const TrianglePipeline: graphics.PipelineDescription = .{
+        .vertex_description = .{
+            .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
+        },
+        .render_type = .triangle,
+        .depth_test = true,
+        .cull_type = .back,
+        .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), graphics.SpatialMesh.Uniform.getSize() },
+        .constants_size = PushConstants.getSize(),
+        .global_ubo = true,
+    };
+
     var pipeline = try graphics.RenderPipeline.init(ally, .{
-        .description = graphics.SpatialPipeline,
+        .description = TrianglePipeline,
         .shaders = &.{ triangle_vert, triangle_frag },
         .render_pass = state.first_pass,
         .gc = &state.main_win.gc,
@@ -66,18 +75,72 @@ pub fn main() !void {
     defer pipeline.deinit(&state.main_win.gc);
 
     const camera_obj = try graphics.SpatialMesh.init(&state.scene, .{
-        .pos = .{ 0, 0, 0 },
+        .pos = math.Vec3.init(.{ 0, 0, 0 }),
         .pipeline = pipeline,
     });
 
-    try graphics.SpatialPipeline.vertex_description.bindVertex(camera_obj.drawing, object.vertices.items, object.indices.items);
+    try graphics.SpatialMesh.Pipeline.vertex_description.bindVertex(camera_obj.drawing, object.vertices.items, object.indices.items);
 
     state.key_down = key_down;
 
+    var fps = try graphics.TextFt.init(ally, .{ .path = "resources/cmunrm.ttf", .size = 50, .line_spacing = 1, .bounding_width = 250 });
+    defer fps.deinit(ally, &state.post_scene);
+    fps.transform.translation = math.Vec2.init(.{ 10, 10 });
+
     while (state.main_win.alive) {
         try state.updateEvents();
-        try camera_obj.linkCamera(state.cam);
-        //try text.printFmt(&state.scene, ally, "{d:.4} {d:.1}", .{ state.cam.move, 1 / state.dt });
-        try state.render();
+
+        var uniform: graphics.SpatialMesh.Uniform.T = .{
+            .spatial_pos = .{ 0, 0, 0 },
+            .light_count = 1,
+            .lights = undefined,
+        };
+
+        const exp = 30;
+
+        uniform.lights[0] = .{
+            .pos = .{ 1, 10, 2 },
+            .intensity = .{ exp, exp, exp },
+        };
+
+        graphics.SpatialMesh.Uniform.setAsUniform(camera_obj.drawing, 1, uniform);
+
+        try fps.clear(&state.post_scene, ally);
+        try fps.printFmt(&state.post_scene, ally, "FPS: {}", .{@as(u32, @intFromFloat(1 / state.dt))});
+
+        const frame_id = builder.frame_id;
+        const swapchain = &state.main_win.swapchain;
+        const extent = swapchain.extent;
+
+        try swapchain.wait(gc, frame_id);
+
+        state.image_index = try swapchain.acquireImage(gc, frame_id);
+        try builder.beginCommand(gc);
+
+        const data: PushConstants.T = .{ .cam_pos = state.cam.move.val, .cam_transform = state.cam.transform_mat };
+        builder.push(PushConstants, gc, pipeline, &data);
+
+        try builder.setViewport(gc, .{ .flip_z = state.scene.flip_z, .width = extent.width, .height = extent.height });
+        builder.beginRenderPass(gc, state.first_pass, state.post_buffer, .{
+            .x = 0,
+            .y = 0,
+            .width = extent.width,
+            .height = extent.height,
+        });
+        try state.scene.draw(builder);
+        builder.endRenderPass(gc);
+
+        try builder.setViewport(gc, .{ .flip_z = false, .width = extent.width, .height = extent.height });
+        builder.beginRenderPass(gc, state.scene.window.render_pass, state.scene.window.framebuffers[@intFromEnum(state.image_index)], .{
+            .x = 0,
+            .y = 0,
+            .width = extent.width,
+            .height = extent.height,
+        });
+        try state.post_scene.draw(builder);
+        builder.endRenderPass(gc);
+
+        try builder.endCommand(gc);
+        try state.submit();
     }
 }

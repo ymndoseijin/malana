@@ -19,15 +19,43 @@ const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
 
-pub const SpatialMesh = CustomSpatialMesh(graphics.SpatialUniform);
+const max_lights = 256;
 
-pub fn CustomSpatialMesh(comptime SpatialUniform: graphics.UniformDescription) type {
+const Light = extern struct {
+    pos: [3]f32 align(4 * 4),
+    intensity: [3]f32 align(4 * 4),
+};
+
+pub const DefaultUniform: graphics.DataDescription = .{
+    .T = extern struct {
+        spatial_pos: [3]f32 align(4 * 4),
+        light_count: i32,
+        lights: [max_lights]Light,
+    },
+};
+
+pub const SpatialMesh = CustomSpatialMesh(DefaultUniform);
+
+pub fn CustomSpatialMesh(comptime InUniform: graphics.DataDescription) type {
     return struct {
+        pub const Pipeline: graphics.PipelineDescription = .{
+            .vertex_description = .{
+                .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
+            },
+            .render_type = .triangle,
+            .depth_test = true,
+            .cull_type = .back,
+            .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), Uniform.getSize() },
+            .global_ubo = true,
+        };
+
+        pub const Uniform = InUniform;
+
         drawing: *Drawing,
         pos: Vec3,
 
         const SpatialInfo = struct {
-            pos: Vec3 = .{ 0, 0, 0 },
+            pos: Vec3 = Vec3.init(.{ 0, 0, 0 }),
             pipeline: graphics.RenderPipeline,
         };
 
@@ -40,18 +68,13 @@ pub fn CustomSpatialMesh(comptime SpatialUniform: graphics.UniformDescription) t
                 .pipeline = info.pipeline,
             });
 
-            SpatialUniform.setUniformField(drawing, 1, .spatial_pos, info.pos);
-            graphics.GlobalUniform.setUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+            Uniform.setAsUniformField(drawing, 1, .spatial_pos, info.pos.val);
+            graphics.GlobalUniform.setAsUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
             return .{
                 .drawing = drawing,
                 .pos = info.pos,
             };
-        }
-
-        pub fn linkCamera(spatial: Self, cam: graphics.Camera) !void {
-            graphics.SpatialUniform.setUniformField(spatial.drawing, 1, .transform, cam.transform_mat);
-            graphics.SpatialUniform.setUniformField(spatial.drawing, 1, .cam_pos, cam.move);
         }
     };
 }

@@ -40,7 +40,7 @@ pub const Image = struct {
     data: []img.color.Rgba32,
 };
 
-pub const BdfUniform: graphics.UniformDescription = .{ .type = extern struct { pod: math.Vec3 } };
+pub const BdfUniform: graphics.DataDescription = .{ .type = extern struct { pod: math.Vec3 } };
 
 pub const BdfPipeline = graphics.RenderPipeline{
     .vertex_description = .{

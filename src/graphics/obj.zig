@@ -44,24 +44,45 @@ pub const ObjParse = struct {
             const identity = spaces.next() orelse return error.InvalidLine;
             if (std.mem.eql(u8, identity, "f")) {
                 var face: [3]Vertex = undefined;
-                inline for (&face) |*vert| {
-                    const element = spaces.next() orelse return error.InvalidFace;
+                var i: usize = 0;
+                var rolled_over = false;
+
+                while (spaces.next()) |element| {
+                    if (element.len < 3) continue;
+
+                    if (rolled_over) face[1] = face[2];
 
                     var slashes = std.mem.splitAny(u8, element, "/");
 
                     const vert_id = slashes.next() orelse return error.InvalidFace;
-                    const uv_id = slashes.next() orelse return error.InvalidFace;
-                    const norm_id = slashes.next() orelse return error.InvalidFace;
+                    const uv_id_or = slashes.next();
+                    const norm_id_or = slashes.next();
 
-                    const v = try std.fmt.parseInt(usize, vert_id, 10);
-                    const n = try std.fmt.parseInt(usize, norm_id, 10);
-                    const u = try std.fmt.parseInt(usize, uv_id, 10);
+                    face[i].pos = vertices.items[try std.fmt.parseInt(usize, vert_id, 10) - 1];
+                    face[i].norm = blk: {
+                        if (norm_id_or) |norm_id| {
+                            if (norm_id.len != 0) {
+                                break :blk norms.items[try std.fmt.parseInt(usize, norm_id, 10) - 1];
+                            }
+                        }
+                        break :blk math.Vec3.init(.{ 0, 0, 0 });
+                    };
+                    face[i].uv = blk: {
+                        if (uv_id_or) |uv_id| {
+                            if (uv_id.len == 0) {
+                                break :blk uvs.items[try std.fmt.parseInt(usize, uv_id, 10) - 1];
+                            }
+                        }
+                        break :blk math.Vec2.init(.{ 0, 0 });
+                    };
 
-                    vert.pos = vertices.items[v - 1];
-                    vert.norm = norms.items[n - 1];
-                    vert.uv = uvs.items[u - 1];
+                    if (i == 2) {
+                        try mesh.addTri(face);
+                        rolled_over = true;
+                    } else {
+                        i += 1;
+                    }
                 }
-                try mesh.addTri(face);
             } else if (std.mem.eql(u8, identity, "v")) {
                 const x_str = spaces.next() orelse return error.InvalidVertex;
                 const y_str = spaces.next() orelse return error.InvalidVertex;
@@ -71,7 +92,7 @@ pub const ObjParse = struct {
                 const y = try std.fmt.parseFloat(f32, y_str);
                 const z = try std.fmt.parseFloat(f32, z_str);
 
-                try vertices.append(.{ x, y, z });
+                try vertices.append(math.Vec3.init(.{ x, y, z }));
             } else if (std.mem.eql(u8, identity, "vn")) {
                 const x_str = spaces.next() orelse return error.InvalidVertex;
                 const y_str = spaces.next() orelse return error.InvalidVertex;
@@ -81,7 +102,7 @@ pub const ObjParse = struct {
                 const y = try std.fmt.parseFloat(f32, y_str);
                 const z = try std.fmt.parseFloat(f32, z_str);
 
-                try norms.append(.{ x, y, z });
+                try norms.append(math.Vec3.init(.{ x, y, z }));
             } else if (std.mem.eql(u8, identity, "vt")) {
                 const u_str = spaces.next() orelse return error.InvalidUv;
                 const v_str = spaces.next() orelse return error.InvalidUv;
@@ -89,7 +110,7 @@ pub const ObjParse = struct {
                 const u = try std.fmt.parseFloat(f32, u_str);
                 const v = try std.fmt.parseFloat(f32, v_str);
 
-                try uvs.append(.{ u, v });
+                try uvs.append(math.Vec2.init(.{ u, v }));
             }
         }
 

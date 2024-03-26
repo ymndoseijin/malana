@@ -17,7 +17,7 @@ const glfw = graphics.glfw;
 const Mat3 = math.Mat3;
 const Mat4 = math.Mat4;
 
-const ColoredRectUniform: graphics.UniformDescription = .{ .type = extern struct { transform: math.Mat4, color: math.Vec4 } };
+const ColoredRectUniform: graphics.DataDescription = .{ .T = extern struct { transform: math.Mat4, color: [4]f32 } };
 
 pub const ColoredRect = struct {
     pub const description: graphics.PipelineDescription = .{
@@ -31,7 +31,7 @@ pub const ColoredRect = struct {
         .global_ubo = true,
     };
 
-    pub fn init(scene: *graphics.Scene, color: math.Vec4) !ColoredRect {
+    pub fn init(scene: *graphics.Scene, color: [4]f32) !ColoredRect {
         var drawing = try scene.new();
 
         try drawing.init(scene.window.ally, .{
@@ -40,9 +40,9 @@ pub const ColoredRect = struct {
         });
 
         const default_transform: graphics.Transform2D = .{
-            .scale = .{ 1, 1 },
-            .rotation = .{ .angle = 0, .center = .{ 0.5, 0.5 } },
-            .translation = .{ 0, 0 },
+            .scale = math.Vec2.init(.{ 1, 1 }),
+            .rotation = .{ .angle = 0, .center = math.Vec2.init(.{ 0.5, 0.5 }) },
+            .translation = math.Vec2.init(.{ 0, 0 }),
         };
 
         try description.vertex_description.bindVertex(drawing, &.{
@@ -52,8 +52,8 @@ pub const ColoredRect = struct {
             .{ .{ 0, 1, 1 }, .{ 0, 1 } },
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
-        ColoredRectUniform.setUniform(drawing, 1, .{ .transform = default_transform.getMat().cast(4, 4), .color = color });
-        graphics.GlobalUniform.setUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+        ColoredRectUniform.setAsUniform(drawing, 1, .{ .transform = default_transform.getMat().cast(4, 4), .color = color });
+        graphics.GlobalUniform.setAsUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
         return ColoredRect{
             .drawing = drawing,
@@ -62,7 +62,7 @@ pub const ColoredRect = struct {
     }
 
     pub fn updateTransform(self: ColoredRect) void {
-        ColoredRectUniform.setUniformField(self.drawing, 1, .transform, self.transform.getMat().cast(4, 4));
+        ColoredRectUniform.setAsUniformField(self.drawing, 1, .transform, self.transform.getMat().cast(4, 4));
     }
 
     transform: graphics.Transform2D,

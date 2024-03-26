@@ -37,8 +37,8 @@ pub const Box = struct {
         expand: Direction = .{},
         flow: Direction = .{},
         fit: Direction = .{},
-        size: Vec2 = .{ 0, 0 },
-        pos: Vec2 = .{ 0, 0 },
+        size: [2]f32 = .{ 0, 0 },
+        pos: [2]f32 = .{ 0, 0 },
         label: []const u8 = "unnamed",
         parent: ?*Box = null,
         children: []const *Box = &.{},
@@ -56,16 +56,16 @@ pub const Box = struct {
         std.debug.print(" | expand: {}\n", .{box.expand});
 
         for (0..level) |_| std.debug.print(" ", .{});
-        std.debug.print(" | size: {d}\n", .{box.current_size});
+        std.debug.print(" | size: {d}\n", .{box.current_size.val});
 
         for (0..level) |_| std.debug.print(" ", .{});
-        std.debug.print(" | fixed size: {d}\n", .{box.fixed_size});
+        std.debug.print(" | fixed size: {d}\n", .{box.fixed_size.val});
 
         for (0..level) |_| std.debug.print(" ", .{});
         std.debug.print(" | min: {d}\n", .{box.min()});
 
         for (0..level) |_| std.debug.print(" ", .{});
-        std.debug.print(" | pos: {d}\n", .{box.absolute_pos});
+        std.debug.print(" | pos: {d}\n", .{box.absolute_pos.val});
 
         for (0..level) |_| std.debug.print(" ", .{});
         std.debug.print(" | children: {{\n", .{});
@@ -93,9 +93,9 @@ pub const Box = struct {
             .expand = info.expand,
             .flow = info.flow,
             .fit = info.fit,
-            .fixed_size = info.size,
-            .current_size = info.size,
-            .absolute_pos = info.pos,
+            .fixed_size = math.Vec2.init(info.size),
+            .current_size = math.Vec2.init(info.size),
+            .absolute_pos = math.Vec2.init(info.pos),
             .leaves = box_arr,
             .update_callback = call_arr,
             .parent = info.parent,
@@ -125,8 +125,8 @@ pub const Box = struct {
         if (idx_or) |idx| _ = box.leaves.orderedRemove(idx);
     }
 
-    pub fn min(box: Box) Vec2 {
-        var val: Vec2 = .{ 0, 0 };
+    pub fn min(box: Box) [2]f32 {
+        var val: [2]f32 = .{ 0, 0 };
         for (box.leaves.items) |child| {
             const size = child.min();
             if (box.flow.horizontal) {
@@ -142,9 +142,10 @@ pub const Box = struct {
             }
         }
 
-        val = @max(val, box.fixed_size);
-        if (!box.fit.horizontal) val[0] = box.fixed_size[0];
-        if (!box.fit.vertical) val[1] = box.fixed_size[1];
+        val[0] = @max(val[0], box.fixed_size.val[0]);
+        val[1] = @max(val[1], box.fixed_size.val[1]);
+        if (!box.fit.horizontal) val[0] = box.fixed_size.val[0];
+        if (!box.fit.vertical) val[1] = box.fixed_size.val[1];
 
         return val;
     }
@@ -164,8 +165,8 @@ pub const Box = struct {
 
         if (box.fit.vertical or box.fit.horizontal) {
             const minimal = box.min();
-            if (box.fit.horizontal) box.current_size[0] = @max(box.current_size[0], minimal[0]);
-            if (box.fit.vertical) box.current_size[1] = @max(box.current_size[1], minimal[1]);
+            if (box.fit.horizontal) box.current_size.val[0] = @max(box.current_size.val[0], minimal[0]);
+            if (box.fit.vertical) box.current_size.val[1] = @max(box.current_size.val[1], minimal[1]);
         }
 
         var free_space = box.current_size;
@@ -175,16 +176,16 @@ pub const Box = struct {
             if (child.expand.horizontal) {
                 expand_count[0] += 1;
             } else if (box.flow.horizontal) {
-                free_space[0] -= child_size[0];
+                free_space.val[0] -= child_size[0];
             }
             if (child.expand.vertical) {
                 expand_count[1] += 1;
             } else if (box.flow.vertical) {
-                free_space[1] -= child_size[1];
+                free_space.val[1] -= child_size[1];
             }
         }
 
-        var expand_sizes: Vec2 = .{ free_space[0] / expand_count[0], free_space[1] / expand_count[1] };
+        var expand_sizes: [2]f32 = .{ free_space.val[0] / expand_count[0], free_space.val[1] / expand_count[1] };
 
         var buf: [2048]bool = undefined;
         var seen_indices = buf[0..box.leaves.items.len];
@@ -202,14 +203,14 @@ pub const Box = struct {
 
             if (child.expand.horizontal or child.expand.vertical) {
                 if (box.flow.horizontal and child.expand.horizontal and expand_sizes[0] < child_size[0]) {
-                    free_space[0] -= child_size[0];
+                    free_space.val[0] -= child_size[0];
                     expand_count[0] -= 1;
-                    expand_sizes[0] = free_space[0] / expand_count[0];
+                    expand_sizes[0] = free_space.val[0] / expand_count[0];
                 }
                 if (box.flow.vertical and child.expand.vertical and expand_sizes[1] < child_size[1]) {
-                    free_space[1] -= child_size[1];
+                    free_space.val[1] -= child_size[1];
                     expand_count[1] -= 1;
-                    expand_sizes[1] = free_space[1] / expand_count[1];
+                    expand_sizes[1] = free_space.val[1] / expand_count[1];
                 }
 
                 seen_indices[i] = true;
@@ -220,13 +221,13 @@ pub const Box = struct {
             i += 1;
         }
 
-        if (!box.flow.vertical) expand_sizes[1] = box.current_size[1];
-        if (!box.flow.horizontal) expand_sizes[0] = box.current_size[0];
+        if (!box.flow.vertical) expand_sizes[1] = box.current_size.val[1];
+        if (!box.flow.horizontal) expand_sizes[0] = box.current_size.val[0];
 
-        var pos = box.absolute_pos;
+        var pos = box.absolute_pos.val;
         for (box.leaves.items) |child| {
             const child_size = child.min();
-            child.absolute_pos = pos;
+            child.absolute_pos.val = pos;
 
             const actual_w = if (child.expand.horizontal and expand_sizes[0] > child_size[0]) expand_sizes[0] else child_size[0];
             const actual_h = if (child.expand.vertical and expand_sizes[1] > child_size[1]) expand_sizes[1] else child_size[1];
@@ -235,12 +236,12 @@ pub const Box = struct {
                 pos[0] += actual_w;
             }
 
-            child.current_size[0] = actual_w;
+            child.current_size.val[0] = actual_w;
 
             if (box.flow.vertical) {
                 pos[1] += actual_h;
             }
-            child.current_size[1] = actual_h;
+            child.current_size.val[1] = actual_h;
 
             try child.resolveChildren(update_callbacks);
         }

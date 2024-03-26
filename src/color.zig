@@ -1,7 +1,7 @@
 const std = @import("std");
 const math = @import("math.zig");
 
-pub fn parseHexRGBA(in_hex: []const u8) !math.Vec4 {
+pub fn parseHexRGBA(in_hex: []const u8) ![4]f32 {
     const hex = std.mem.trim(u8, in_hex, "#");
     if (hex.len < 6) return error.InvalidStringSize;
 
@@ -13,7 +13,7 @@ pub fn parseHexRGBA(in_hex: []const u8) !math.Vec4 {
     return .{ r / 255, g / 255, b / 255, a / 255 };
 }
 
-pub fn parseHexRGB(in_hex: []const u8) !math.Vec3 {
+pub fn parseHexRGB(in_hex: []const u8) ![3]f32 {
     const hex = std.mem.trim(u8, in_hex, "#");
     if (hex.len < 6) return error.InvalidStringSize;
 

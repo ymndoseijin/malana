@@ -9,50 +9,84 @@ const cos = std.math.cos;
 pub const Mat4 = Mat(f32, 4, 4);
 pub const Mat3 = Mat(f32, 3, 3);
 
-pub const Vec2 = @Vector(2, f32);
-pub const Vec3 = @Vector(3, f32);
-pub const Vec4 = @Vector(4, f32);
-
 pub fn Vec(comptime T: type, comptime size: usize) type {
     return struct {
-        const Self = @Vector(size, T);
+        const Vector = @Vector(size, T);
+        const Array = [size]T;
+        const VecN = @This();
 
-        pub fn interpolate(a: Self, b: Self, x: T) Self {
-            const left: Self = @splat(1 - x);
-            const right: Self = @splat(x);
+        val: Array,
+
+        pub fn init(arr: Array) VecN {
+            return .{ .val = arr };
+        }
+
+        pub fn splat(s: T) VecN {
+            return VecN.init(.{s} ** size);
+        }
+
+        pub fn add(a: VecN, b: VecN) VecN {
+            return VecN.init(a.toSimd() + b.toSimd());
+        }
+
+        pub fn mul(a: VecN, b: VecN) VecN {
+            return VecN.init(a.toSimd() * b.toSimd());
+        }
+
+        pub fn div(a: VecN, b: VecN) VecN {
+            return VecN.init(a.toSimd() / b.toSimd());
+        }
+
+        pub fn scale(a: VecN, s: T) VecN {
+            const sv: Vector = @splat(s);
+            return VecN.init(a.toSimd() * sv);
+        }
+
+        pub fn toSimd(a: VecN) Vector {
+            return a.val;
+        }
+
+        pub fn sub(a: VecN, b: VecN) VecN {
+            return VecN.init(a.toSimd() - b.toSimd());
+        }
+
+        pub fn interpolate(a: Vector, b: Vector, x: T) Vector {
+            const left: Vector = @splat(1 - x);
+            const right: Vector = @splat(x);
             return left * a + b * right;
         }
 
-        pub fn dot(a: Self, b: Self) T {
-            return @reduce(.Add, a * b);
+        pub fn dot(a: VecN, b: VecN) T {
+            return @reduce(.Add, a.toSimd() * b.toSimd());
         }
 
-        pub fn length(a: Self) T {
-            return @sqrt(@reduce(.Add, a * a));
+        pub fn length(a: VecN) T {
+            return @sqrt(@reduce(.Add, a.toSimd() * a.toSimd()));
         }
 
-        pub fn norm(a: Self) Self {
-            const len: Self = @splat(length(a));
-            return a / len;
+        pub fn norm(a: VecN) VecN {
+            return a.scale(1.0 / a.length());
         }
 
-        pub fn proj(a: Self, b: Self) Self {
-            const factor: Self = @splat(dot(b, a) / dot(a, a));
+        pub fn proj(a: Vector, b: Vector) Vector {
+            const factor: Vector = @splat(dot(b, a) / dot(a, a));
             return factor * a;
         }
 
-        pub fn cross(a: Vec3, b: Vec3) Vec3 {
-            return .{ a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
+        pub fn cross(a_in: Vec3, b_in: Vec3) Vec3 {
+            const a = a_in.val;
+            const b = b_in.val;
+            return Vec3.init(.{ a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] });
         }
         pub fn crossn(a: Vec3, b: Vec3) Vec3 {
-            return Vec3Utils.norm(Vec3Utils.cross(a, b));
+            return Vec3.norm(Vec3.cross(a, b));
         }
     };
 }
 
-pub const Vec2Utils = Vec(f32, 2);
-
-pub const Vec3Utils = Vec(f32, 3);
+pub const Vec2 = Vec(f32, 2);
+pub const Vec3 = Vec(f32, 3);
+pub const Vec4 = Vec(f32, 4);
 
 pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type {
     return extern struct {
@@ -96,7 +130,8 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
             return Mat(T, cw, ch).init(res);
         }
 
-        pub fn scaling(vec: @Vector(width, T)) @This() {
+        pub fn scaling(in_vec: Vec(T, width)) @This() {
+            const vec = in_vec.toSimd();
             var res: [width][height]T = undefined;
             inline for (0..width) |i| {
                 inline for (0..height) |j| {
@@ -110,7 +145,8 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
             return @This().init(res);
         }
 
-        pub fn translation(vec: @Vector(height - 1, T)) @This() {
+        pub fn translation(in_vec: Vec(T, height - 1)) @This() {
+            const vec = in_vec.toSimd();
             var res = identity();
             const arr: [height - 1]T = vec;
             inline for (arr, 0..) |vcolumn, i| {
@@ -128,7 +164,8 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
             return @This(){ .columns = .{.{default} ** height} ** width };
         }
 
-        pub fn dot(self: @This(), vec: @Vector(width, T)) @Vector(height, T) {
+        pub fn dot(self: @This(), in_vec: Vec(T, width)) Vec(T, width) {
+            const vec = in_vec.toSimd();
             var res: @Vector(height, T) = undefined;
             inline for (0..width) |i| {
                 var row: @Vector(width, T) = undefined;
@@ -138,7 +175,7 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
 
                 res[i] = @reduce(.Add, row * vec);
             }
-            return res;
+            return Vec(T, width).init(res);
         }
 
         pub fn gramschmidt(self: @This()) @This() {
@@ -203,14 +240,13 @@ pub fn rotation2D(comptime T: type, t: T) Mat(T, 2, 2) {
     });
 }
 
-// rotation is struct { angle: T = 0, center: @Vector(2, T) = .{ 0, 0 } }
-pub fn transform2D(comptime T: type, scaling: @Vector(2, T), rotation: anytype, translation: @Vector(2, T)) Mat(T, 3, 3) {
-    var rot = Mat(T, 3, 3).translation(@as(@Vector(2, T), @splat(-1)) * rotation.center);
+pub fn transform2D(comptime T: type, scaling: Vec(T, 2), rotation: struct { angle: T, center: Vec(T, 2) }, translation: Vec(T, 2)) Mat(T, 3, 3) {
+    var rot = Mat(T, 3, 3).translation(Vec2.init(.{ -1, -1 }).mul(rotation.center));
     rot = rotation2D(T, rotation.angle).cast(3, 3).mul(rot);
     rot = Mat(T, 3, 3).translation(rotation.center).mul(rot);
 
-    const trans = Mat(T, 3, 3).translation(.{ translation[0], translation[1] });
-    const scale = Mat(T, 3, 3).scaling(.{ scaling[0], scaling[1], 1 });
+    const trans = Mat(T, 3, 3).translation(translation);
+    const scale = Mat(T, 3, 3).scaling(Vec(T, 3).init(.{ scaling.val[0], scaling.val[1], 1 }));
     return trans.mul(rot.mul(scale));
 }
 
@@ -260,51 +296,17 @@ pub fn perspectiveMatrix(fovy: f32, aspect: f32, nearZ: f32, farZ: f32) Mat4 {
 }
 
 pub fn lookAtMatrix(eye: Vec3, center: Vec3, up: Vec3) Mat4 {
-    const f = Vec3Utils.norm(center - eye);
-
-    const s = Vec3Utils.norm(Vec3Utils.cross(f, up));
-    const u = Vec3Utils.cross(s, f);
+    const f_vec = center.sub(eye).norm();
+    const s_vec = f_vec.cross(up).norm();
+    const u_vec = s_vec.cross(f_vec);
+    const f = f_vec.val;
+    const s = s_vec.val;
+    const u = u_vec.val;
 
     return Mat4.init(.{
         .{ s[0], u[0], -f[0], 0 },
         .{ s[1], u[1], -f[1], 0 },
         .{ s[2], u[2], -f[2], 0 },
-        .{ -Vec3Utils.dot(s, eye), -Vec3Utils.dot(u, eye), Vec3Utils.dot(f, eye), 1 },
+        .{ -Vec3.dot(s_vec, eye), -Vec3.dot(u_vec, eye), Vec3.dot(f_vec, eye), 1 },
     });
-}
-
-pub fn main() !void {
-    var a = Mat(i32, 3, 3).init(.{
-        .{ 1, 0, 0 },
-        .{ 0, 1, 0 },
-        .{ 0, 0, 1 },
-    });
-
-    var b = Mat(i32, 3, 3).init(.{
-        .{ 1, 2, 3 },
-        .{ 3, 2, 1 },
-        .{ 2, 1, 3 },
-    });
-    std.debug.print("{any}\n", .{a.mul(b)});
-    std.debug.print("{any}\n", .{perspectiveMatrix(0.6, 1, 0.1, 2048)});
-    std.debug.print("{d:.1}\n", .{a.dot(.{ 1, 2, 3 })});
-
-    std.debug.print("{d:.1}\n", .{Vec(i32, 3).dot(.{ 1, 2, 3 }, .{ 1, 10, 100 })});
-    std.debug.print("{d:.1}\n", .{Vec(f32, 2).proj(.{ 3, 1 }, .{ 2, 2 })});
-
-    std.debug.print("{d:.1}\n", .{Vec3Utils.cross(.{ 2, -3, 1 }, .{ -2, 1, 1 })});
-    std.debug.print("{d:.1}\n", .{Vec3Utils.norm(Vec3{ 2, -3, 1 })});
-
-    const center = Vec3{ 0.54030, 0.00000, -0.84147 };
-    const up = Vec3{ 0.00000, 1.00000, 0.00000 };
-
-    std.debug.print("{d:.4}\n", .{Vec(f32, 2).norm(.{ 1, 1 })});
-    std.debug.print("{d:.4}\n", .{lookAtMatrix(.{ 0, 0, 0 }, center, up).columns});
-
-    var c = Mat(i32, 2, 2).init(.{
-        .{ 1, 2 },
-        .{ 3, 4 },
-    });
-    std.debug.print("{d:.4}\n", .{c.determinant()});
-    std.debug.print("{d:.4}\n", .{b.determinant()});
 }

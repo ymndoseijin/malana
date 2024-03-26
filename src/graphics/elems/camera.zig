@@ -19,7 +19,6 @@ const Drawing = graphics.Drawing;
 const glfw = graphics.glfw;
 const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
-const Vec3Utils = math.Vec3Utils;
 
 const TAU = 6.28318530718;
 
@@ -28,8 +27,8 @@ pub const Camera = struct {
 
     transform_mat: math.Mat4,
 
-    move: @Vector(3, f32) = .{ 0, 0, 0 },
-    up: @Vector(3, f32) = .{ 0, 1, 0 },
+    move: Vec3 = Vec3.init(.{ 0, 0, 0 }),
+    up: Vec3 = Vec3.init(.{ 0, 1, 0 }),
 
     eye: [2]f32 = .{ 4.32, -0.23 },
 
@@ -37,9 +36,9 @@ pub const Camera = struct {
         const eye_x = self.eye[0];
         const eye_y = self.eye[1];
 
-        const eye = Vec3{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) };
+        const eye = Vec3.init(.{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) });
 
-        const view_mat = math.lookAtMatrix(.{ 0, 0, 0 }, eye, self.up);
+        const view_mat = math.lookAtMatrix(Vec3.init(.{ 0, 0, 0 }), eye, self.up);
         //const translation_mat = Mat4.translation(-self.move);
 
         self.transform_mat = self.perspective_mat.mul(view_mat);
@@ -131,39 +130,40 @@ pub const Camera = struct {
             look_speed *= format.look_multiplier;
         }
 
-        const speed_vec: Vec3 = @splat(speed);
-        const eye = speed_vec * Vec3{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) };
+        const eye = Vec3.init(.{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) }).scale(speed);
 
-        const cross_eye = speed_vec * -Vec3Utils.crossn(eye, cam.up);
+        const cross_eye = eye.crossn(cam.up).scale(-speed);
 
-        const up_eye = speed_vec * Vec3Utils.crossn(eye, cross_eye);
+        const up_eye = eye.crossn(cross_eye).scale(speed);
 
         //if (keys[glfw.GLFW_KEY_Q]) {
         //    main_win.alive = false;
         //}
 
-        if (keys[format.forward_key]) cam_pos.* += eye;
+        if (keys[format.forward_key]) cam_pos.* = cam_pos.add(eye);
 
-        if (keys[format.backward_key]) cam_pos.* -= eye;
+        if (keys[format.backward_key]) cam_pos.* = cam_pos.sub(eye);
 
-        if (keys[format.leftward_key]) cam_pos.* += cross_eye;
+        if (keys[format.leftward_key]) cam_pos.* = cam_pos.add(cross_eye);
 
-        if (keys[format.rightward_key]) cam_pos.* -= cross_eye;
+        if (keys[format.rightward_key]) cam_pos.* = cam_pos.sub(cross_eye);
 
-        if (keys[format.upward_key]) cam_pos.* += up_eye;
+        if (keys[format.upward_key]) cam_pos.* = cam_pos.add(up_eye);
 
-        if (keys[format.downward_key]) cam_pos.* -= up_eye;
+        if (keys[format.downward_key]) cam_pos.* = cam_pos.sub(up_eye);
 
         if (keys[format.right_look_key]) cam.eye[0] += look_speed;
 
         if (keys[format.left_look_key]) cam.eye[0] -= look_speed;
 
+        const ep: f32 = 0.01;
+
         if (keys[format.up_look_key]) {
-            if (cam.eye[1] < TAU) cam.eye[1] += look_speed;
+            if (cam.eye[1] < (TAU / 4.0 - ep)) cam.eye[1] += look_speed;
         }
 
         if (keys[format.down_look_key]) {
-            if (cam.eye[1] > -TAU) cam.eye[1] -= look_speed;
+            if (cam.eye[1] > -(TAU / 4.0 - ep)) cam.eye[1] -= look_speed;
         }
 
         try cam.updateMat();
