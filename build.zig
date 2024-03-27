@@ -100,12 +100,12 @@ pub const ShaderCompileStep = struct {
     /// Returns the shaders module with name.
     pub fn getModule(self: *ShaderCompileStep) *Build.Module {
         return self.step.owner.createModule(.{
-            .source_file = self.getSource(),
+            .root_source_file = self.getSource(),
         });
     }
 
     /// Returns the file source for the generated shader resource code.
-    pub fn getSource(self: *ShaderCompileStep) Build.FileSource {
+    pub fn getSource(self: *ShaderCompileStep) Build.LazyPath {
         return .{ .generated = &self.generated_file };
     }
 
@@ -251,20 +251,25 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const gl = b.createModule(.{ .source_file = .{ .path = "src/graphics/gl.zig" } });
-    const math = b.createModule(.{ .source_file = .{ .path = "src/math.zig" } });
-    const common = b.createModule(.{ .source_file = .{ .path = "src/common.zig" } });
+    const glfw_dep = b.dependency("glfw", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const gl = b.createModule(.{ .root_source_file = .{ .path = "src/graphics/gl.zig" } });
+    const math = b.createModule(.{ .root_source_file = .{ .path = "src/math.zig" } });
+    const common = b.createModule(.{ .root_source_file = .{ .path = "src/common.zig" } });
     const parsing = b.createModule(.{
-        .source_file = .{ .path = "src/parsing/parsing.zig" },
-        .dependencies = &.{
+        .root_source_file = .{ .path = "src/parsing/parsing.zig" },
+        .imports = &.{
             .{ .name = "math", .module = math },
             .{ .name = "common", .module = common },
         },
     });
 
     const geometry = b.createModule(.{
-        .source_file = .{ .path = "src/geometry.zig" },
-        .dependencies = &.{
+        .root_source_file = .{ .path = "src/geometry.zig" },
+        .imports = &.{
             .{ .name = "math", .module = math },
             .{ .name = "zilliam", .module = zilliam_dep.module("zilliam") },
             .{ .name = "common", .module = common },
@@ -295,8 +300,8 @@ pub fn build(b: *std.Build) void {
     }
 
     const graphics = b.createModule(.{
-        .source_file = .{ .path = "src/graphics/graphics.zig" },
-        .dependencies = &.{
+        .root_source_file = .{ .path = "src/graphics/graphics.zig" },
+        .imports = &.{
             .{ .name = "math", .module = math },
             .{ .name = "common", .module = common },
             .{ .name = "gl", .module = gl },
@@ -309,16 +314,16 @@ pub fn build(b: *std.Build) void {
     });
 
     const numericals = b.createModule(.{
-        .source_file = .{ .path = "src/numericals.zig" },
-        .dependencies = &.{
+        .root_source_file = .{ .path = "src/numericals.zig" },
+        .imports = &.{
             .{ .name = "math", .module = math },
             .{ .name = "common", .module = common },
         },
     });
 
-    const ui_info: std.Build.CreateModuleOptions = .{
-        .source_file = .{ .path = "src/ui.zig" },
-        .dependencies = &.{
+    const ui_info: std.Build.Module.CreateOptions = .{
+        .root_source_file = .{ .path = "src/ui.zig" },
+        .imports = &.{
             .{ .name = "img", .module = zigimg_dep.module("zigimg") },
             .{ .name = "freetype", .module = freetype_dep.module("mach-freetype") },
             .{ .name = "zilliam", .module = zilliam_dep.module("zilliam") },
@@ -373,7 +378,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         });
 
-        exe.addModule("ui", ui);
+        exe.root_module.addImport("ui", ui);
 
         const shaders = ShaderCompileStep.create(
             b,
@@ -383,9 +388,10 @@ pub fn build(b: *std.Build) void {
         inline for (app[1]) |shader| {
             shaders.add(shader[0], "examples/" ++ app[0] ++ "/" ++ shader[1], .{});
         }
-        exe.addModule("shaders", shaders.getModule());
+        exe.root_module.addImport("shaders", shaders.getModule());
 
-        linkLibraries(b, exe);
+        exe.linkLibrary(glfw_dep.artifact("glfw"));
+        //exe.linkLibrary(freetype_dep.artifact("freetype"));
 
         exe.linkLibC();
 
@@ -409,17 +415,18 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    unit_tests.addModule("img", zigimg_dep.module("zigimg"));
+    unit_tests.root_module.addImport("img", zigimg_dep.module("zigimg"));
 
-    unit_tests.addModule("graphics", graphics);
-    unit_tests.addModule("geometry", geometry);
-    unit_tests.addModule("numericals", numericals);
-    unit_tests.addModule("common", common);
-    unit_tests.addModule("parsing", parsing);
-    unit_tests.addModule("gl", gl);
-    unit_tests.addModule("math", math);
+    unit_tests.root_module.addImport("graphics", graphics);
+    unit_tests.root_module.addImport("geometry", geometry);
+    unit_tests.root_module.addImport("numericals", numericals);
+    unit_tests.root_module.addImport("common", common);
+    unit_tests.root_module.addImport("parsing", parsing);
+    unit_tests.root_module.addImport("gl", gl);
+    unit_tests.root_module.addImport("math", math);
 
-    linkLibraries(b, unit_tests);
+    unit_tests.linkLibrary(glfw_dep.artifact("glfw"));
+    //unit_tests.linkLibrary(freetype_dep.artifact("freetype"));
 
     unit_tests.linkLibC();
 
@@ -427,16 +434,4 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
-}
-
-pub fn linkLibraries(b: *std.Build, step: *std.build.CompileStep) void {
-    const freetype_dep = b.dependency("freetype", .{
-        .target = step.target,
-        .optimize = step.optimize,
-    });
-    step.linkLibrary(b.dependency("glfw", .{
-        .target = step.target,
-        .optimize = step.optimize,
-    }).artifact("glfw"));
-    @import("freetype").linkFreetype(freetype_dep.builder, step);
 }
