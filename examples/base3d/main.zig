@@ -63,6 +63,7 @@ pub fn main() !void {
         .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), graphics.SpatialMesh.Uniform.getSize() },
         .constants_size = PushConstants.getSize(),
         .global_ubo = true,
+        .sampler_count = 1,
     };
 
     var pipeline = try graphics.RenderPipeline.init(ally, .{
@@ -74,9 +75,14 @@ pub fn main() !void {
     });
     defer pipeline.deinit(&state.main_win.gc);
 
+    var cubemap = try graphics.Texture.init(state.main_win, 1000, 1000, .{ .cubemap = true });
+    try cubemap.setCube(ally, .{ "x_minus.png", "x_plus.png", "y_plus.png", "y_minus.png", "z_plus.png", "z_minus.png" });
+    defer cubemap.deinit();
+
     const camera_obj = try graphics.SpatialMesh.init(&state.scene, .{
         .pos = math.Vec3.init(.{ 0, 0, 0 }),
         .pipeline = pipeline,
+        .samplers = &.{cubemap},
     });
 
     try graphics.SpatialMesh.Pipeline.vertex_description.bindVertex(camera_obj.drawing, object.vertices.items, object.indices.items);

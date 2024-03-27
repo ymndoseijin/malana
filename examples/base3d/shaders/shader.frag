@@ -24,6 +24,8 @@ layout (binding = 1) uniform SpatialUBO {
    Light lights[max_lights];
 } spatial_ubo;
 
+layout (binding = 2) uniform samplerCube cubemap;
+
 layout (push_constant) uniform Constants {
    vec3 cam_pos;
    mat4 cam_transform;
@@ -52,12 +54,13 @@ void main() {
    vec3 f0 = vec3(0.04); 
    f0 = mix(f0, albedo, metallic);
 
+   vec3 v = normalize(constants.cam_pos - in_pos);
+
    for (int i = 0; i < spatial_ubo.light_count; i++) {
       Light light = spatial_ubo.lights[i];
       float dist = length(light.pos - in_pos);
       vec3 radiance = light.intensity / (dist * dist);
 
-      vec3 v = normalize(constants.cam_pos - in_pos);
       vec3 l = normalize(light.pos - in_pos);
       vec3 h = normalize(v + l);
 
@@ -85,5 +88,6 @@ void main() {
 
    vec3 res = total_val;
    res = pow(res, vec3(1 / 2.2));
-   out_color = vec4(total_val, 1);
+   res = texture(cubemap, reflect(normalize(in_pos - constants.cam_pos), n)).rgb;
+   out_color = vec4(res, 1);
 }

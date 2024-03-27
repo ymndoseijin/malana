@@ -849,8 +849,9 @@ pub const TextureInfo = struct {
     mag_filter: FilterEnum = .nearest,
     min_filter: FilterEnum = .nearest,
     multisampling: bool = false,
-    preferred_format: ?PreferredFormat = null,
     is_render_target: bool = false,
+    cubemap: bool = false,
+    preferred_format: ?PreferredFormat = null,
 };
 
 pub const Texture = struct {
@@ -874,7 +875,7 @@ pub const Texture = struct {
             .image_type = .@"2d",
             .extent = .{ .width = width, .height = height, .depth = 1 },
             .mip_levels = 1,
-            .array_layers = 1,
+            .array_layers = if (info.cubemap) 6 else 1,
             .format = if (info.multisampling and info.preferred_format != .depth) win.preferred_format.getSurfaceFormat(win.gc) else format.getSurfaceFormat(win.gc),
             .tiling = blk: {
                 if (info.is_render_target or info.multisampling) {
@@ -900,8 +901,7 @@ pub const Texture = struct {
             },
             .samples = if (info.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
             .sharing_mode = .exclusive,
-            // why?
-            .flags = .{ .cube_compatible_bit = false },
+            .flags = if (info.cubemap) .{ .cube_compatible_bit = true } else .{},
         };
 
         const image = try win.gc.vkd.createImage(win.gc.dev, &image_info, null);
@@ -909,11 +909,14 @@ pub const Texture = struct {
         const image_memory = try win.gc.allocate(mem_reqs, .{ .device_local_bit = true });
         try win.gc.vkd.bindImageMemory(win.gc.dev, image, image_memory, 0);
 
-        if (format == .depth) try transitionImageLayout(&win.gc, win.pool, image, .undefined, .depth_stencil_attachment_optimal);
+        if (format == .depth) try transitionImageLayout(&win.gc, win.pool, image, .{
+            .old_layout = .undefined,
+            .new_layout = .depth_stencil_attachment_optimal,
+        });
 
         const view_info: vk.ImageViewCreateInfo = .{
             .image = image,
-            .view_type = .@"2d",
+            .view_type = if (info.cubemap) .cube else .@"2d",
             .format = format.getSurfaceFormat(win.gc),
             .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
             .subresource_range = .{
@@ -921,7 +924,7 @@ pub const Texture = struct {
                 .base_mip_level = 0,
                 .level_count = 1,
                 .base_array_layer = 0,
-                .layer_count = 1,
+                .layer_count = if (info.cubemap) 6 else 1,
             },
         };
 
@@ -1033,7 +1036,7 @@ pub const Texture = struct {
 
         const view_info: vk.ImageViewCreateInfo = .{
             .image = tex.image,
-            .view_type = .@"2d",
+            .view_type = if (tex.info.cubemap) .cube else .@"2d",
             .format = tex.window.preferred_format.getSurfaceFormat(gc.*),
             .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
             .subresource_range = .{
@@ -1062,7 +1065,7 @@ pub const Texture = struct {
                 .aspect_mask = .{ .color_bit = true },
                 .mip_level = 0,
                 .base_array_layer = 0,
-                .layer_count = 1,
+                .layer_count = if (tex.info.cubemap) 6 else 1,
             },
             .image_offset = .{ .x = 0, .y = 0, .z = 0 },
             .image_extent = .{ .width = tex.width, .height = tex.height, .depth = 1 },
@@ -1071,6 +1074,54 @@ pub const Texture = struct {
         tex.window.gc.vkd.cmdCopyBufferToImage(cmdbuf, buffer, tex.image, .transfer_dst_optimal, 1, @ptrCast(&region));
 
         try finishSingleCommandBuffer(cmdbuf, &tex.window.gc);
+    }
+
+    pub fn setCube(tex: Texture, ally: std.mem.Allocator, paths: [6][]const u8) !void {
+        const size = tex.width * tex.height;
+        const staging_buff = try tex.window.gc.createStagingBuffer(size * 4 * 6);
+        defer staging_buff.deinit(&tex.window.gc);
+
+        const Rgba = struct {
+            b: u8,
+            g: u8,
+            r: u8,
+            a: u8,
+        };
+
+        {
+            const data = try tex.window.gc.vkd.mapMemory(tex.window.gc.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
+            defer tex.window.gc.vkd.unmapMemory(tex.window.gc.dev, staging_buff.memory);
+
+            for (paths, 0..) |path, i| {
+                var read_image = try img.Image.fromFilePath(ally, path);
+                defer read_image.deinit();
+
+                switch (read_image.pixels) {
+                    .rgba32 => |rgba| {
+                        var pixel_data: [*]align(4) Rgba = @alignCast(@ptrCast(data));
+                        for (pixel_data[size * i ..][0..size], rgba) |*p, byte| {
+                            p.r = byte.r;
+                            p.g = byte.g;
+                            p.b = byte.b;
+                            p.a = byte.a;
+                        }
+                    },
+                    else => return error.InvalidImage,
+                }
+            }
+        }
+
+        try transitionImageLayout(&tex.window.gc, tex.window.pool, tex.image, .{
+            .old_layout = .undefined,
+            .new_layout = .transfer_dst_optimal,
+            .layer_count = 6,
+        });
+        try tex.copyBufferToImage(staging_buff.buffer);
+        try transitionImageLayout(&tex.window.gc, tex.window.pool, tex.image, .{
+            .old_layout = .transfer_dst_optimal,
+            .new_layout = .shader_read_only_optimal,
+            .layer_count = 6,
+        });
     }
 
     pub fn createImage(tex: Texture, rgba: anytype) !void {
@@ -1086,9 +1137,17 @@ pub const Texture = struct {
             for (@as([*]PixelFormat, @ptrCast(data))[0..rgba.data.len], 0..) |*p, i| p.* = rgba.data[i];
         }
 
-        try transitionImageLayout(&tex.window.gc, tex.window.pool, tex.image, .undefined, .transfer_dst_optimal);
+        try transitionImageLayout(&tex.window.gc, tex.window.pool, tex.image, .{
+            .old_layout = .undefined,
+            .new_layout = .transfer_dst_optimal,
+            .layer_count = if (tex.info.cubemap) 6 else 1,
+        });
         try tex.copyBufferToImage(staging_buff.buffer);
-        try transitionImageLayout(&tex.window.gc, tex.window.pool, tex.image, .transfer_dst_optimal, .shader_read_only_optimal);
+        try transitionImageLayout(&tex.window.gc, tex.window.pool, tex.image, .{
+            .old_layout = .transfer_dst_optimal,
+            .new_layout = .shader_read_only_optimal,
+            .layer_count = if (tex.info.cubemap) 6 else 1,
+        });
     }
 
     pub fn setFromRgba(self: *Texture, rgba: anytype) !void {
@@ -1098,30 +1157,34 @@ pub const Texture = struct {
     }
 };
 
-pub fn transitionImageLayout(gc: *const GraphicsContext, pool: vk.CommandPool, image: vk.Image, old_layout: vk.ImageLayout, new_layout: vk.ImageLayout) !void {
+pub fn transitionImageLayout(gc: *const GraphicsContext, pool: vk.CommandPool, image: vk.Image, options: struct {
+    old_layout: vk.ImageLayout,
+    new_layout: vk.ImageLayout,
+    layer_count: u32 = 1,
+}) !void {
     const cmdbuf = try createSingleCommandBuffer(gc, pool);
     defer freeSingleCommandBuffer(cmdbuf, gc, pool);
 
     const barrier: vk.ImageMemoryBarrier = .{
-        .old_layout = old_layout,
-        .new_layout = new_layout,
+        .old_layout = options.old_layout,
+        .new_layout = options.new_layout,
         .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
         .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
         .image = image,
         .subresource_range = .{
             // stencil also has to be marked if the format supports it
-            .aspect_mask = if (new_layout == .depth_stencil_attachment_optimal) .{ .depth_bit = true } else .{ .color_bit = true },
+            .aspect_mask = if (options.new_layout == .depth_stencil_attachment_optimal) .{ .depth_bit = true } else .{ .color_bit = true },
             .base_mip_level = 0,
             .level_count = 1,
             .base_array_layer = 0,
-            .layer_count = 1,
+            .layer_count = options.layer_count,
         },
-        .src_access_mask = switch (old_layout) {
+        .src_access_mask = switch (options.old_layout) {
             .undefined => .{},
             .transfer_dst_optimal => .{ .transfer_write_bit = true },
             else => return error.InvalidOldLayout,
         },
-        .dst_access_mask = switch (new_layout) {
+        .dst_access_mask = switch (options.new_layout) {
             .transfer_dst_optimal => .{ .transfer_write_bit = true },
             .shader_read_only_optimal => .{ .shader_read_bit = true },
             .depth_stencil_attachment_optimal => .{ .depth_stencil_attachment_read_bit = true, .depth_stencil_attachment_write_bit = true },
@@ -1131,12 +1194,12 @@ pub fn transitionImageLayout(gc: *const GraphicsContext, pool: vk.CommandPool, i
 
     gc.vkd.cmdPipelineBarrier(
         cmdbuf,
-        switch (old_layout) {
+        switch (options.old_layout) {
             .undefined => .{ .top_of_pipe_bit = true },
             .transfer_dst_optimal => .{ .transfer_bit = true },
             else => return error.InvalidOldLayout,
         },
-        switch (new_layout) {
+        switch (options.new_layout) {
             .transfer_dst_optimal => .{ .transfer_bit = true },
             .shader_read_only_optimal => .{ .fragment_shader_bit = true },
             .depth_stencil_attachment_optimal => .{ .early_fragment_tests_bit = true },
@@ -1269,13 +1332,6 @@ pub const Drawing = struct {
 
         if (self.index_buffer) |ib| ib.deinit(&win.gc);
         if (self.vertex_buffer) |vb| vb.deinit(&win.gc);
-    }
-
-    const cubemapOrientation = enum { xp, yp, zp, xm, ym, zm };
-
-    pub fn getIthTexture(comptime T: type, i: usize) !T {
-        if (i > 31) return error.TooManyTextures;
-        return @intCast(0x84C0 + i);
     }
 
     pub fn createDescriptorSets(self: *Drawing, ally: std.mem.Allocator, samplers: []const Texture) !void {
@@ -2144,7 +2200,10 @@ pub const Window = struct {
         };
 
         const depth_image_view = try gc.vkd.createImageView(gc.dev, &view_info, null);
-        try transitionImageLayout(gc, pool, image, .undefined, .depth_stencil_attachment_optimal);
+        try transitionImageLayout(gc, pool, image, .{
+            .old_layout = .undefined,
+            .new_layout = .depth_stencil_attachment_optimal,
+        });
 
         return .{ .view = depth_image_view, .image = image, .memory = image_memory };
     }
