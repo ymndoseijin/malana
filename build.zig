@@ -395,11 +395,14 @@ pub fn build(b: *std.Build) void {
 
         exe.linkLibC();
 
-        b.installArtifact(exe);
+        const artifact = b.addInstallArtifact(exe, .{});
+
+        const build_step = b.step(app[0], "Build " ++ app[0]);
+        build_step.dependOn(&artifact.step);
 
         const run_cmd = b.addRunArtifact(exe);
 
-        run_cmd.step.dependOn(b.getInstallStep());
+        run_cmd.step.dependOn(build_step);
 
         if (b.args) |args| {
             run_cmd.addArgs(args);
