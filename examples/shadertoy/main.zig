@@ -33,7 +33,7 @@ pub fn main() !void {
 
     const shader_path = arg_it.next() orelse return error.NotEnoughArguments;
 
-    if ((try std.posix.fork()) == 0) std.process.execve(ally, &.{ "glslc", "--target-env=vulkan1.2", shader_path, "-o", "/tmp/shadertoy.spv" }, null) catch {};
+    if ((try std.posix.fork()) == 0) std.process.execve(ally, &.{ "glslang", "-gVS", "--target-env", "vulkan1.2", shader_path, "-o", "/tmp/shadertoy.spv" }, null) catch {};
     _ = std.posix.waitpid(-1, 0);
 
     const shader_file = try std.fs.cwd().openFile("/tmp/shadertoy.spv", .{});

@@ -22,7 +22,7 @@
         },
         .zilliam = .{
             .url = "https://github.com/ymndoseijin/zilliam/archive/master.tar.gz",
-            .hash = "1220e1453828bc782fd5c1297885528717203e9f0ff98fb97c632c17ba9202a91861",
+            .hash = "12205f8791f4ea5e4fc867c4c7d66956352d27b7a389b0a4ecffaf7dd26210eaad76",
         },
     },
 }

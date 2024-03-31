@@ -111,9 +111,6 @@ pub fn main() !void {
 
         graphics.SpatialMesh.Uniform.setAsUniform(camera_obj.drawing, 1, uniform);
 
-        try fps.clear(&state.post_scene, ally);
-        try fps.printFmt(&state.post_scene, ally, "FPS: {}", .{@as(u32, @intFromFloat(1 / state.dt))});
-
         const frame_id = builder.frame_id;
         const swapchain = &state.main_win.swapchain;
         const extent = swapchain.extent;
