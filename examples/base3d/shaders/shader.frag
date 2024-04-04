@@ -1,4 +1,5 @@
 #version 450
+#extension GL_EXT_nonuniform_qualifier : require
 #define max_lights 256
 #define PI 3.14159265359
 
@@ -24,7 +25,7 @@ layout (binding = 1) uniform SpatialUBO {
    Light lights[max_lights];
 } spatial_ubo;
 
-layout (binding = 2) uniform samplerCube cubemap;
+layout (binding = 2) uniform samplerCube cubemap[];
 
 layout (push_constant) uniform Constants {
    vec3 cam_pos;
@@ -88,6 +89,6 @@ void main() {
 
    vec3 res = total_val;
    res = pow(res, vec3(1 / 2.2));
-   res = texture(cubemap, reflect(normalize(in_pos - constants.cam_pos), n)).rgb;
+   res = texture(cubemap[1], reflect(normalize(in_pos - constants.cam_pos), n)).rgb;
    out_color = vec4(res, 1);
 }

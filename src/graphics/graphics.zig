@@ -319,6 +319,13 @@ fn initializeCandidate(vki: InstanceDispatch, candidate: DeviceCandidate) !vk.De
         .enabled_extension_count = required_device_extensions.len,
         .pp_enabled_extension_names = @as([*]const [*:0]const u8, @ptrCast(&required_device_extensions)),
         .p_enabled_features = &features,
+        .p_next = &vk.PhysicalDeviceDescriptorIndexingFeatures{
+            .descriptor_binding_partially_bound = vk.TRUE,
+            .descriptor_binding_update_unused_while_pending = vk.TRUE,
+            .descriptor_binding_variable_descriptor_count = vk.TRUE,
+            .descriptor_binding_uniform_buffer_update_after_bind = vk.TRUE,
+            .descriptor_binding_sampled_image_update_after_bind = vk.TRUE,
+        },
     }, null);
 }
 
@@ -1268,7 +1275,7 @@ pub const Drawing = struct {
     pub const Info = struct {
         win: *Window,
         pipeline: RenderPipeline,
-        samplers: []const Texture = &.{},
+        samplers: []const []const Texture = &.{},
     };
 
     pub fn init(drawing: *Drawing, ally: std.mem.Allocator, info: Info) !void {
@@ -1284,8 +1291,7 @@ pub const Drawing = struct {
         for (pool_sizes, pipeline.bindings) |*pool_size, binding| {
             pool_size.* = .{
                 .type = binding.descriptor_type,
-                //.descriptor_count = binding.descriptor_count * max_sets,
-                .descriptor_count = frames,
+                .descriptor_count = frames * binding.descriptor_count,
             };
         }
 
@@ -1293,6 +1299,7 @@ pub const Drawing = struct {
             .max_sets = frames,
             .p_pool_sizes = pool_sizes.ptr,
             .pool_size_count = @intCast(pipeline.bindings.len),
+            .flags = if (pipeline.description.bindless) .{ .update_after_bind_bit = true } else .{},
         };
 
         const uniforms = try ally.alloc([]UniformBuffer, pipeline.description.uniform_sizes.len);
@@ -1334,17 +1341,32 @@ pub const Drawing = struct {
         if (self.vertex_buffer) |vb| vb.deinit(&win.gc);
     }
 
-    pub fn createDescriptorSets(self: *Drawing, ally: std.mem.Allocator, samplers: []const Texture) !void {
+    pub fn createDescriptorSets(self: *Drawing, ally: std.mem.Allocator, samplers: []const []const Texture) !void {
         var gc = &self.window.gc;
         const layouts = try ally.alloc(vk.DescriptorSetLayout, frames_in_flight);
         defer ally.free(layouts);
         for (layouts) |*l| l.* = self.pipeline.descriptor_layout;
+
+        const pipeline = self.pipeline.description;
+
+        const counts = try ally.alloc(u32, frames_in_flight);
+        defer ally.free(counts);
+
+        for (counts) |*c| {
+            c.* = if (pipeline.bindless) 256 else 1;
+        }
+
+        const variable_counts: vk.DescriptorSetVariableDescriptorCountAllocateInfo = .{
+            .descriptor_set_count = frames_in_flight,
+            .p_descriptor_counts = counts.ptr,
+        };
 
         const frames: u32 = @intCast(frames_in_flight);
         const allocate_info = vk.DescriptorSetAllocateInfo{
             .descriptor_pool = self.descriptor_pool,
             .descriptor_set_count = frames,
             .p_set_layouts = layouts.ptr,
+            .p_next = &variable_counts,
         };
 
         self.descriptor_sets = try ally.alloc(vk.DescriptorSet, frames_in_flight);
@@ -1353,13 +1375,13 @@ pub const Drawing = struct {
         try self.updateDescriptorSets(ally, samplers);
     }
 
-    pub fn updateDescriptorSets(self: *Drawing, ally: std.mem.Allocator, samplers: []const Texture) !void {
+    pub fn updateDescriptorSets(self: *Drawing, ally: std.mem.Allocator, samplers: []const []const Texture) !void {
         var gc = &self.window.gc;
         try gc.vkd.deviceWaitIdle(gc.dev);
 
         const pipeline_desc = self.pipeline.description;
 
-        if (pipeline_desc.sampler_count != samplers.len) return error.InvalidSamplerCount;
+        if (pipeline_desc.sampler_descriptions.len != samplers.len) return error.InvalidSamplerCount;
 
         for (0..frames_in_flight) |i| {
             var descriptor_writes = try ally.alloc(vk.WriteDescriptorSet, samplers.len + pipeline_desc.uniform_sizes.len);
@@ -1376,7 +1398,7 @@ pub const Drawing = struct {
                     .range = uniform_size,
                 };
 
-                descriptor_writes[binding_i] = vk.WriteDescriptorSet{
+                descriptor_writes[binding_i] = .{
                     .dst_set = self.descriptor_sets[i],
                     .dst_binding = @intCast(binding_i),
                     .dst_array_element = 0,
@@ -1388,24 +1410,26 @@ pub const Drawing = struct {
                 };
             }
 
-            var image_info = try ally.alloc(vk.DescriptorImageInfo, samplers.len + pipeline_desc.uniform_sizes.len);
-            defer ally.free(image_info);
+            var arena = std.heap.ArenaAllocator.init(ally);
+            defer arena.deinit();
 
-            for (0.., samplers) |texture_i, texture| {
-                image_info[texture_i] = vk.DescriptorImageInfo{
+            for (0.., samplers) |textures_i, textures| {
+                const image_infos = try arena.allocator().alloc(vk.DescriptorImageInfo, textures.len);
+
+                for (image_infos, 0..) |*info, texture_i| info.* = .{
                     .image_layout = .shader_read_only_optimal,
-                    .image_view = texture.image_view,
-                    .sampler = texture.sampler,
+                    .image_view = textures[texture_i].image_view,
+                    .sampler = textures[texture_i].sampler,
                 };
 
-                descriptor_writes[pipeline_desc.uniform_sizes.len + texture_i] = vk.WriteDescriptorSet{
+                descriptor_writes[pipeline_desc.uniform_sizes.len + textures_i] = .{
                     .dst_set = self.descriptor_sets[i],
-                    .dst_binding = @intCast(pipeline_desc.uniform_sizes.len + texture_i),
+                    .dst_binding = @intCast(pipeline_desc.uniform_sizes.len + textures_i),
                     .dst_array_element = 0,
                     .descriptor_type = .combined_image_sampler,
-                    .descriptor_count = 1,
+                    .descriptor_count = @intCast(textures.len),
                     .p_buffer_info = undefined,
-                    .p_image_info = @ptrCast(&image_info[texture_i]),
+                    .p_image_info = image_infos.ptr,
                     .p_texel_buffer_view = undefined,
                 };
             }
@@ -2576,6 +2600,10 @@ const CullType = enum {
     none,
 };
 
+pub const SamplerDescription = struct {
+    boundless: bool = false,
+};
+
 pub const PipelineDescription = struct {
     vertex_description: VertexDescription,
     render_type: RenderType,
@@ -2584,9 +2612,10 @@ pub const PipelineDescription = struct {
 
     constants_size: ?DataSize = null,
     uniform_sizes: []const DataSize = &.{},
-    sampler_count: usize = 0,
+    sampler_descriptions: []const SamplerDescription = &.{},
     // assume DefaultUbo at index 0
     global_ubo: bool = false,
+    bindless: bool = false,
 
     pub fn getBindingDescription(pipeline: PipelineDescription) vk.VertexInputBindingDescription {
         return .{
@@ -2623,12 +2652,13 @@ pub const PipelineDescription = struct {
 };
 
 pub const RenderPipeline = struct {
-    vk_pipeline: vk.Pipeline,
-    descriptor_layout: vk.DescriptorSetLayout,
-    layout: vk.PipelineLayout,
     ally: std.mem.Allocator,
-    bindings: []vk.DescriptorSetLayoutBinding,
     description: PipelineDescription,
+
+    vk_pipeline: vk.Pipeline,
+    layout: vk.PipelineLayout,
+    descriptor_layout: vk.DescriptorSetLayout,
+    bindings: []vk.DescriptorSetLayoutBinding,
 
     pub const Info = struct {
         description: PipelineDescription,
@@ -2642,29 +2672,48 @@ pub const RenderPipeline = struct {
         const pipeline = info.description;
         const gc = info.gc;
 
-        var bindings = try ally.alloc(vk.DescriptorSetLayoutBinding, pipeline.uniform_sizes.len + pipeline.sampler_count);
+        var bindings = try ally.alloc(vk.DescriptorSetLayoutBinding, pipeline.uniform_sizes.len + pipeline.sampler_descriptions.len);
+
+        var binding_flags = try ally.alloc(vk.DescriptorBindingFlags, pipeline.uniform_sizes.len + pipeline.sampler_descriptions.len);
+        defer ally.free(binding_flags);
+
         for (0..pipeline.uniform_sizes.len) |i| {
-            bindings[i] = vk.DescriptorSetLayoutBinding{
+            bindings[i] = .{
                 .binding = @intCast(i),
                 .descriptor_count = 1,
                 .descriptor_type = .uniform_buffer,
                 .p_immutable_samplers = null,
                 .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
             };
+
+            binding_flags[i] = .{};
         }
-        for (0..pipeline.sampler_count) |i| {
+
+        for (pipeline.sampler_descriptions, 0..) |description, i| {
             bindings[pipeline.uniform_sizes.len + i] = vk.DescriptorSetLayoutBinding{
                 .binding = @intCast(pipeline.uniform_sizes.len + i),
-                .descriptor_count = 1,
+                .descriptor_count = if (description.boundless) 256 else 1,
                 .descriptor_type = .combined_image_sampler,
                 .p_immutable_samplers = null,
                 .stage_flags = .{ .fragment_bit = true },
             };
+
+            binding_flags[pipeline.uniform_sizes.len + i] = if (description.boundless) .{
+                .variable_descriptor_count_bit = true,
+                .partially_bound_bit = true,
+                .update_after_bind_bit = true,
+                .update_unused_while_pending_bit = true,
+            } else .{};
         }
 
         const layout_info: vk.DescriptorSetLayoutCreateInfo = .{
             .binding_count = @intCast(bindings.len),
             .p_bindings = bindings.ptr,
+            .flags = .{ .update_after_bind_pool_bit = pipeline.bindless },
+            .p_next = &vk.DescriptorSetLayoutBindingFlagsCreateInfo{
+                .binding_count = @intCast(bindings.len),
+                .p_binding_flags = binding_flags.ptr,
+            },
         };
 
         const descriptor_layout = try gc.vkd.createDescriptorSetLayout(gc.dev, &layout_info, null);

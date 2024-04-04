@@ -39,7 +39,7 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
             .depth_test = false,
             .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), SpriteUniform.getSize() },
             .global_ubo = true,
-            .sampler_count = 1,
+            .sampler_descriptions = &.{.{}},
         };
 
         pub const Self = @This();
@@ -58,7 +58,7 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
             try drawing.init(scene.window.ally, .{
                 .win = scene.window,
                 .pipeline = if (info.pipeline) |p| p else scene.default_pipelines.sprite,
-                .samplers = &.{info.tex},
+                .samplers = &.{&.{info.tex}},
             });
 
             try description.vertex_description.bindVertex(drawing, &.{
@@ -83,7 +83,7 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
         }
 
         pub fn updateTexture(self: *Sprite, ally: std.mem.Allocator, info: SpriteInfo) !void {
-            try self.drawing.updateDescriptorSets(ally, &.{info.tex});
+            try self.drawing.updateDescriptorSets(ally, &.{&.{info.tex}});
 
             const w: f32 = @floatFromInt(info.tex.width);
             const h: f32 = @floatFromInt(info.tex.height);

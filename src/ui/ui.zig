@@ -123,7 +123,7 @@ pub const Ui = struct {
         .render_type = .triangle,
         .depth_test = false,
         .uniform_sizes = &.{graphics.GlobalUniform.getSize()},
-        .sampler_count = 1,
+        .sampler_descriptions = &.{.{}},
         .global_ubo = true,
         .cull_type = .none,
     };
@@ -188,7 +188,7 @@ pub const Ui = struct {
         try post_drawing.init(ally, .{
             .win = main_win,
             .pipeline = post_pipeline,
-            .samplers = &.{post_tex},
+            .samplers = &.{&.{post_tex}},
         });
 
         try post_description.vertex_description.bindVertex(post_drawing, &.{
@@ -385,7 +385,7 @@ pub const Ui = struct {
             .height = @intCast(height),
         });
 
-        try state.post_drawing.updateDescriptorSets(state.main_win.ally, &.{state.post_color_tex});
+        try state.post_drawing.updateDescriptorSets(state.main_win.ally, &.{&.{state.post_color_tex}});
 
         try state.callback.getFrame(width, height);
         try state.frame_func(width, height);

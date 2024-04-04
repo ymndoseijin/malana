@@ -50,6 +50,9 @@ pub fn main() !void {
     defer tex.deinit();
 
     var sprite = try graphics.Sprite.init(&state.scene, .{ .tex = tex });
+    sprite.transform.translation = math.Vec2.init(.{ 200, 200 });
+    sprite.transform.scale = math.Vec2.init(.{ 200, 200 });
+    sprite.setOpacity(1.0);
 
     color = try graphics.ColoredRect.init(&state.scene, .{ 0.3, 0.3, 1, 1 });
     color.transform.scale = math.Vec2.init(.{ 200, 200 });

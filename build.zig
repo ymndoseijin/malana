@@ -150,7 +150,9 @@ pub fn build(b: *std.Build) void {
         },
         .{
             .name = "shadertoy",
-            .shaders = &.{.{ "vert", "shaders/shader.vert", .{} }},
+            .shaders = &.{
+                .{ "vert", "shaders/shader.vert", .{} },
+            },
         },
     };
 

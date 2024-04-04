@@ -78,7 +78,7 @@ pub const Text = struct {
         .depth_test = false,
         .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), CharacterUniform.getSize() },
         .global_ubo = true,
-        .sampler_count = 1,
+        .sampler_descriptions = &.{.{}},
     };
 
     pub const Character = struct {
