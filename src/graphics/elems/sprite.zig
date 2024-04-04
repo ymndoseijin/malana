@@ -58,7 +58,7 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
             try drawing.init(scene.window.ally, .{
                 .win = scene.window,
                 .pipeline = if (info.pipeline) |p| p else scene.default_pipelines.sprite,
-                .samplers = &.{&.{info.tex}},
+                .samplers = &.{.{ .textures = &.{info.tex} }},
             });
 
             try description.vertex_description.bindVertex(drawing, &.{

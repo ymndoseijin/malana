@@ -1275,7 +1275,7 @@ pub const Drawing = struct {
     pub const Info = struct {
         win: *Window,
         pipeline: RenderPipeline,
-        samplers: []const []const Texture = &.{},
+        samplers: []const SamplerWrite = &.{},
     };
 
     pub fn init(drawing: *Drawing, ally: std.mem.Allocator, info: Info) !void {
@@ -1341,7 +1341,7 @@ pub const Drawing = struct {
         if (self.vertex_buffer) |vb| vb.deinit(&win.gc);
     }
 
-    pub fn createDescriptorSets(self: *Drawing, ally: std.mem.Allocator, samplers: []const []const Texture) !void {
+    pub fn createDescriptorSets(self: *Drawing, ally: std.mem.Allocator, samplers: []const SamplerWrite) !void {
         var gc = &self.window.gc;
         const layouts = try ally.alloc(vk.DescriptorSetLayout, frames_in_flight);
         defer ally.free(layouts);
@@ -1375,7 +1375,12 @@ pub const Drawing = struct {
         try self.updateDescriptorSets(ally, samplers);
     }
 
-    pub fn updateDescriptorSets(self: *Drawing, ally: std.mem.Allocator, samplers: []const []const Texture) !void {
+    pub const SamplerWrite = struct {
+        dst: u32 = 0,
+        textures: []const Texture = &.{},
+    };
+
+    pub fn updateDescriptorSets(self: *Drawing, ally: std.mem.Allocator, samplers: []const SamplerWrite) !void {
         var gc = &self.window.gc;
         try gc.vkd.deviceWaitIdle(gc.dev);
 
@@ -1384,57 +1389,58 @@ pub const Drawing = struct {
         if (pipeline_desc.sampler_descriptions.len != samplers.len) return error.InvalidSamplerCount;
 
         for (0..frames_in_flight) |i| {
-            var descriptor_writes = try ally.alloc(vk.WriteDescriptorSet, samplers.len + pipeline_desc.uniform_sizes.len);
-            var buffer_info = try ally.alloc(vk.DescriptorBufferInfo, samplers.len + pipeline_desc.uniform_sizes.len);
+            var arena = std.heap.ArenaAllocator.init(ally);
+            defer arena.deinit();
+            const arena_ally = arena.allocator();
 
-            defer ally.free(descriptor_writes);
-            defer ally.free(buffer_info);
+            var descriptor_writes = std.ArrayList(vk.WriteDescriptorSet).init(arena_ally);
+            defer descriptor_writes.deinit();
 
             for (0.., self.uniform_buffers, pipeline_desc.uniform_sizes) |binding_i, *uniform, uniform_enum| {
                 const uniform_size: usize = @intFromEnum(uniform_enum);
-                buffer_info[binding_i] = vk.DescriptorBufferInfo{
+
+                const buffer_info = try arena_ally.alloc(vk.DescriptorBufferInfo, 1);
+
+                buffer_info[0] = vk.DescriptorBufferInfo{
                     .buffer = uniform.*[i].buff_mem.buffer,
                     .offset = 0,
                     .range = uniform_size,
                 };
 
-                descriptor_writes[binding_i] = .{
+                try descriptor_writes.append(.{
                     .dst_set = self.descriptor_sets[i],
                     .dst_binding = @intCast(binding_i),
                     .dst_array_element = 0,
                     .descriptor_type = .uniform_buffer,
                     .descriptor_count = 1,
-                    .p_buffer_info = @ptrCast(&buffer_info[binding_i]),
+                    .p_buffer_info = @ptrCast(&buffer_info[0]),
                     .p_image_info = undefined,
                     .p_texel_buffer_view = undefined,
-                };
+                });
             }
 
-            var arena = std.heap.ArenaAllocator.init(ally);
-            defer arena.deinit();
-
-            for (0.., samplers) |textures_i, textures| {
-                const image_infos = try arena.allocator().alloc(vk.DescriptorImageInfo, textures.len);
+            for (0.., samplers) |textures_i, write| {
+                const image_infos = try arena_ally.alloc(vk.DescriptorImageInfo, write.textures.len);
 
                 for (image_infos, 0..) |*info, texture_i| info.* = .{
                     .image_layout = .shader_read_only_optimal,
-                    .image_view = textures[texture_i].image_view,
-                    .sampler = textures[texture_i].sampler,
+                    .image_view = write.textures[texture_i].image_view,
+                    .sampler = write.textures[texture_i].sampler,
                 };
 
-                descriptor_writes[pipeline_desc.uniform_sizes.len + textures_i] = .{
+                try descriptor_writes.append(.{
                     .dst_set = self.descriptor_sets[i],
                     .dst_binding = @intCast(pipeline_desc.uniform_sizes.len + textures_i),
                     .dst_array_element = 0,
                     .descriptor_type = .combined_image_sampler,
-                    .descriptor_count = @intCast(textures.len),
+                    .descriptor_count = @intCast(write.textures.len),
                     .p_buffer_info = undefined,
                     .p_image_info = image_infos.ptr,
                     .p_texel_buffer_view = undefined,
-                };
+                });
             }
 
-            gc.vkd.updateDescriptorSets(gc.dev, @intCast(descriptor_writes.len), descriptor_writes.ptr, 0, null);
+            gc.vkd.updateDescriptorSets(gc.dev, @intCast(descriptor_writes.items.len), descriptor_writes.items.ptr, 0, null);
         }
     }
 

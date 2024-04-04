@@ -101,7 +101,7 @@ pub fn main() !void {
     const camera_obj = try graphics.SpatialMesh.init(&state.scene, .{
         .pos = math.Vec3.init(.{ 0, 0, 0 }),
         .pipeline = pipeline,
-        .samplers = &.{&.{ cubemap, other }},
+        .samplers = &.{.{ .textures = &.{ cubemap, other } }},
     });
 
     try graphics.SpatialMesh.Pipeline.vertex_description.bindVertex(camera_obj.drawing, object.vertices.items, object.indices.items);

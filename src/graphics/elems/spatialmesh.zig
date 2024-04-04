@@ -57,7 +57,7 @@ pub fn CustomSpatialMesh(comptime InUniform: graphics.DataDescription) type {
         const SpatialInfo = struct {
             pos: Vec3 = Vec3.init(.{ 0, 0, 0 }),
             pipeline: graphics.RenderPipeline,
-            samplers: []const []const graphics.Texture,
+            samplers: []const graphics.Drawing.SamplerWrite,
         };
 
         const Self = @This();
