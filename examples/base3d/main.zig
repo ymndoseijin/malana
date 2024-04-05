@@ -51,7 +51,16 @@ pub fn main() !void {
     const triangle_frag = try graphics.Shader.init(state.main_win.gc, &shaders.frag, .fragment);
     defer triangle_frag.deinit(state.main_win.gc);
 
-    const PushConstants: graphics.DataDescription = .{ .T = extern struct { cam_pos: [3]f32 align(4 * 4), cam_transform: math.Mat4 align(4 * 4) } };
+    const PushConstants: graphics.DataDescription = .{ .T = extern struct {
+        cam_pos: [3]f32 align(4 * 4),
+        cam_transform: math.Mat4 align(4 * 4),
+        light_count: i32,
+    } };
+
+    const LightArray: graphics.DataDescription = .{ .T = extern struct {
+        pos: [3]f32 align(4 * 4),
+        intensity: [3]f32 align(4 * 4),
+    } };
 
     const TrianglePipeline: graphics.PipelineDescription = .{
         .vertex_description = .{
@@ -60,17 +69,25 @@ pub fn main() !void {
         .render_type = .triangle,
         .depth_test = true,
         .cull_type = .back,
-        .uniform_descriptions = &.{ .{
-            .size = graphics.GlobalUniform.getSize(),
-            .idx = 0,
-        }, .{
-            .size = graphics.SpatialMesh.Uniform.getSize(),
-            .idx = 1,
-        } },
+        .uniform_descriptions = &.{
+            .{
+                .size = graphics.GlobalUniform.getSize(),
+                .idx = 0,
+            },
+            .{
+                .size = graphics.SpatialMesh.Uniform.getSize(),
+                .idx = 1,
+            },
+            .{
+                .size = LightArray.getSize(),
+                .idx = 2,
+                .boundless = true,
+            },
+        },
         .constants_size = PushConstants.getSize(),
         .global_ubo = true,
         .sampler_descriptions = &.{.{
-            .idx = 2,
+            .idx = 3,
             .boundless = true,
         }},
         .bindless = true,
@@ -111,7 +128,7 @@ pub fn main() !void {
         .pos = math.Vec3.init(.{ 0, 0, 0 }),
         .pipeline = pipeline,
     });
-    try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 2, .textures = &.{ cubemap, other } }} });
+    try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 3, .textures = &.{ cubemap, other } }} });
 
     try graphics.SpatialMesh.Pipeline.vertex_description.bindVertex(camera_obj.drawing, object.vertices.items, object.indices.items);
 
@@ -124,20 +141,23 @@ pub fn main() !void {
     while (state.main_win.alive) {
         try state.updateEvents();
 
-        var uniform: graphics.SpatialMesh.Uniform.T = .{
+        const uniform: graphics.SpatialMesh.Uniform.T = .{
             .spatial_pos = .{ 0, 0, 0 },
-            .light_count = 1,
-            .lights = undefined,
         };
 
-        const exp = 30;
+        var spin = math.Mat3.scaling(math.Vec3.splat(@floatCast(@sin(state.time)))).mul(math.rotationY(f32, @floatCast(state.time * 5.0)));
 
-        uniform.lights[0] = .{
-            .pos = .{ 1, 10, 2 },
-            .intensity = .{ exp, exp, exp },
-        };
+        const exp = 30 * 3;
 
-        camera_obj.drawing.getUniformOr(1, 0).?.setAsUniform(graphics.SpatialMesh.Uniform, uniform);
+        (try camera_obj.drawing.getUniformOrCreate(1, 0)).setAsUniform(graphics.SpatialMesh.Uniform, uniform);
+        (try camera_obj.drawing.getUniformOrCreate(2, 0)).setAsUniform(LightArray, .{
+            .pos = spin.dot(Vec3.init(.{ 5, 10, 5 })).val,
+            .intensity = .{ 0, exp, 0 },
+        });
+        (try camera_obj.drawing.getUniformOrCreate(2, 1)).setAsUniform(LightArray, .{
+            .pos = spin.dot(Vec3.init(.{ 5, -10, 5 })).val,
+            .intensity = .{ exp, 0, 0 },
+        });
 
         const frame_id = builder.frame_id;
         const swapchain = &state.main_win.swapchain;
@@ -148,7 +168,11 @@ pub fn main() !void {
         state.image_index = try swapchain.acquireImage(gc, frame_id);
         try builder.beginCommand(gc);
 
-        const data: PushConstants.T = .{ .cam_pos = state.cam.move.val, .cam_transform = state.cam.transform_mat };
+        const data: PushConstants.T = .{
+            .cam_pos = state.cam.move.val,
+            .cam_transform = state.cam.transform_mat,
+            .light_count = 2,
+        };
         builder.push(PushConstants, gc, pipeline, &data);
 
         try builder.setViewport(gc, .{ .flip_z = state.scene.flip_z, .width = extent.width, .height = extent.height });

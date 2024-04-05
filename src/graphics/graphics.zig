@@ -316,6 +316,7 @@ fn initializeCandidate(vki: InstanceDispatch, candidate: DeviceCandidate) !vk.De
             .descriptor_binding_variable_descriptor_count = vk.TRUE,
             .descriptor_binding_uniform_buffer_update_after_bind = vk.TRUE,
             .descriptor_binding_sampled_image_update_after_bind = vk.TRUE,
+            .runtime_descriptor_array = vk.TRUE,
         },
     }, null);
 }
@@ -1318,17 +1319,17 @@ pub const Drawing = struct {
     pub fn getUniformOrCreate(drawing: *Drawing, binding: u32, dst: u32) !BufferHandle {
         const pipeline_description = drawing.pipeline.description;
         for (drawing.uniform_buffers[binding].items) |uniform| {
-            if (uniform.idx == dst) return uniform;
+            if (uniform.idx == dst) return uniform.buffer;
         }
         try drawing.uniform_buffers[binding].append(.{
             .idx = dst,
-            .buffer = BufferHandle.init(pipeline_description.uniform_descriptions[binding].size, &drawing.window.gc),
+            .buffer = try BufferHandle.init(pipeline_description.uniform_descriptions[binding].size, &drawing.window.gc),
         });
         const buffer = drawing.uniform_buffers[binding].items[drawing.uniform_buffers[binding].items.len - 1];
 
-        try drawing.updateDescriptorSets(drawing.win.ally, .{ .uniforms = &.{.{ .dst = dst, .idx = binding, .buffer = buffer.buffer }} });
+        try drawing.updateDescriptorSets(drawing.window.ally, .{ .uniforms = &.{.{ .dst = dst, .idx = binding, .buffer = buffer.buffer }} });
 
-        return buffer;
+        return buffer.buffer;
     }
 
     pub fn createUniformBuffers(drawing: *Drawing, ally: std.mem.Allocator) !void {
@@ -1348,7 +1349,10 @@ pub const Drawing = struct {
 
         win.gc.vkd.deviceWaitIdle(win.gc.dev) catch return;
 
-        for (self.uniform_buffers) |*array| array.deinit();
+        for (self.uniform_buffers) |*array| {
+            for (array.items) |uni| uni.buffer.buff_mem.deinit(&win.gc);
+            array.deinit();
+        }
         ally.free(self.uniform_buffers);
 
         win.gc.vkd.destroyDescriptorPool(win.gc.dev, self.descriptor_pool, null);
@@ -2692,7 +2696,7 @@ pub const RenderPipeline = struct {
             };
 
             binding_flags[description.idx] = if (description.boundless) .{
-                .variable_descriptor_count_bit = true,
+                //.variable_descriptor_count_bit = true,
                 .partially_bound_bit = true,
                 .update_after_bind_bit = true,
                 .update_unused_while_pending_bit = true,
@@ -2709,7 +2713,7 @@ pub const RenderPipeline = struct {
             };
 
             binding_flags[description.idx] = if (description.boundless) .{
-                .variable_descriptor_count_bit = true,
+                //.variable_descriptor_count_bit = true,
                 .partially_bound_bit = true,
                 .update_after_bind_bit = true,
                 .update_unused_while_pending_bit = true,

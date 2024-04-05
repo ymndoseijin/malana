@@ -21,15 +21,17 @@ struct Light {
 
 layout (binding = 1) uniform SpatialUBO {
    vec3 pos;
-   int light_count;
-   Light lights[max_lights];
 } spatial_ubo;
 
-layout (binding = 2) uniform samplerCube cubemap[];
+layout (binding = 2) uniform LightArray {
+   Light light;
+} lights[];
+layout (binding = 3) uniform samplerCube cubemap[];
 
 layout (push_constant) uniform Constants {
    vec3 cam_pos;
    mat4 cam_transform;
+   int light_count;
 } constants;
 
 float chi(float n) {
@@ -57,8 +59,8 @@ void main() {
 
    vec3 v = normalize(constants.cam_pos - in_pos);
 
-   for (int i = 0; i < spatial_ubo.light_count; i++) {
-      Light light = spatial_ubo.lights[i];
+   for (int i = 0; i < constants.light_count; i++) {
+      Light light = lights[i].light;
       float dist = length(light.pos - in_pos);
       vec3 radiance = light.intensity / (dist * dist);
 
@@ -89,6 +91,6 @@ void main() {
 
    vec3 res = total_val;
    res = pow(res, vec3(1 / 2.2));
-   res = texture(cubemap[1], reflect(normalize(in_pos - constants.cam_pos), n)).rgb;
+   //res = texture(cubemap[1], reflect(normalize(in_pos - constants.cam_pos), n)).rgb;
    out_color = vec4(res, 1);
 }

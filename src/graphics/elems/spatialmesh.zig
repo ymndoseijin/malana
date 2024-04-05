@@ -21,16 +21,9 @@ const Vec3Utils = math.Vec3Utils;
 
 const max_lights = 256;
 
-const Light = extern struct {
-    pos: [3]f32 align(4 * 4),
-    intensity: [3]f32 align(4 * 4),
-};
-
 pub const DefaultUniform: graphics.DataDescription = .{
     .T = extern struct {
         spatial_pos: [3]f32 align(4 * 4),
-        light_count: i32,
-        lights: [max_lights]Light,
     },
 };
 
@@ -74,8 +67,8 @@ pub fn CustomSpatialMesh(comptime InUniform: graphics.DataDescription) type {
                 .pipeline = info.pipeline,
             });
 
-            drawing.getUniformOr(1, 0).?.setAsUniformField(Uniform, .spatial_pos, info.pos.val);
-            drawing.getUniformOr(0, 0).?.setAsUniform(graphics.GlobalUniform, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+            (try drawing.getUniformOrCreate(1, 0)).setAsUniformField(Uniform, .spatial_pos, info.pos.val);
+            (try drawing.getUniformOrCreate(0, 0)).setAsUniform(graphics.GlobalUniform, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
             return .{
                 .drawing = drawing,
