@@ -65,6 +65,8 @@ pub fn build(b: *std.Build) void {
     const shader_list = .{
         .{ "sprite_frag", "src/graphics/elems/shaders/sprite/shader.frag" },
         .{ "sprite_vert", "src/graphics/elems/shaders/sprite/shader.vert" },
+        .{ "spritebatch_frag", "src/graphics/elems/shaders/spritebatch/shader.frag" },
+        .{ "spritebatch_vert", "src/graphics/elems/shaders/spritebatch/shader.vert" },
         .{ "color_frag", "src/graphics/elems/shaders/color_rect/shader.frag" },
         .{ "color_vert", "src/graphics/elems/shaders/color_rect/shader.vert" },
         .{ "text_frag", "src/graphics/elems/shaders/text/shader.frag" },

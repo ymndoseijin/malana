@@ -49,7 +49,9 @@ pub fn main() !void {
     var tex = try graphics.Texture.initFromPath(ally, state.main_win, image_path, .{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
     defer tex.deinit();
 
-    var sprite = try graphics.Sprite.init(&state.scene, .{ .tex = tex });
+    var batch = try graphics.SpriteBatch.init(&state.scene, .{});
+
+    var sprite = try batch.newSprite(tex);
     sprite.transform.translation = math.Vec2.init(.{ 200, 200 });
     sprite.transform.scale = math.Vec2.init(.{ 200, 200 });
     sprite.setOpacity(1.0);

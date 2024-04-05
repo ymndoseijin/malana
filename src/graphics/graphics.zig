@@ -6,6 +6,8 @@ pub const glfw = @cImport({
 
 const AREA_SIZE = 512;
 
+const max_boundless = 256;
+
 const img = @import("img");
 const common = @import("common");
 const std = @import("std");
@@ -25,8 +27,13 @@ pub const Axis = @import("elems/axis.zig").makeAxis;
 pub const Camera = @import("elems/camera.zig").Camera;
 pub const TextBdf = @import("elems/textbdf.zig").Text;
 pub const TextFt = @import("elems/textft.zig").Text;
+
 pub const Sprite = @import("elems/sprite.zig").Sprite;
 pub const CustomSprite = @import("elems/sprite.zig").CustomSprite;
+
+pub const SpriteBatch = @import("elems/sprite_batch.zig").SpriteBatch;
+pub const CustomSpriteBatch = @import("elems/sprite_batch.zig").CustomSpriteBatch;
+
 pub const ColoredRect = @import("elems/color_rect.zig").ColoredRect;
 
 pub const MeshBuilder = @import("meshbuilder.zig").MeshBuilder;
@@ -1374,7 +1381,7 @@ pub const Drawing = struct {
         defer ally.free(counts);
 
         for (counts) |*c| {
-            c.* = if (pipeline.bindless) 256 else 1;
+            c.* = if (pipeline.bindless) max_boundless else 1;
         }
 
         const variable_counts: vk.DescriptorSetVariableDescriptorCountAllocateInfo = .{
@@ -2074,6 +2081,7 @@ pub const Window = struct {
 
     const DefaultShaders = struct {
         sprite_shaders: [2]Shader,
+        spritebatch_shaders: [2]Shader,
         color_shaders: [2]Shader,
         text_shaders: [2]Shader,
         textft_shaders: [2]Shader,
@@ -2082,6 +2090,9 @@ pub const Window = struct {
         pub fn init(gc: GraphicsContext) !DefaultShaders {
             const sprite_vert = try Shader.init(gc, &elem_shaders.sprite_vert, .vertex);
             const sprite_frag = try Shader.init(gc, &elem_shaders.sprite_frag, .fragment);
+
+            const spritebatch_vert = try Shader.init(gc, &elem_shaders.spritebatch_vert, .vertex);
+            const spritebatch_frag = try Shader.init(gc, &elem_shaders.spritebatch_frag, .fragment);
 
             const color_vert = try Shader.init(gc, &elem_shaders.color_vert, .vertex);
             const color_frag = try Shader.init(gc, &elem_shaders.color_frag, .fragment);
@@ -2097,6 +2108,7 @@ pub const Window = struct {
 
             return .{
                 .sprite_shaders = .{ sprite_vert, sprite_frag },
+                .spritebatch_shaders = .{ spritebatch_vert, spritebatch_frag },
                 .color_shaders = .{ color_vert, color_frag },
                 .text_shaders = .{ text_vert, text_frag },
                 .textft_shaders = .{ textft_vert, textft_frag },
@@ -2392,6 +2404,7 @@ pub const Scene = struct {
     const DefaultPipelines = struct {
         color: RenderPipeline,
         sprite: RenderPipeline,
+        spritebatch: RenderPipeline,
         textft: RenderPipeline,
 
         pub fn init(win: *Window, render_pass: *RenderPass, flip_z: bool) !DefaultPipelines {
@@ -2408,6 +2421,13 @@ pub const Scene = struct {
                 .sprite = try RenderPipeline.init(win.ally, .{
                     .description = Sprite.description,
                     .shaders = &shaders.sprite_shaders,
+                    .render_pass = render_pass.*,
+                    .gc = &win.gc,
+                    .flipped_z = flip_z,
+                }),
+                .spritebatch = try RenderPipeline.init(win.ally, .{
+                    .description = SpriteBatch.description,
+                    .shaders = &shaders.spritebatch_shaders,
                     .render_pass = render_pass.*,
                     .gc = &win.gc,
                     .flipped_z = flip_z,
@@ -2496,6 +2516,7 @@ pub const VertexAttribute = struct {
     attribute: enum {
         float,
         short,
+        uint,
     } = .float,
 
     size: usize,
@@ -2504,6 +2525,7 @@ pub const VertexAttribute = struct {
         switch (self.attribute) {
             .float => return [self.size]f32,
             .short => return [self.size]i16,
+            .uint => return [self.size]i32,
         }
     }
 
@@ -2511,13 +2533,16 @@ pub const VertexAttribute = struct {
         switch (self.attribute) {
             .float => return @sizeOf(f32) * self.size,
             .short => return @sizeOf(i16) * self.size,
+            .uint => return @sizeOf(i32) * self.size,
         }
     }
 
     pub fn getVK(self: @This()) !vk.Format {
         switch (self.attribute) {
             .float => {
-                if (self.size == 2) {
+                if (self.size == 1) {
+                    return .r32_sfloat;
+                } else if (self.size == 2) {
                     return .r32g32_sfloat;
                 } else if (self.size == 3) {
                     return .r32g32b32_sfloat;
@@ -2526,6 +2551,7 @@ pub const VertexAttribute = struct {
                 }
             },
             .short => return .r16g16_sint,
+            .uint => return .r32_sint,
         }
     }
 };
@@ -2534,18 +2560,34 @@ pub const VertexDescription = struct {
     vertex_attribs: []const VertexAttribute,
 
     pub fn getAttributeType(comptime self: VertexDescription) type {
-        var types: []const type = &.{};
-        for (self.vertex_attribs) |attrib| {
-            const t = attrib.getType();
-            types = types ++ .{t};
+        var fields: []const std.builtin.Type.StructField = &.{};
+        for (self.vertex_attribs, 0..) |attrib, i| {
+            const T = attrib.getType();
+            var num_buf: [128]u8 = undefined;
+
+            fields = fields ++ .{.{
+                .name = std.fmt.bufPrintZ(&num_buf, "{d}", .{i}) catch unreachable,
+                .type = T,
+                .default_value = null,
+                .is_comptime = false,
+                .alignment = if (@sizeOf(T) > 0) 1 else 0,
+            }};
         }
-        return std.meta.Tuple(types);
+
+        return @Type(.{
+            .Struct = .{
+                .is_tuple = true,
+                .layout = .auto,
+                .decls = &.{},
+                .fields = fields,
+            },
+        });
     }
 
     pub fn getVertexSize(self: VertexDescription) usize {
         var total: usize = 0;
         for (self.vertex_attribs) |attrib| {
-            total += attrib.size * @sizeOf(f32);
+            total += attrib.getSize();
         }
         return total;
     }
@@ -2576,7 +2618,7 @@ pub const VertexDescription = struct {
             const data = try gc.vkd.mapMemory(gc.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
             defer gc.vkd.unmapMemory(gc.dev, staging_buff.memory);
 
-            const gpu_vertices: [*]self.getAttributeType() = @ptrCast(@alignCast(data));
+            const gpu_vertices: [*]align(1) self.getAttributeType() = @ptrCast(@alignCast(data));
             for (vertices, 0..) |vertex, i| {
                 gpu_vertices[i] = vertex;
             }
@@ -2633,31 +2675,6 @@ pub const PipelineDescription = struct {
             .input_rate = .vertex,
         };
     }
-
-    pub fn getAttributeDescription(pipeline: PipelineDescription) []vk.VertexInputAttributeDescription {
-        var loop: [pipeline.vertex_attrib.len]vk.VertexInputAttributeDescription = undefined;
-        var off: u32 = 0;
-        inline for (pipeline.vertex_attrib, 0..) |attrib, i| {
-            loop[i] = .{
-                .binding = 0,
-                .location = i,
-                .format = attrib.getVK(),
-                .offset = off,
-            };
-            off += @sizeOf(attrib.getType());
-        }
-
-        return loop;
-    }
-
-    pub fn getAttributeType(comptime pipeline: PipelineDescription) type {
-        var types: []const type = &.{};
-        for (pipeline.vertex_description.vertex_attribs) |attrib| {
-            const t = attrib.getType();
-            types = types ++ .{t};
-        }
-        return std.meta.Tuple(types);
-    }
 };
 
 pub const RenderPipeline = struct {
@@ -2689,7 +2706,7 @@ pub const RenderPipeline = struct {
         for (pipeline.uniform_descriptions) |description| {
             bindings[description.idx] = .{
                 .binding = description.idx,
-                .descriptor_count = if (description.boundless) 256 else 1,
+                .descriptor_count = if (description.boundless) max_boundless else 1,
                 .descriptor_type = .uniform_buffer,
                 .p_immutable_samplers = null,
                 .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
@@ -2706,7 +2723,7 @@ pub const RenderPipeline = struct {
         for (pipeline.sampler_descriptions) |description| {
             bindings[description.idx] = vk.DescriptorSetLayoutBinding{
                 .binding = description.idx,
-                .descriptor_count = if (description.boundless) 256 else 1,
+                .descriptor_count = if (description.boundless) max_boundless else 1,
                 .descriptor_type = .combined_image_sampler,
                 .p_immutable_samplers = null,
                 .stage_flags = .{ .fragment_bit = true },
