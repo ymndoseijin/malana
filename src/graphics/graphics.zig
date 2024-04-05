@@ -261,15 +261,6 @@ pub const GraphicsContext = struct {
     }
 };
 
-pub const BufferMemory = struct {
-    pub fn deinit(buff: BufferMemory, gc: *GraphicsContext) void {
-        gc.vkd.destroyBuffer(gc.dev, buff.buffer, null);
-        gc.vkd.freeMemory(gc.dev, buff.memory, null);
-    }
-    buffer: vk.Buffer,
-    memory: vk.DeviceMemory,
-};
-
 pub const Queue = struct {
     handle: vk.Queue,
     family: u32,
@@ -1259,23 +1250,21 @@ pub const Drawing = struct {
     // vulkan
     vertex_buffer: ?BufferMemory,
     index_buffer: ?BufferMemory,
-    uniform_buffers: [][]UniformBuffer,
     descriptor_sets: []vk.DescriptorSet,
     descriptor_pool: vk.DescriptorPool,
+    uniform_buffers: []std.ArrayList(UniformHandle),
 
     window: *Window,
     global_ubo: bool,
     pipeline: RenderPipeline,
 
-    const UniformBuffer = struct {
-        buff_mem: BufferMemory,
-        data: *anyopaque,
+    const UniformHandle = struct {
+        buffer: BufferHandle,
+        idx: u32,
     };
-
     pub const Info = struct {
         win: *Window,
         pipeline: RenderPipeline,
-        samplers: []const SamplerWrite = &.{},
     };
 
     pub fn init(drawing: *Drawing, ally: std.mem.Allocator, info: Info) !void {
@@ -1302,25 +1291,56 @@ pub const Drawing = struct {
             .flags = if (pipeline.description.bindless) .{ .update_after_bind_bit = true } else .{},
         };
 
-        const uniforms = try ally.alloc([]UniformBuffer, pipeline.description.uniform_sizes.len);
-
-        for (uniforms) |*u| u.* = &.{};
-
         drawing.* = .{
             //.cube_textures = std.ArrayList(u32).init(ally),
             .vert_count = 0,
             .pipeline = info.pipeline,
             .vertex_buffer = null,
             .index_buffer = null,
+            .uniform_buffers = undefined,
             .descriptor_pool = try gc.vkd.createDescriptorPool(gc.dev, &pool_info, null),
-            .uniform_buffers = uniforms,
             .descriptor_sets = &.{},
             .window = win,
             .global_ubo = pipeline.description.global_ubo,
         };
 
+        try drawing.createDescriptorSets(ally);
         try drawing.createUniformBuffers(ally);
-        try drawing.createDescriptorSets(ally, info.samplers);
+    }
+
+    pub fn getUniformOr(drawing: *Drawing, binding: u32, dst: u32) ?BufferHandle {
+        for (drawing.uniform_buffers[binding].items) |uniform| {
+            if (uniform.idx == dst) return uniform.buffer;
+        }
+        return null;
+    }
+
+    pub fn getUniformOrCreate(drawing: *Drawing, binding: u32, dst: u32) !BufferHandle {
+        const pipeline_description = drawing.pipeline.description;
+        for (drawing.uniform_buffers[binding].items) |uniform| {
+            if (uniform.idx == dst) return uniform;
+        }
+        try drawing.uniform_buffers[binding].append(.{
+            .idx = dst,
+            .buffer = BufferHandle.init(pipeline_description.uniform_descriptions[binding].size, &drawing.window.gc),
+        });
+        const buffer = drawing.uniform_buffers[binding].items[drawing.uniform_buffers[binding].items.len - 1];
+
+        try drawing.updateDescriptorSets(drawing.win.ally, .{ .uniforms = &.{.{ .dst = dst, .idx = binding, .buffer = buffer.buffer }} });
+
+        return buffer;
+    }
+
+    pub fn createUniformBuffers(drawing: *Drawing, ally: std.mem.Allocator) !void {
+        const pipeline_description = drawing.pipeline.description;
+        drawing.uniform_buffers = try ally.alloc(std.ArrayList(UniformHandle), pipeline_description.uniform_descriptions.len);
+        for (drawing.uniform_buffers, pipeline_description.uniform_descriptions, 0..) |*array, description, i| {
+            array.* = std.ArrayList(UniformHandle).init(ally);
+            if (!description.boundless) {
+                try array.append(.{ .idx = 0, .buffer = try BufferHandle.init(description.size, &drawing.window.gc) });
+                try drawing.updateDescriptorSets(ally, .{ .uniforms = &.{.{ .idx = @intCast(i), .buffer = array.items[0].buffer }} });
+            }
+        }
     }
 
     pub fn deinit(self: *Drawing, ally: std.mem.Allocator) void {
@@ -1328,10 +1348,7 @@ pub const Drawing = struct {
 
         win.gc.vkd.deviceWaitIdle(win.gc.dev) catch return;
 
-        for (self.uniform_buffers) |ubs| {
-            for (ubs) |ub| ub.buff_mem.deinit(&win.gc);
-            ally.free(ubs);
-        }
+        for (self.uniform_buffers) |*array| array.deinit();
         ally.free(self.uniform_buffers);
 
         win.gc.vkd.destroyDescriptorPool(win.gc.dev, self.descriptor_pool, null);
@@ -1341,7 +1358,7 @@ pub const Drawing = struct {
         if (self.vertex_buffer) |vb| vb.deinit(&win.gc);
     }
 
-    pub fn createDescriptorSets(self: *Drawing, ally: std.mem.Allocator, samplers: []const SamplerWrite) !void {
+    pub fn createDescriptorSets(self: *Drawing, ally: std.mem.Allocator) !void {
         var gc = &self.window.gc;
         const layouts = try ally.alloc(vk.DescriptorSetLayout, frames_in_flight);
         defer ally.free(layouts);
@@ -1372,21 +1389,28 @@ pub const Drawing = struct {
         self.descriptor_sets = try ally.alloc(vk.DescriptorSet, frames_in_flight);
 
         try gc.vkd.allocateDescriptorSets(gc.dev, &allocate_info, self.descriptor_sets.ptr);
-        try self.updateDescriptorSets(ally, samplers);
     }
 
     pub const SamplerWrite = struct {
         dst: u32 = 0,
+        // binding index
+        idx: u32,
         textures: []const Texture = &.{},
     };
 
-    pub fn updateDescriptorSets(self: *Drawing, ally: std.mem.Allocator, samplers: []const SamplerWrite) !void {
+    pub const UniformWrite = struct {
+        dst: u32 = 0,
+        // binding index
+        idx: u32,
+        buffer: BufferHandle,
+    };
+
+    pub fn updateDescriptorSets(self: *Drawing, ally: std.mem.Allocator, options: struct {
+        samplers: []const SamplerWrite = &.{},
+        uniforms: []const UniformWrite = &.{},
+    }) !void {
         var gc = &self.window.gc;
         try gc.vkd.deviceWaitIdle(gc.dev);
-
-        const pipeline_desc = self.pipeline.description;
-
-        if (pipeline_desc.sampler_descriptions.len != samplers.len) return error.InvalidSamplerCount;
 
         for (0..frames_in_flight) |i| {
             var arena = std.heap.ArenaAllocator.init(ally);
@@ -1396,21 +1420,19 @@ pub const Drawing = struct {
             var descriptor_writes = std.ArrayList(vk.WriteDescriptorSet).init(arena_ally);
             defer descriptor_writes.deinit();
 
-            for (0.., self.uniform_buffers, pipeline_desc.uniform_sizes) |binding_i, *uniform, uniform_enum| {
-                const uniform_size: usize = @intFromEnum(uniform_enum);
-
+            for (options.uniforms) |uniform| {
                 const buffer_info = try arena_ally.alloc(vk.DescriptorBufferInfo, 1);
 
                 buffer_info[0] = vk.DescriptorBufferInfo{
-                    .buffer = uniform.*[i].buff_mem.buffer,
+                    .buffer = uniform.buffer.buff_mem.buffer,
                     .offset = 0,
-                    .range = uniform_size,
+                    .range = @intFromEnum(uniform.buffer.size),
                 };
 
                 try descriptor_writes.append(.{
                     .dst_set = self.descriptor_sets[i],
-                    .dst_binding = @intCast(binding_i),
-                    .dst_array_element = 0,
+                    .dst_binding = uniform.idx,
+                    .dst_array_element = uniform.dst,
                     .descriptor_type = .uniform_buffer,
                     .descriptor_count = 1,
                     .p_buffer_info = @ptrCast(&buffer_info[0]),
@@ -1419,7 +1441,7 @@ pub const Drawing = struct {
                 });
             }
 
-            for (0.., samplers) |textures_i, write| {
+            for (options.samplers) |write| {
                 const image_infos = try arena_ally.alloc(vk.DescriptorImageInfo, write.textures.len);
 
                 for (image_infos, 0..) |*info, texture_i| info.* = .{
@@ -1430,8 +1452,8 @@ pub const Drawing = struct {
 
                 try descriptor_writes.append(.{
                     .dst_set = self.descriptor_sets[i],
-                    .dst_binding = @intCast(pipeline_desc.uniform_sizes.len + textures_i),
-                    .dst_array_element = 0,
+                    .dst_binding = write.idx,
+                    .dst_array_element = write.dst,
                     .descriptor_type = .combined_image_sampler,
                     .descriptor_count = @intCast(write.textures.len),
                     .p_buffer_info = undefined,
@@ -1443,36 +1465,6 @@ pub const Drawing = struct {
             gc.vkd.updateDescriptorSets(gc.dev, @intCast(descriptor_writes.items.len), descriptor_writes.items.ptr, 0, null);
         }
     }
-
-    pub fn createUniformBuffers(self: *Drawing, ally: std.mem.Allocator) !void {
-        for (self.pipeline.description.uniform_sizes, self.uniform_buffers) |uniform_enum, *uniform_buffer| {
-            var gc = &self.window.gc;
-            const uniform_size: usize = @intFromEnum(uniform_enum);
-
-            uniform_buffer.* = try ally.alloc(UniformBuffer, frames_in_flight);
-
-            for (uniform_buffer.*) |*mapped_buff| {
-                const buffer = try gc.vkd.createBuffer(gc.dev, &.{
-                    .size = uniform_size,
-                    .usage = .{ .uniform_buffer_bit = true },
-                    .sharing_mode = .exclusive,
-                }, null);
-
-                const mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, buffer);
-                const memory = try gc.allocate(mem_reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
-                try gc.vkd.bindBufferMemory(gc.dev, buffer, memory, 0);
-
-                const data = try gc.vkd.mapMemory(gc.dev, memory, 0, vk.WHOLE_SIZE, .{});
-
-                mapped_buff.*.buff_mem = .{ .buffer = buffer, .memory = memory };
-                mapped_buff.*.data = data.?;
-            }
-        }
-    }
-
-    //pub fn addTexture(self: *Drawing, texture: Texture) !void {
-    //    try self.textures.append(texture);
-    //}
 
     pub fn bindIndexBuffer(self: *Drawing, indices: []const u32) !void {
         var gc = &self.window.gc;
@@ -2476,7 +2468,7 @@ pub const Scene = struct {
         var last_pipeline: u64 = 0;
         var is_first = true;
         for (scene.drawing_array.items) |elem| {
-            if (elem.global_ubo) GlobalUniform.setAsUniform(elem, 0, .{ .time = now, .in_resolution = resolution });
+            if (elem.global_ubo) elem.getUniformOr(0, 0).?.setAsUniform(GlobalUniform, .{ .time = now, .in_resolution = resolution });
             try elem.draw(builder.getCurrent(), .{
                 .frame_id = frame_id,
                 .bind_pipeline = is_first or (last_pipeline != @intFromEnum(elem.pipeline.vk_pipeline)),
@@ -2607,6 +2599,13 @@ const CullType = enum {
 };
 
 pub const SamplerDescription = struct {
+    idx: u32,
+    boundless: bool = false,
+};
+
+pub const UniformDescription = struct {
+    size: DataSize,
+    idx: u32,
     boundless: bool = false,
 };
 
@@ -2617,7 +2616,7 @@ pub const PipelineDescription = struct {
     cull_type: CullType = .none,
 
     constants_size: ?DataSize = null,
-    uniform_sizes: []const DataSize = &.{},
+    uniform_descriptions: []const UniformDescription = &.{},
     sampler_descriptions: []const SamplerDescription = &.{},
     // assume DefaultUbo at index 0
     global_ubo: bool = false,
@@ -2678,33 +2677,38 @@ pub const RenderPipeline = struct {
         const pipeline = info.description;
         const gc = info.gc;
 
-        var bindings = try ally.alloc(vk.DescriptorSetLayoutBinding, pipeline.uniform_sizes.len + pipeline.sampler_descriptions.len);
+        var bindings = try ally.alloc(vk.DescriptorSetLayoutBinding, pipeline.uniform_descriptions.len + pipeline.sampler_descriptions.len);
 
-        var binding_flags = try ally.alloc(vk.DescriptorBindingFlags, pipeline.uniform_sizes.len + pipeline.sampler_descriptions.len);
+        var binding_flags = try ally.alloc(vk.DescriptorBindingFlags, pipeline.uniform_descriptions.len + pipeline.sampler_descriptions.len);
         defer ally.free(binding_flags);
 
-        for (0..pipeline.uniform_sizes.len) |i| {
-            bindings[i] = .{
-                .binding = @intCast(i),
-                .descriptor_count = 1,
+        for (pipeline.uniform_descriptions) |description| {
+            bindings[description.idx] = .{
+                .binding = description.idx,
+                .descriptor_count = if (description.boundless) 256 else 1,
                 .descriptor_type = .uniform_buffer,
                 .p_immutable_samplers = null,
                 .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
             };
 
-            binding_flags[i] = .{};
+            binding_flags[description.idx] = if (description.boundless) .{
+                .variable_descriptor_count_bit = true,
+                .partially_bound_bit = true,
+                .update_after_bind_bit = true,
+                .update_unused_while_pending_bit = true,
+            } else .{};
         }
 
-        for (pipeline.sampler_descriptions, 0..) |description, i| {
-            bindings[pipeline.uniform_sizes.len + i] = vk.DescriptorSetLayoutBinding{
-                .binding = @intCast(pipeline.uniform_sizes.len + i),
+        for (pipeline.sampler_descriptions) |description| {
+            bindings[description.idx] = vk.DescriptorSetLayoutBinding{
+                .binding = description.idx,
                 .descriptor_count = if (description.boundless) 256 else 1,
                 .descriptor_type = .combined_image_sampler,
                 .p_immutable_samplers = null,
                 .stage_flags = .{ .fragment_bit = true },
             };
 
-            binding_flags[pipeline.uniform_sizes.len + i] = if (description.boundless) .{
+            binding_flags[description.idx] = if (description.boundless) .{
                 .variable_descriptor_count_bit = true,
                 .partially_bound_bit = true,
                 .update_after_bind_bit = true,
@@ -2892,6 +2896,48 @@ pub const LinePipeline = RenderPipeline{
 
 pub const DataSize = enum(usize) { _ };
 
+pub const BufferMemory = struct {
+    pub fn deinit(buff: BufferMemory, gc: *GraphicsContext) void {
+        gc.vkd.destroyBuffer(gc.dev, buff.buffer, null);
+        gc.vkd.freeMemory(gc.dev, buff.memory, null);
+    }
+    buffer: vk.Buffer,
+    memory: vk.DeviceMemory,
+};
+
+pub const BufferHandle = struct {
+    buff_mem: BufferMemory,
+    size: DataSize,
+    data: *anyopaque,
+
+    pub fn init(size: DataSize, gc: *GraphicsContext) !BufferHandle {
+        const buffer = try gc.vkd.createBuffer(gc.dev, &.{
+            .size = @intFromEnum(size),
+            .usage = .{ .uniform_buffer_bit = true },
+            .sharing_mode = .exclusive,
+        }, null);
+
+        const mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, buffer);
+        const memory = try gc.allocate(mem_reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
+        try gc.vkd.bindBufferMemory(gc.dev, buffer, memory, 0);
+
+        const data = try gc.vkd.mapMemory(gc.dev, memory, 0, vk.WHOLE_SIZE, .{});
+
+        return .{
+            .buff_mem = .{ .buffer = buffer, .memory = memory },
+            .size = size,
+            .data = data.?,
+        };
+    }
+
+    pub fn setAsUniform(buffer: BufferHandle, comptime self: DataDescription, ubo: self.T) void {
+        @as(*self.T, @alignCast(@ptrCast(buffer.data))).* = ubo;
+    }
+    pub fn setAsUniformField(buffer: BufferHandle, comptime self: DataDescription, comptime field: std.meta.FieldEnum(self.T), target: anytype) void {
+        @field(@as(*self.T, @alignCast(@ptrCast(buffer.data))), @tagName(field)) = target;
+    }
+};
+
 pub const DataDescription = struct {
     T: type,
 
@@ -2900,15 +2946,8 @@ pub const DataDescription = struct {
         return @enumFromInt(@sizeOf(self.T));
     }
 
-    pub fn setAsUniform(comptime self: DataDescription, draw: *Drawing, binding_idx: usize, ubo: self.T) void {
-        for (draw.uniform_buffers[binding_idx]) |mapped_buff| {
-            @as(*self.T, @alignCast(@ptrCast(mapped_buff.data))).* = ubo;
-        }
-    }
-    pub fn setAsUniformField(comptime self: DataDescription, draw: *Drawing, binding_idx: usize, comptime field: std.meta.FieldEnum(self.T), target: anytype) void {
-        for (draw.uniform_buffers[binding_idx]) |mapped_buff| {
-            @field(@as(*self.T, @alignCast(@ptrCast(mapped_buff.data))), @tagName(field)) = target;
-        }
+    pub fn createBuffer(comptime self: DataDescription, gc: *GraphicsContext) !BufferHandle {
+        return BufferHandle.init(self.getSize(), gc);
     }
 };
 

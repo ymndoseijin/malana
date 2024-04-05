@@ -27,7 +27,13 @@ pub const ColoredRect = struct {
         .render_type = .triangle,
         .depth_test = false,
         .cull_type = .none,
-        .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), ColoredRectUniform.getSize() },
+        .uniform_descriptions = &.{ .{
+            .size = graphics.GlobalUniform.getSize(),
+            .idx = 0,
+        }, .{
+            .size = ColoredRectUniform.getSize(),
+            .idx = 1,
+        } },
         .global_ubo = true,
     };
 
@@ -52,8 +58,12 @@ pub const ColoredRect = struct {
             .{ .{ 0, 1, 1 }, .{ 0, 1 } },
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
-        ColoredRectUniform.setAsUniform(drawing, 1, .{ .transform = default_transform.getMat().cast(4, 4), .color = color });
-        graphics.GlobalUniform.setAsUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+        drawing.getUniformOr(1, 0).?.setAsUniform(ColoredRectUniform, .{
+            .transform = default_transform.getMat().cast(4, 4),
+            .color = color,
+        });
+
+        drawing.getUniformOr(1, 0).?.setAsUniform(graphics.GlobalUniform, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
         return ColoredRect{
             .drawing = drawing,
@@ -62,7 +72,7 @@ pub const ColoredRect = struct {
     }
 
     pub fn updateTransform(self: ColoredRect) void {
-        ColoredRectUniform.setAsUniformField(self.drawing, 1, .transform, self.transform.getMat().cast(4, 4));
+        self.drawing.getUniformOr(1, 0).?.setAsUniformField(ColoredRectUniform, .transform, self.transform.getMat().cast(4, 4));
     }
 
     transform: graphics.Transform2D,

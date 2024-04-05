@@ -76,9 +76,17 @@ pub const Text = struct {
         },
         .render_type = .triangle,
         .depth_test = false,
-        .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), CharacterUniform.getSize() },
+        .uniform_descriptions = &.{ .{
+            .size = graphics.GlobalUniform.getSize(),
+            .idx = 0,
+        }, .{
+            .size = CharacterUniform.getSize(),
+            .idx = 1,
+        } },
         .global_ubo = true,
-        .sampler_descriptions = &.{.{}},
+        .sampler_descriptions = &.{.{
+            .idx = 2,
+        }},
     };
 
     pub const Character = struct {
@@ -129,9 +137,9 @@ pub const Text = struct {
                 .pipeline = info.pipeline,
             });
 
-            CharacterUniform.setAsUniformField(sprite.drawing, 1, .index, @as(u32, @intCast(info.index)));
-            CharacterUniform.setAsUniformField(sprite.drawing, 1, .count, @as(u32, @intCast(info.count)));
-            CharacterUniform.setAsUniformField(sprite.drawing, 1, .opacity, parent.opacity);
+            sprite.drawing.getUniformOr(1, 0).?.setAsUniformField(CharacterUniform, .index, @as(u32, @intCast(info.index)));
+            sprite.drawing.getUniformOr(1, 0).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(info.count)));
+            sprite.drawing.getUniformOr(1, 0).?.setAsUniformField(CharacterUniform, .opacity, parent.opacity);
 
             return .{
                 .image = image,
@@ -213,14 +221,14 @@ pub const Text = struct {
                 .index = index,
                 .pipeline = if (info.pipeline) |p| p else scene.default_pipelines.textft,
             });
-            CharacterUniform.setAsUniformField(char.sprite.drawing, 1, .color, info.color);
+            char.sprite.drawing.getUniformOr(1, 0).?.setAsUniformField(CharacterUniform, .color, info.color);
             try self.characters.append(char);
         }
 
         try self.update();
 
         for (self.characters.items) |c| {
-            CharacterUniform.setAsUniformField(c.sprite.drawing, 1, .count, @as(u32, @intCast(self.codepoints.items.len)));
+            c.sprite.drawing.getUniformOr(1, 0).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(self.codepoints.items.len)));
         }
     }
 

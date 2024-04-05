@@ -122,8 +122,13 @@ pub const Ui = struct {
         },
         .render_type = .triangle,
         .depth_test = false,
-        .uniform_sizes = &.{graphics.GlobalUniform.getSize()},
-        .sampler_descriptions = &.{.{}},
+        .uniform_descriptions = &.{.{
+            .size = graphics.GlobalUniform.getSize(),
+            .idx = 0,
+        }},
+        .sampler_descriptions = &.{.{
+            .idx = 1,
+        }},
         .global_ubo = true,
         .cull_type = .none,
     };
@@ -188,8 +193,11 @@ pub const Ui = struct {
         try post_drawing.init(ally, .{
             .win = main_win,
             .pipeline = post_pipeline,
-            .samplers = &.{.{ .textures = &.{post_tex} }},
         });
+        try post_drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{
+            .idx = 1,
+            .textures = &.{post_tex},
+        }} });
 
         try post_description.vertex_description.bindVertex(post_drawing, &.{
             .{ .{ -1, -1, 1 }, .{ 0, 0 } },
@@ -385,7 +393,10 @@ pub const Ui = struct {
             .height = @intCast(height),
         });
 
-        try state.post_drawing.updateDescriptorSets(state.main_win.ally, &.{.{ .textures = &.{state.post_color_tex} }});
+        try state.post_drawing.updateDescriptorSets(state.main_win.ally, .{ .samplers = &.{.{
+            .idx = 1,
+            .textures = &.{state.post_color_tex},
+        }} });
 
         try state.callback.getFrame(width, height);
         try state.frame_func(width, height);

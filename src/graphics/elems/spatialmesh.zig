@@ -45,7 +45,13 @@ pub fn CustomSpatialMesh(comptime InUniform: graphics.DataDescription) type {
             .render_type = .triangle,
             .depth_test = true,
             .cull_type = .back,
-            .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), Uniform.getSize() },
+            .uniform_descriptions = &.{ .{
+                .size = graphics.GlobalUniform.getSize(),
+                .idx = 0,
+            }, .{
+                .size = Uniform.getSize(),
+                .idx = 1,
+            } },
             .global_ubo = true,
         };
 
@@ -57,7 +63,6 @@ pub fn CustomSpatialMesh(comptime InUniform: graphics.DataDescription) type {
         const SpatialInfo = struct {
             pos: Vec3 = Vec3.init(.{ 0, 0, 0 }),
             pipeline: graphics.RenderPipeline,
-            samplers: []const graphics.Drawing.SamplerWrite,
         };
 
         const Self = @This();
@@ -67,11 +72,10 @@ pub fn CustomSpatialMesh(comptime InUniform: graphics.DataDescription) type {
             try drawing.init(scene.window.ally, .{
                 .win = scene.window,
                 .pipeline = info.pipeline,
-                .samplers = info.samplers,
             });
 
-            Uniform.setAsUniformField(drawing, 1, .spatial_pos, info.pos.val);
-            graphics.GlobalUniform.setAsUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+            drawing.getUniformOr(1, 0).?.setAsUniformField(Uniform, .spatial_pos, info.pos.val);
+            drawing.getUniformOr(0, 0).?.setAsUniform(graphics.GlobalUniform, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
             return .{
                 .drawing = drawing,

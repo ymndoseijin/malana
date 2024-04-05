@@ -37,9 +37,17 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
             },
             .render_type = .triangle,
             .depth_test = false,
-            .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), SpriteUniform.getSize() },
+            .uniform_descriptions = &.{ .{
+                .size = graphics.GlobalUniform.getSize(),
+                .idx = 0,
+            }, .{
+                .size = SpriteUniform.getSize(),
+                .idx = 1,
+            } },
             .global_ubo = true,
-            .sampler_descriptions = &.{.{}},
+            .sampler_descriptions = &.{.{
+                .idx = 2,
+            }},
         };
 
         pub const Self = @This();
@@ -58,8 +66,8 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
             try drawing.init(scene.window.ally, .{
                 .win = scene.window,
                 .pipeline = if (info.pipeline) |p| p else scene.default_pipelines.sprite,
-                .samplers = &.{.{ .textures = &.{info.tex} }},
             });
+            try drawing.updateDescriptorSets(scene.window.ally, .{ .samplers = &.{.{ .idx = 2, .textures = &.{info.tex} }} });
 
             try description.vertex_description.bindVertex(drawing, &.{
                 .{ .{ 0, 0, 1 }, .{ 0, 0 } },
@@ -68,10 +76,10 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
                 .{ .{ 0, 1, 1 }, .{ 0, 1 } },
             }, &.{ 0, 1, 2, 2, 3, 0 });
 
-            SpriteUniform.setAsUniformField(drawing, 1, .transform, default_transform.getMat().cast(4, 4));
-            SpriteUniform.setAsUniformField(drawing, 1, .opacity, 1);
+            drawing.getUniformOr(1, 0).?.setAsUniformField(SpriteUniform, .transform, default_transform.getMat().cast(4, 4));
+            drawing.getUniformOr(1, 0).?.setAsUniformField(SpriteUniform, .opacity, 1.0);
 
-            graphics.GlobalUniform.setAsUniform(drawing, 0, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+            drawing.getUniformOr(1, 0).?.setAsUniform(graphics.GlobalUniform, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
             return Self{
                 .drawing = drawing,
@@ -83,7 +91,7 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
         }
 
         pub fn updateTexture(self: *Sprite, ally: std.mem.Allocator, info: SpriteInfo) !void {
-            try self.drawing.updateDescriptorSets(ally, &.{&.{info.tex}});
+            try self.drawing.updateDescriptorSets(ally, .{ .samplers = &.{&.{info.tex}} });
 
             const w: f32 = @floatFromInt(info.tex.width);
             const h: f32 = @floatFromInt(info.tex.height);
@@ -110,12 +118,12 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
         }
 
         pub fn updateTransform(self: Self) void {
-            SpriteUniform.setAsUniformField(self.drawing, 1, .transform, self.transform.getMat().cast(4, 4));
+            self.drawing.getUniformOr(1, 0).?.setAsUniformField(SpriteUniform, .transform, self.transform.getMat().cast(4, 4));
         }
 
         pub fn setOpacity(self: *Self, opacity: f32) void {
             self.opacity = opacity;
-            SpriteUniform.setAsUniformField(self.drawing, 1, .opacity, opacity);
+            self.drawing.getUniformOr(1, 0).?.setAsUniformField(SpriteUniform, .opacity, 1.0);
         }
 
         width: f32,

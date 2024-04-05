@@ -60,10 +60,19 @@ pub fn main() !void {
         .render_type = .triangle,
         .depth_test = true,
         .cull_type = .back,
-        .uniform_sizes = &.{ graphics.GlobalUniform.getSize(), graphics.SpatialMesh.Uniform.getSize() },
+        .uniform_descriptions = &.{ .{
+            .size = graphics.GlobalUniform.getSize(),
+            .idx = 0,
+        }, .{
+            .size = graphics.SpatialMesh.Uniform.getSize(),
+            .idx = 1,
+        } },
         .constants_size = PushConstants.getSize(),
         .global_ubo = true,
-        .sampler_descriptions = &.{.{ .boundless = true }},
+        .sampler_descriptions = &.{.{
+            .idx = 2,
+            .boundless = true,
+        }},
         .bindless = true,
     };
 
@@ -101,8 +110,8 @@ pub fn main() !void {
     const camera_obj = try graphics.SpatialMesh.init(&state.scene, .{
         .pos = math.Vec3.init(.{ 0, 0, 0 }),
         .pipeline = pipeline,
-        .samplers = &.{.{ .textures = &.{ cubemap, other } }},
     });
+    try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 2, .textures = &.{ cubemap, other } }} });
 
     try graphics.SpatialMesh.Pipeline.vertex_description.bindVertex(camera_obj.drawing, object.vertices.items, object.indices.items);
 
@@ -128,7 +137,7 @@ pub fn main() !void {
             .intensity = .{ exp, exp, exp },
         };
 
-        graphics.SpatialMesh.Uniform.setAsUniform(camera_obj.drawing, 1, uniform);
+        camera_obj.drawing.getUniformOr(1, 0).?.setAsUniform(graphics.SpatialMesh.Uniform, uniform);
 
         const frame_id = builder.frame_id;
         const swapchain = &state.main_win.swapchain;
