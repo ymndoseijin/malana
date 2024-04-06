@@ -46,20 +46,30 @@ pub const Text = struct {
     line_spacing: f32,
     bounding_width: f32,
     bounding_height: f32,
+
     wrap: bool,
+    flip_y: bool,
 
     // 2D structure
     transform: graphics.Transform2D,
     opacity: f32,
 
     codepoints: std.ArrayList(u32),
+    codepoint_table: std.AutoArrayHashMap(u32, CodepointQuery),
+
+    batch: graphics.CustomSpriteBatch(CharacterUniform),
+    scene: *graphics.Scene,
+
+    const CodepointQuery = struct {
+        metrics: freetype.GlyphMetrics,
+        tex: graphics.Texture,
+    };
 
     const CharacterInfo = struct {
         char: u32,
         index: usize,
         count: usize,
         shaders: ?[]graphics.Shader = null,
-        pipeline: graphics.RenderPipeline,
     };
 
     const CharacterUniform: graphics.DataDescription = .{ .T = extern struct {
@@ -72,7 +82,7 @@ pub const Text = struct {
 
     pub const description: graphics.PipelineDescription = .{
         .vertex_description = .{
-            .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 } },
+            .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 1, .attribute = .uint } },
         },
         .render_type = .triangle,
         .depth_test = false,
@@ -82,91 +92,96 @@ pub const Text = struct {
         }, .{
             .size = CharacterUniform.getSize(),
             .idx = 1,
+            .boundless = true,
         } },
         .global_ubo = true,
         .sampler_descriptions = &.{.{
             .idx = 2,
+            .boundless = true,
         }},
+        .bindless = true,
     };
 
     pub const Character = struct {
-        image: Image,
-        sprite: graphics.CustomSprite(CharacterUniform),
+        sprite: graphics.CustomSpriteBatch(CharacterUniform).Sprite,
         offset: math.Vec2,
         advance: f32,
         parent: *Text,
-
-        texture: graphics.Texture,
+        char: u32,
+        tex: graphics.Texture,
 
         pub fn setOpacity(self: *Character, opacity: f32) void {
             self.sprite.setOpacity(opacity);
         }
 
-        pub fn init(scene: *graphics.Scene, ally: std.mem.Allocator, parent: *Text, info: CharacterInfo) !Character {
-            try parent.face.loadChar(info.char, .{ .render = true });
-            const glyph = parent.face.glyph();
-            const bitmap = glyph.bitmap();
+        pub fn init(ally: std.mem.Allocator, parent: *Text, info: CharacterInfo) !Character {
+            const query: CodepointQuery = blk: {
+                if (parent.codepoint_table.get(info.char)) |known_query| break :blk known_query;
+                try parent.face.loadChar(info.char, .{ .render = true });
+                const glyph = parent.face.glyph();
+                const bitmap = glyph.bitmap();
 
-            var image: Image = .{
-                .data = try ally.alloc(img.color.Rgba32, bitmap.rows() * bitmap.width()),
-                .width = bitmap.width(),
-                .height = bitmap.rows(),
+                var image: Image = .{
+                    .data = try ally.alloc(img.color.Rgba32, bitmap.rows() * bitmap.width()),
+                    .width = bitmap.width(),
+                    .height = bitmap.rows(),
+                };
+                defer ally.free(image.data);
+
+                for (0..bitmap.rows()) |i_in| {
+                    for (0..bitmap.width()) |j| {
+                        const i = if (parent.flip_y) image.height - i_in - 1 else i_in;
+                        const s: u8 = bitmap.buffer().?[i_in * bitmap.width() + j];
+                        image.data[i * image.width + j] = .{ .r = 255, .g = 255, .b = 255, .a = s };
+                    }
+                }
+
+                var new_tex = try graphics.Texture.init(parent.scene.window, image.width, image.height, .{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
+                try new_tex.setFromRgba(image);
+                try parent.codepoint_table.put(info.char, .{ .tex = new_tex, .metrics = glyph.metrics() });
+                break :blk .{ .tex = new_tex, .metrics = glyph.metrics() };
             };
 
-            const metrics = glyph.metrics();
+            const metrics = query.metrics;
+            const tex = query.tex;
             var offset = math.Vec2.init(.{ @floatFromInt(metrics.horiBearingX), @floatFromInt(-metrics.height + metrics.horiBearingY) });
-            offset.val[1] *= -1;
+            if (!parent.flip_y) offset.val[1] *= -1;
 
             const metrics_scale: f32 = 1.0 / 64.0;
             offset = offset.scale(metrics_scale);
 
             const advance: f32 = @floatFromInt(metrics.horiAdvance);
 
-            for (0..bitmap.rows()) |i| {
-                for (0..bitmap.width()) |j| {
-                    const s: u8 = bitmap.buffer().?[i * bitmap.width() + j];
-                    image.data[i * image.width + j] = .{ .r = 255, .g = 255, .b = 255, .a = s };
-                }
-            }
+            const sprite = try parent.batch.newSprite(tex);
 
-            var tex = try graphics.Texture.init(scene.window, image.width, image.height, .{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
-            try tex.setFromRgba(image);
-
-            const sprite = try graphics.CustomSprite(CharacterUniform).init(scene, .{
-                .tex = tex,
-                .pipeline = info.pipeline,
-            });
-
-            sprite.drawing.getUniformOr(1, 0).?.setAsUniformField(CharacterUniform, .index, @as(u32, @intCast(info.index)));
-            sprite.drawing.getUniformOr(1, 0).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(info.count)));
-            sprite.drawing.getUniformOr(1, 0).?.setAsUniformField(CharacterUniform, .opacity, parent.opacity);
+            sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .index, @as(u32, @intCast(info.index)));
+            sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(info.count)));
+            sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .opacity, parent.opacity);
 
             return .{
-                .image = image,
                 .parent = parent,
                 .sprite = sprite,
                 .offset = offset,
                 .advance = advance / 64,
-                .texture = tex,
+                .char = info.char,
+                .tex = tex,
             };
         }
 
-        pub fn deinit(self: Character, ally: std.mem.Allocator) void {
-            ally.free(self.image.data);
-            self.texture.deinit();
+        pub fn deinit(character: Character) !void {
+            try character.sprite.delete();
         }
     };
 
     const PrintInfo = struct {
         text: []const u8,
         color: [3]f32 = .{ 1.0, 1.0, 1.0 },
-        pipeline: ?graphics.RenderPipeline = null,
     };
 
-    pub fn printFmt(self: *Text, scene: *graphics.Scene, ally: std.mem.Allocator, comptime fmt: []const u8, fmt_args: anytype) !void {
+    pub fn printFmt(self: *Text, ally: std.mem.Allocator, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
         const str = try std.fmt.bufPrint(&buf, fmt, fmt_args);
-        try self.print(scene, ally, .{ .text = str });
+        try self.print(ally, .{ .text = str });
     }
 
     pub fn setOpacity(self: *Text, opacity: f32) void {
@@ -176,10 +191,9 @@ pub const Text = struct {
         }
     }
 
-    pub fn clear(self: *Text, scene: *graphics.Scene, ally: std.mem.Allocator) !void {
+    pub fn clear(self: *Text) !void {
         for (self.characters.items) |c| {
-            scene.delete(ally, c.sprite.drawing);
-            c.deinit(ally);
+            try c.deinit();
         }
         self.characters.clearRetainingCapacity();
         self.codepoints.clearRetainingCapacity();
@@ -197,7 +211,7 @@ pub const Text = struct {
         return res;
     }
 
-    pub fn print(self: *Text, scene: *graphics.Scene, ally: std.mem.Allocator, info: PrintInfo) !void {
+    pub fn print(self: *Text, ally: std.mem.Allocator, info: PrintInfo) !void {
         if (info.text.len == 0) return;
 
         var unicode = (try std.unicode.Utf8View.init(info.text)).iterator();
@@ -215,20 +229,19 @@ pub const Text = struct {
             if (c == '\n' or c == 32) {
                 continue;
             }
-            const char = try Character.init(scene, ally, self, .{
+            const char = try Character.init(ally, self, .{
                 .char = c,
                 .count = self.codepoints.items.len,
                 .index = index,
-                .pipeline = if (info.pipeline) |p| p else scene.default_pipelines.textft,
             });
-            char.sprite.drawing.getUniformOr(1, 0).?.setAsUniformField(CharacterUniform, .color, info.color);
+            char.sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .color, info.color);
             try self.characters.append(char);
         }
 
         try self.update();
 
         for (self.characters.items) |c| {
-            c.sprite.drawing.getUniformOr(1, 0).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(self.codepoints.items.len)));
+            c.sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(self.codepoints.items.len)));
         }
     }
 
@@ -267,8 +280,8 @@ pub const Text = struct {
                     height += self.line_spacing;
                 }
 
-                char.sprite.transform.translation = start.add(char.offset).sub(math.Vec2.init(.{ 0, @floatFromInt(char.image.height) }));
-                char.sprite.transform.scale = math.Vec2.init(.{ @floatFromInt(char.image.width), @floatFromInt(char.image.height) });
+                char.sprite.transform.translation = start.add(char.offset).sub(math.Vec2.init(.{ 0, @floatFromInt(char.tex.height) }));
+                char.sprite.transform.scale = math.Vec2.init(.{ @floatFromInt(char.tex.width), @floatFromInt(char.tex.height) });
                 char.sprite.updateTransform();
                 self.width = @max(self.width + char.advance, self.width);
                 start.val[0] += char.advance;
@@ -282,13 +295,14 @@ pub const Text = struct {
         self.bounding_height = height;
     }
 
-    pub fn deinit(self: *Text, ally: std.mem.Allocator, scene: *graphics.Scene) void {
-        for (self.characters.items) |c| {
-            scene.delete(ally, c.sprite.drawing);
-            c.deinit(ally);
-        }
+    pub fn deinit(self: *Text) void {
         self.characters.deinit();
         self.codepoints.deinit();
+        for (self.codepoint_table.values()) |v| {
+            v.tex.deinit();
+        }
+        self.codepoint_table.deinit();
+        self.batch.deinit();
     }
 
     const TextInfo = struct {
@@ -296,7 +310,10 @@ pub const Text = struct {
         size: f32,
         line_spacing: f32,
         wrap: bool = true,
+        flip_y: bool = false,
         bounding_width: f32 = 0,
+        pipeline: ?graphics.RenderPipeline = null,
+        scene: *graphics.Scene,
     };
 
     pub fn init(ally: std.mem.Allocator, info: TextInfo) !Text {
@@ -313,7 +330,13 @@ pub const Text = struct {
             .line_spacing = info.size * info.line_spacing,
             .characters = std.ArrayList(Character).init(ally),
             .codepoints = std.ArrayList(u32).init(ally),
+            .codepoint_table = std.AutoArrayHashMap(u32, CodepointQuery).init(ally),
+            .batch = try graphics.CustomSpriteBatch(CharacterUniform).init(info.scene, .{
+                .pipeline = if (info.pipeline) |p| p else info.scene.default_pipelines.textft,
+            }),
+            .scene = info.scene,
             .wrap = info.wrap,
+            .flip_y = info.flip_y,
             .transform = .{
                 .scale = math.Vec2.init(.{ 1, 1 }),
                 .rotation = .{ .angle = 0, .center = math.Vec2.init(.{ 0.5, 0.5 }) },

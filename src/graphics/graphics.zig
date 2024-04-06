@@ -318,11 +318,25 @@ fn initializeCandidate(vki: InstanceDispatch, candidate: DeviceCandidate) !vk.De
         .pp_enabled_extension_names = @as([*]const [*:0]const u8, @ptrCast(&required_device_extensions)),
         .p_enabled_features = &features,
         .p_next = &vk.PhysicalDeviceDescriptorIndexingFeatures{
-            .descriptor_binding_partially_bound = vk.TRUE,
-            .descriptor_binding_update_unused_while_pending = vk.TRUE,
-            .descriptor_binding_variable_descriptor_count = vk.TRUE,
+            .shader_input_attachment_array_dynamic_indexing = vk.TRUE,
+            .shader_uniform_texel_buffer_array_dynamic_indexing = vk.TRUE,
+            .shader_storage_texel_buffer_array_dynamic_indexing = vk.TRUE,
+            .shader_uniform_buffer_array_non_uniform_indexing = vk.TRUE,
+            .shader_sampled_image_array_non_uniform_indexing = vk.TRUE,
+            .shader_storage_buffer_array_non_uniform_indexing = vk.TRUE,
+            .shader_storage_image_array_non_uniform_indexing = vk.TRUE,
+            .shader_input_attachment_array_non_uniform_indexing = vk.TRUE,
+            .shader_uniform_texel_buffer_array_non_uniform_indexing = vk.TRUE,
+            .shader_storage_texel_buffer_array_non_uniform_indexing = vk.TRUE,
             .descriptor_binding_uniform_buffer_update_after_bind = vk.TRUE,
             .descriptor_binding_sampled_image_update_after_bind = vk.TRUE,
+            .descriptor_binding_storage_image_update_after_bind = vk.TRUE,
+            .descriptor_binding_storage_buffer_update_after_bind = vk.TRUE,
+            .descriptor_binding_uniform_texel_buffer_update_after_bind = vk.TRUE,
+            .descriptor_binding_storage_texel_buffer_update_after_bind = vk.TRUE,
+            .descriptor_binding_update_unused_while_pending = vk.TRUE,
+            .descriptor_binding_partially_bound = vk.TRUE,
+            .descriptor_binding_variable_descriptor_count = vk.TRUE,
             .runtime_descriptor_array = vk.TRUE,
         },
     }, null);
@@ -1478,6 +1492,7 @@ pub const Drawing = struct {
     }
 
     pub fn bindIndexBuffer(self: *Drawing, indices: []const u32) !void {
+        if (indices.len == 0) return;
         var gc = &self.window.gc;
         const pool = self.window.pool;
 
@@ -2081,7 +2096,7 @@ pub const Window = struct {
 
     const DefaultShaders = struct {
         sprite_shaders: [2]Shader,
-        spritebatch_shaders: [2]Shader,
+        sprite_batch_shaders: [2]Shader,
         color_shaders: [2]Shader,
         text_shaders: [2]Shader,
         textft_shaders: [2]Shader,
@@ -2091,8 +2106,8 @@ pub const Window = struct {
             const sprite_vert = try Shader.init(gc, &elem_shaders.sprite_vert, .vertex);
             const sprite_frag = try Shader.init(gc, &elem_shaders.sprite_frag, .fragment);
 
-            const spritebatch_vert = try Shader.init(gc, &elem_shaders.spritebatch_vert, .vertex);
-            const spritebatch_frag = try Shader.init(gc, &elem_shaders.spritebatch_frag, .fragment);
+            const sprite_batch_vert = try Shader.init(gc, &elem_shaders.sprite_batch_vert, .vertex);
+            const sprite_batch_frag = try Shader.init(gc, &elem_shaders.sprite_batch_frag, .fragment);
 
             const color_vert = try Shader.init(gc, &elem_shaders.color_vert, .vertex);
             const color_frag = try Shader.init(gc, &elem_shaders.color_frag, .fragment);
@@ -2108,7 +2123,7 @@ pub const Window = struct {
 
             return .{
                 .sprite_shaders = .{ sprite_vert, sprite_frag },
-                .spritebatch_shaders = .{ spritebatch_vert, spritebatch_frag },
+                .sprite_batch_shaders = .{ sprite_batch_vert, sprite_batch_frag },
                 .color_shaders = .{ color_vert, color_frag },
                 .text_shaders = .{ text_vert, text_frag },
                 .textft_shaders = .{ textft_vert, textft_frag },
@@ -2118,6 +2133,7 @@ pub const Window = struct {
 
         pub fn deinit(self: DefaultShaders, gc: GraphicsContext) void {
             for (self.sprite_shaders) |s| s.deinit(gc);
+            for (self.sprite_batch_shaders) |s| s.deinit(gc);
             for (self.color_shaders) |s| s.deinit(gc);
             for (self.text_shaders) |s| s.deinit(gc);
             for (self.textft_shaders) |s| s.deinit(gc);
@@ -2404,7 +2420,7 @@ pub const Scene = struct {
     const DefaultPipelines = struct {
         color: RenderPipeline,
         sprite: RenderPipeline,
-        spritebatch: RenderPipeline,
+        sprite_batch: RenderPipeline,
         textft: RenderPipeline,
 
         pub fn init(win: *Window, render_pass: *RenderPass, flip_z: bool) !DefaultPipelines {
@@ -2425,9 +2441,9 @@ pub const Scene = struct {
                     .gc = &win.gc,
                     .flipped_z = flip_z,
                 }),
-                .spritebatch = try RenderPipeline.init(win.ally, .{
+                .sprite_batch = try RenderPipeline.init(win.ally, .{
                     .description = SpriteBatch.description,
-                    .shaders = &shaders.spritebatch_shaders,
+                    .shaders = &shaders.sprite_batch_shaders,
                     .render_pass = render_pass.*,
                     .gc = &win.gc,
                     .flipped_z = flip_z,
@@ -2445,6 +2461,7 @@ pub const Scene = struct {
         pub fn deinit(pipelines: *DefaultPipelines, gc: *const GraphicsContext) void {
             pipelines.color.deinit(gc);
             pipelines.sprite.deinit(gc);
+            pipelines.sprite_batch.deinit(gc);
             pipelines.textft.deinit(gc);
         }
     };
@@ -2525,7 +2542,7 @@ pub const VertexAttribute = struct {
         switch (self.attribute) {
             .float => return [self.size]f32,
             .short => return [self.size]i16,
-            .uint => return [self.size]i32,
+            .uint => return [self.size]u32,
         }
     }
 
@@ -2533,7 +2550,7 @@ pub const VertexAttribute = struct {
         switch (self.attribute) {
             .float => return @sizeOf(f32) * self.size,
             .short => return @sizeOf(i16) * self.size,
-            .uint => return @sizeOf(i32) * self.size,
+            .uint => return @sizeOf(u32) * self.size,
         }
     }
 
@@ -2551,7 +2568,7 @@ pub const VertexAttribute = struct {
                 }
             },
             .short => return .r16g16_sint,
-            .uint => return .r32_sint,
+            .uint => return .r32_uint,
         }
     }
 };
@@ -2570,7 +2587,8 @@ pub const VertexDescription = struct {
                 .type = T,
                 .default_value = null,
                 .is_comptime = false,
-                .alignment = if (@sizeOf(T) > 0) 1 else 0,
+                //.alignment = if (@sizeOf(T) > 0) 1 else 0,
+                .alignment = if (@sizeOf(T) > 0) @alignOf(T) else 0,
             }};
         }
 
@@ -2593,6 +2611,7 @@ pub const VertexDescription = struct {
     }
 
     pub fn bindVertexBuffer(comptime self: VertexDescription, draw: *Drawing, vertices: []const self.getAttributeType()) !void {
+        if (vertices.len == 0) return;
         var gc = &draw.window.gc;
         const pool = draw.window.pool;
 
@@ -2618,7 +2637,7 @@ pub const VertexDescription = struct {
             const data = try gc.vkd.mapMemory(gc.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
             defer gc.vkd.unmapMemory(gc.dev, staging_buff.memory);
 
-            const gpu_vertices: [*]align(1) self.getAttributeType() = @ptrCast(@alignCast(data));
+            const gpu_vertices: [*]self.getAttributeType() = @ptrCast(@alignCast(data));
             for (vertices, 0..) |vertex, i| {
                 gpu_vertices[i] = vertex;
             }

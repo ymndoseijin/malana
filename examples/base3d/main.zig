@@ -134,8 +134,15 @@ pub fn main() !void {
 
     state.key_down = key_down;
 
-    var fps = try graphics.TextFt.init(ally, .{ .path = "resources/cmunrm.ttf", .size = 50, .line_spacing = 1, .bounding_width = 250 });
-    defer fps.deinit(ally, &state.post_scene);
+    var fps = try graphics.TextFt.init(ally, .{
+        .path = "resources/cmunrm.ttf",
+        .size = 50,
+        .line_spacing = 1,
+        .bounding_width = 250,
+        .flip_y = true,
+        .scene = &state.scene,
+    });
+    defer fps.deinit();
     fps.transform.translation = math.Vec2.init(.{ 10, 10 });
 
     while (state.main_win.alive) {
@@ -150,6 +157,7 @@ pub fn main() !void {
         const exp = 30 * 3;
 
         (try camera_obj.drawing.getUniformOrCreate(1, 0)).setAsUniform(graphics.SpatialMesh.Uniform, uniform);
+
         (try camera_obj.drawing.getUniformOrCreate(2, 0)).setAsUniform(LightArray, .{
             .pos = spin.dot(Vec3.init(.{ 5, 10, 5 })).val,
             .intensity = .{ 0, exp, 0 },
@@ -158,6 +166,9 @@ pub fn main() !void {
             .pos = spin.dot(Vec3.init(.{ 5, -10, 5 })).val,
             .intensity = .{ exp, 0, 0 },
         });
+
+        try fps.clear();
+        try fps.printFmt(ally, "FPS: {}", .{@as(u32, @intFromFloat(1 / state.dt))});
 
         const frame_id = builder.frame_id;
         const swapchain = &state.main_win.swapchain;

@@ -50,6 +50,7 @@ pub fn main() !void {
     defer tex.deinit();
 
     var batch = try graphics.SpriteBatch.init(&state.scene, .{});
+    defer batch.deinit();
 
     var sprite = try batch.newSprite(tex);
     sprite.transform.translation = math.Vec2.init(.{ 200, 200 });
@@ -66,12 +67,12 @@ pub fn main() !void {
 
     try state.callback.elements.append(.{ @ptrCast(&color), .{ .mouse_func = nice, .region = &color_region } });
 
-    var char_test = try graphics.TextFt.init(ally, .{ .path = "resources/cmunrm.ttf", .size = 50, .line_spacing = 1, .bounding_width = 250 });
+    var char_test = try graphics.TextFt.init(ally, .{ .path = "resources/cmunrm.ttf", .size = 50, .line_spacing = 1, .bounding_width = 250, .scene = &state.scene });
     char_test.transform.translation = math.Vec2.init(.{ 0, 200 });
-    try char_test.print(&state.scene, ally, .{ .text = "hello world! " });
-    try char_test.print(&state.scene, ally, .{ .text = "I'm here!" });
-    char_test.setOpacity(0.5);
-    defer char_test.deinit(ally, &state.scene);
+    try char_test.print(ally, .{ .text = "hello world! " });
+    try char_test.clear();
+    try char_test.print(ally, .{ .text = "I'm here!" });
+    defer char_test.deinit();
 
     state.key_down = keyDown;
 
