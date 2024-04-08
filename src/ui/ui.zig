@@ -163,16 +163,16 @@ pub const Ui = struct {
         const first_pass = try graphics.RenderPass.init(&main_win.gc, .{
             .format = main_win.swapchain.surface_format.format,
             .target = true,
-            .multisampling = true,
+            //.multisampling = true,
         });
 
         const multisampling_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{
-            .multisampling = true,
+            //.multisampling = true,
             .preferred_format = main_win.preferred_format,
         });
         const depth_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{
             .preferred_format = .depth,
-            .multisampling = true,
+            //.multisampling = true,
         });
         const post_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{
             .is_render_target = true,
@@ -207,7 +207,8 @@ pub const Ui = struct {
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
         const framebuffer = try graphics.Framebuffer.init(&main_win.gc, .{
-            .attachments = &.{ multisampling_tex.image_view, depth_tex.image_view, post_tex.image_view },
+            //.attachments = &.{ multisampling_tex.image_view, depth_tex.image_view, post_tex.image_view },
+            .attachments = &.{ post_tex.image_view, depth_tex.image_view },
             .render_pass = first_pass.pass,
             .width = swapchain.extent.width,
             .height = swapchain.extent.height,
@@ -373,11 +374,11 @@ pub const Ui = struct {
         state.post_depth_tex.deinit();
 
         state.multisampling_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{
-            .multisampling = true,
+            //.multisampling = true,
             .preferred_format = state.main_win.preferred_format,
         });
         state.post_depth_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{
-            .multisampling = true,
+            //.multisampling = true,
             .preferred_format = .depth,
         });
         state.post_color_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{
@@ -387,7 +388,8 @@ pub const Ui = struct {
 
         state.post_buffer.deinit(state.main_win.gc);
         state.post_buffer = try graphics.Framebuffer.init(&state.main_win.gc, .{
-            .attachments = &.{ state.multisampling_tex.image_view, state.post_depth_tex.image_view, state.post_color_tex.image_view },
+            //.attachments = &.{ state.multisampling_tex.image_view, state.post_depth_tex.image_view, state.post_color_tex.image_view },
+            .attachments = &.{ state.post_color_tex.image_view, state.post_depth_tex.image_view },
             .render_pass = state.first_pass.pass,
             .width = @intCast(width),
             .height = @intCast(height),

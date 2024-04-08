@@ -144,6 +144,8 @@ pub fn build(b: *std.Build) void {
             .shaders = &.{
                 .{ "vert", "shaders/shader.vert", .{ .preamble = generated_glsl } },
                 .{ "frag", "shaders/shader.frag", .{} },
+                .{ "shadow_vert", "shaders/shadow.vert", .{} },
+                .{ "shadow_frag", "shaders/shadow.frag", .{} },
             },
         },
         .{
@@ -181,7 +183,6 @@ pub fn build(b: *std.Build) void {
         exe.root_module.addImport("shaders", shaders.getModule());
 
         exe.linkLibrary(glfw_dep.artifact("glfw"));
-        //exe.linkLibrary(freetype_dep.artifact("freetype"));
 
         exe.linkLibC();
 

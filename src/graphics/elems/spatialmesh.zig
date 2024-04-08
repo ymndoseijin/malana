@@ -60,10 +60,9 @@ pub fn CustomSpatialMesh(comptime InUniform: graphics.DataDescription) type {
 
         const Self = @This();
 
-        pub fn init(scene: *graphics.Scene, info: SpatialInfo) !Self {
-            var drawing = try scene.new();
-            try drawing.init(scene.window.ally, .{
-                .win = scene.window,
+        pub fn init(drawing: *graphics.Drawing, window: *graphics.Window, info: SpatialInfo) !Self {
+            try drawing.init(window.ally, .{
+                .win = window,
                 .pipeline = info.pipeline,
             });
 

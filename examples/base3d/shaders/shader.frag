@@ -17,6 +17,7 @@ layout (binding = 0) uniform GlobalUBO {
 struct Light {
    vec3 pos;
    vec3 intensity;
+   mat4 matrix;
 };
 
 layout (binding = 1) uniform SpatialUBO {
@@ -26,7 +27,10 @@ layout (binding = 1) uniform SpatialUBO {
 layout (binding = 2) uniform LightArray {
    Light light;
 } lights[];
+
 layout (binding = 3) uniform samplerCube cubemap[];
+
+layout (binding = 4) uniform sampler2D shadow_maps[];
 
 layout (push_constant) uniform Constants {
    vec3 cam_pos;
@@ -44,10 +48,27 @@ float G1(vec3 n, vec3 v, vec3 m, float a2) {
    return chi(dot(v, m)/dot(v, n)) * 2 / (1 + sqrt(1 + a2 * tan_v * tan_v));
 }
 
+float calculate_shadow(int i) {
+   vec3 n = normalize(in_normal);
+   vec4 light_space = lights[nonuniformEXT(i)].light.matrix * vec4(in_pos, 1.0);
+   vec3 light_pos = light_space.xyz / light_space.w;
+
+   light_pos = light_pos * 0.5 + 0.5;
+
+   float bef = light_space.z / light_space.w;
+   float shadow_depth = texture(shadow_maps[nonuniformEXT(i)], light_pos.xy * vec2(1, -1) + vec2(0, 1)).r;
+
+   float bias = max(0.05 * (1.0 - dot(n, normalize(lights[nonuniformEXT(i)].light.pos - in_pos))), 0.005)/2;
+   bias = 0.005;
+
+   if ((bef - bias) > shadow_depth) return 1.0;
+   return 0.0;
+}
+
 void main() {
    vec3 total_val = vec3(0);
 
-   float a = 0.05;
+   float a = 0.2;
    float metallic = 0;
    vec3 albedo = vec3(0,0,1);
 
@@ -63,6 +84,7 @@ void main() {
       Light light = lights[i].light;
       float dist = length(light.pos - in_pos);
       vec3 radiance = light.intensity / (dist * dist);
+      radiance *= 1 - calculate_shadow(i);
 
       vec3 l = normalize(light.pos - in_pos);
       vec3 h = normalize(v + l);
@@ -91,6 +113,6 @@ void main() {
 
    vec3 res = total_val;
    res = pow(res, vec3(1 / 2.2));
-   //res = texture(cubemap[1], reflect(normalize(in_pos - constants.cam_pos), n)).rgb;
+
    out_color = vec4(res, 1);
 }

@@ -870,6 +870,7 @@ pub const TextureInfo = struct {
     min_filter: FilterEnum = .nearest,
     multisampling: bool = false,
     is_render_target: bool = false,
+    sampled: bool = false,
     cubemap: bool = false,
     preferred_format: ?PreferredFormat = null,
 };
@@ -887,16 +888,25 @@ pub const Texture = struct {
     window: *Window,
     sampler: vk.Sampler,
     memory: vk.DeviceMemory,
+    format: vk.Format,
 
     pub fn init(win: *Window, width: u32, height: u32, info: TextureInfo) !Texture {
         const format = if (info.preferred_format) |f| f else win.preferred_format;
+        const vk_format = blk: {
+            //if (format == .depth and info.sampled) break :blk .d16_unorm;
+            if (info.multisampling and info.preferred_format != .depth) {
+                break :blk win.preferred_format.getSurfaceFormat(win.gc);
+            } else {
+                break :blk format.getSurfaceFormat(win.gc);
+            }
+        };
 
         const image_info: vk.ImageCreateInfo = .{
             .image_type = .@"2d",
             .extent = .{ .width = width, .height = height, .depth = 1 },
             .mip_levels = 1,
             .array_layers = if (info.cubemap) 6 else 1,
-            .format = if (info.multisampling and info.preferred_format != .depth) win.preferred_format.getSurfaceFormat(win.gc) else format.getSurfaceFormat(win.gc),
+            .format = vk_format,
             .tiling = blk: {
                 if (info.is_render_target or info.multisampling) {
                     break :blk .optimal;
@@ -914,7 +924,7 @@ pub const Texture = struct {
                     break :blk .{ .color_attachment_bit = true, .sampled_bit = true };
                 } else {
                     break :blk switch (format) {
-                        .depth => .{ .depth_stencil_attachment_bit = true },
+                        .depth => .{ .depth_stencil_attachment_bit = true, .sampled_bit = info.sampled },
                         .unorm, .srgb => .{ .transfer_dst_bit = true, .sampled_bit = true },
                     };
                 }
@@ -929,15 +939,17 @@ pub const Texture = struct {
         const image_memory = try win.gc.allocate(mem_reqs, .{ .device_local_bit = true });
         try win.gc.vkd.bindImageMemory(win.gc.dev, image, image_memory, 0);
 
-        if (format == .depth) try transitionImageLayout(&win.gc, win.pool, image, .{
-            .old_layout = .undefined,
-            .new_layout = .depth_stencil_attachment_optimal,
-        });
+        if (format == .depth) {
+            try transitionImageLayout(&win.gc, win.pool, image, .{
+                .old_layout = .undefined,
+                .new_layout = .depth_stencil_attachment_optimal,
+            });
+        }
 
         const view_info: vk.ImageViewCreateInfo = .{
             .image = image,
             .view_type = if (info.cubemap) .cube else .@"2d",
-            .format = format.getSurfaceFormat(win.gc),
+            .format = vk_format,
             .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
             .subresource_range = .{
                 .aspect_mask = if (format == .depth) .{ .depth_bit = true } else .{ .color_bit = true },
@@ -972,11 +984,14 @@ pub const Texture = struct {
             .info = info,
             .image = image,
             .window = win,
+
             .width = width,
             .height = height,
+
             .sampler = try win.gc.vkd.createSampler(win.gc.dev, &sampler_info, null),
             .image_view = try win.gc.vkd.createImageView(win.gc.dev, &view_info, null),
             .memory = image_memory,
+            .format = vk_format,
         };
     }
 
@@ -1145,16 +1160,30 @@ pub const Texture = struct {
     }
 
     pub fn createImage(tex: Texture, rgba: anytype) !void {
-        const PixelFormat = @TypeOf(rgba.data[0]);
-
-        const staging_buff = try tex.window.gc.createStagingBuffer(@sizeOf(PixelFormat) * rgba.data.len);
+        const staging_buff = try tex.window.gc.createStagingBuffer(@sizeOf(struct { b: u8, g: u8, r: u8, a: u8 }) * rgba.data.len);
         defer staging_buff.deinit(&tex.window.gc);
 
         {
             const data = try tex.window.gc.vkd.mapMemory(tex.window.gc.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
             defer tex.window.gc.vkd.unmapMemory(tex.window.gc.dev, staging_buff.memory);
 
-            for (@as([*]PixelFormat, @ptrCast(data))[0..rgba.data.len], 0..) |*p, i| p.* = rgba.data[i];
+            switch (tex.format) {
+                .b8g8r8a8_srgb, .b8g8r8a8_unorm => {
+                    const Format = struct {
+                        b: u8,
+                        g: u8,
+                        r: u8,
+                        a: u8,
+                    };
+                    for (@as([*]Format, @ptrCast(data))[0..rgba.data.len], 0..) |*p, i| {
+                        p.r = rgba.data[i].r;
+                        p.g = rgba.data[i].g;
+                        p.b = rgba.data[i].b;
+                        p.a = rgba.data[i].a;
+                    }
+                },
+                else => return error.InvalidTextureFormat,
+            }
         }
 
         try transitionImageLayout(&tex.window.gc, tex.window.pool, tex.image, .{
@@ -1177,14 +1206,13 @@ pub const Texture = struct {
     }
 };
 
-pub fn transitionImageLayout(gc: *const GraphicsContext, pool: vk.CommandPool, image: vk.Image, options: struct {
+const TransitionOptions = struct {
     old_layout: vk.ImageLayout,
     new_layout: vk.ImageLayout,
     layer_count: u32 = 1,
-}) !void {
-    const cmdbuf = try createSingleCommandBuffer(gc, pool);
-    defer freeSingleCommandBuffer(cmdbuf, gc, pool);
+};
 
+pub fn recordTransitionImageLayout(gc: *const GraphicsContext, cmdbuf: vk.CommandBuffer, image: vk.Image, options: TransitionOptions) !void {
     const barrier: vk.ImageMemoryBarrier = .{
         .old_layout = options.old_layout,
         .new_layout = options.new_layout,
@@ -1193,7 +1221,13 @@ pub fn transitionImageLayout(gc: *const GraphicsContext, pool: vk.CommandPool, i
         .image = image,
         .subresource_range = .{
             // stencil also has to be marked if the format supports it
-            .aspect_mask = if (options.new_layout == .depth_stencil_attachment_optimal) .{ .depth_bit = true } else .{ .color_bit = true },
+            .aspect_mask = blk: {
+                if (options.new_layout == .depth_stencil_attachment_optimal or options.old_layout == .depth_stencil_attachment_optimal) {
+                    break :blk .{ .depth_bit = true };
+                } else {
+                    break :blk .{ .color_bit = true };
+                }
+            },
             .base_mip_level = 0,
             .level_count = 1,
             .base_array_layer = 0,
@@ -1201,6 +1235,7 @@ pub fn transitionImageLayout(gc: *const GraphicsContext, pool: vk.CommandPool, i
         },
         .src_access_mask = switch (options.old_layout) {
             .undefined => .{},
+            .depth_stencil_attachment_optimal => .{ .depth_stencil_attachment_write_bit = true },
             .transfer_dst_optimal => .{ .transfer_write_bit = true },
             else => return error.InvalidOldLayout,
         },
@@ -1216,13 +1251,14 @@ pub fn transitionImageLayout(gc: *const GraphicsContext, pool: vk.CommandPool, i
         cmdbuf,
         switch (options.old_layout) {
             .undefined => .{ .top_of_pipe_bit = true },
+            .depth_stencil_attachment_optimal => .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
             .transfer_dst_optimal => .{ .transfer_bit = true },
             else => return error.InvalidOldLayout,
         },
         switch (options.new_layout) {
             .transfer_dst_optimal => .{ .transfer_bit = true },
             .shader_read_only_optimal => .{ .fragment_shader_bit = true },
-            .depth_stencil_attachment_optimal => .{ .early_fragment_tests_bit = true },
+            .depth_stencil_attachment_optimal => .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
             else => return error.InvalidOldLayout,
         },
         .{},
@@ -1233,6 +1269,13 @@ pub fn transitionImageLayout(gc: *const GraphicsContext, pool: vk.CommandPool, i
         1,
         @ptrCast(&barrier),
     );
+}
+
+pub fn transitionImageLayout(gc: *const GraphicsContext, pool: vk.CommandPool, image: vk.Image, options: TransitionOptions) !void {
+    const cmdbuf = try createSingleCommandBuffer(gc, pool);
+    defer freeSingleCommandBuffer(cmdbuf, gc, pool);
+
+    try recordTransitionImageLayout(gc, cmdbuf, image, options);
 
     try finishSingleCommandBuffer(cmdbuf, gc);
 }
@@ -1796,6 +1839,8 @@ pub const RenderPass = struct {
 
     pub const Info = struct {
         format: vk.Format,
+        color: bool = true,
+        depth: bool = true,
         multisampling: bool = false,
         target: bool = false,
     };
@@ -1819,7 +1864,7 @@ pub const RenderPass = struct {
             },
         };
 
-        const color_attachment_ref: vk.AttachmentReference = .{
+        var color_attachment_ref: vk.AttachmentReference = .{
             .attachment = 0,
             .layout = .color_attachment_optimal,
         };
@@ -1828,14 +1873,14 @@ pub const RenderPass = struct {
             .format = try gc.findDepthFormat(),
             .samples = if (info.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
             .load_op = .clear,
-            .store_op = .dont_care,
+            .store_op = .store,
             .stencil_load_op = .dont_care,
             .stencil_store_op = .dont_care,
             .initial_layout = .undefined,
             .final_layout = .depth_stencil_attachment_optimal,
         };
 
-        const depth_attachment_ref: vk.AttachmentReference = .{
+        var depth_attachment_ref: vk.AttachmentReference = .{
             .attachment = 1,
             .layout = .depth_stencil_attachment_optimal,
         };
@@ -1857,38 +1902,30 @@ pub const RenderPass = struct {
             },
         };
 
-        const color_resolve_attachment_ref: vk.AttachmentReference = .{
+        var color_resolve_attachment_ref: vk.AttachmentReference = .{
             .attachment = 2,
             .layout = .color_attachment_optimal,
         };
 
-        const subpass = vk.SubpassDescription{
-            .pipeline_bind_point = .graphics,
-            .color_attachment_count = 1,
-            .p_color_attachments = @ptrCast(&color_attachment_ref),
-            .p_depth_stencil_attachment = @ptrCast(&depth_attachment_ref),
-            .p_resolve_attachments = if (info.multisampling) @ptrCast(&color_resolve_attachment_ref) else null,
-        };
-
-        const color_dependency = vk.SubpassDependency{
-            .src_subpass = vk.SUBPASS_EXTERNAL,
-            .dst_subpass = 0,
-            .src_stage_mask = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
-            .dst_stage_mask = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
-            .src_access_mask = .{ .depth_stencil_attachment_write_bit = true },
-            .dst_access_mask = .{ .depth_stencil_attachment_write_bit = true, .depth_stencil_attachment_read_bit = true },
-        };
-
-        const depth_dependency = vk.SubpassDependency{
+        const color_dependency: vk.SubpassDependency = .{
             .src_subpass = vk.SUBPASS_EXTERNAL,
             .dst_subpass = 0,
             .src_stage_mask = .{ .color_attachment_output_bit = true },
-            .dst_stage_mask = .{ .color_attachment_output_bit = true },
             .src_access_mask = .{},
-            .dst_access_mask = .{ .color_attachment_write_bit = true, .color_attachment_read_bit = true },
+            .dst_stage_mask = .{ .color_attachment_output_bit = true },
+            .dst_access_mask = .{ .color_attachment_write_bit = true },
         };
 
-        const target_first_dependency = vk.SubpassDependency{
+        const depth_dependency: vk.SubpassDependency = .{
+            .src_subpass = vk.SUBPASS_EXTERNAL,
+            .dst_subpass = 0,
+            .src_stage_mask = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
+            .src_access_mask = .{},
+            .dst_stage_mask = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
+            .dst_access_mask = .{ .depth_stencil_attachment_write_bit = true },
+        };
+
+        const target_first_dependency: vk.SubpassDependency = .{
             .src_subpass = vk.SUBPASS_EXTERNAL,
             .dst_subpass = 0,
             .src_stage_mask = .{ .fragment_shader_bit = true },
@@ -1897,7 +1934,7 @@ pub const RenderPass = struct {
             .dst_access_mask = .{ .color_attachment_write_bit = true },
         };
 
-        const target_second_dependency = vk.SubpassDependency{
+        const target_second_dependency: vk.SubpassDependency = .{
             .src_subpass = 0,
             .dst_subpass = vk.SUBPASS_EXTERNAL,
             .src_stage_mask = .{ .color_attachment_output_bit = true },
@@ -1906,21 +1943,60 @@ pub const RenderPass = struct {
             .dst_access_mask = .{ .shader_read_bit = true },
         };
 
+        var dependency_buff: [8]vk.SubpassDependency = undefined;
+        var attachment_buff: [8]vk.AttachmentDescription = undefined;
+
         const dependencies: []const vk.SubpassDependency = blk: {
             if (info.target) {
                 break :blk &.{ target_first_dependency, target_second_dependency };
             } else {
-                break :blk &.{ color_dependency, depth_dependency };
+                var i: usize = 0;
+                if (info.color) {
+                    dependency_buff[i] = color_dependency;
+                    i += 1;
+                }
+
+                if (info.depth) {
+                    dependency_buff[i] = depth_dependency;
+                    i += 1;
+                }
+                break :blk dependency_buff[0..i];
             }
         };
 
         const attachments: []const vk.AttachmentDescription = blk: {
-            if (info.multisampling) {
-                break :blk &.{ color_attachment, depth_attachment, color_resolve_attachment };
-            } else {
-                break :blk &.{ color_attachment, depth_attachment };
+            var i: usize = 0;
+            if (info.color) {
+                color_attachment_ref.attachment = @intCast(i);
+                attachment_buff[i] = color_attachment;
+                i += 1;
             }
+
+            if (info.depth) {
+                depth_attachment_ref.attachment = @intCast(i);
+                attachment_buff[i] = depth_attachment;
+                i += 1;
+            }
+
+            if (info.multisampling) {
+                color_resolve_attachment_ref.attachment = @intCast(i);
+                attachment_buff[i] = color_resolve_attachment;
+                i += 1;
+            }
+
+            break :blk attachment_buff[0..i];
         };
+
+        const subpass: vk.SubpassDescription = .{
+            .pipeline_bind_point = .graphics,
+            .color_attachment_count = if (info.color) 1 else 0,
+            .p_color_attachments = if (info.color) @ptrCast(&color_attachment_ref) else null,
+            .p_depth_stencil_attachment = if (info.depth) @ptrCast(&depth_attachment_ref) else null,
+            .p_resolve_attachments = if (info.multisampling) @ptrCast(&color_resolve_attachment_ref) else null,
+        };
+
+        //std.debug.print("VAI SE FUDER {any}\n", .{attachments});
+
         return .{
             .pass = try gc.vkd.createRenderPass(gc.dev, &.{
                 .attachment_count = @intCast(attachments.len),
@@ -1980,6 +2056,11 @@ pub const CommandBuilder = struct {
             .clear_value_count = @intCast(clear_values.len),
             .p_clear_values = clear_values.ptr,
         }, .@"inline");
+    }
+
+    pub fn transitionLayout(builder: *CommandBuilder, gc: *GraphicsContext, image: vk.Image, options: TransitionOptions) !void {
+        const cmdbuf = builder.getCurrent();
+        try recordTransitionImageLayout(gc, cmdbuf, image, options);
     }
 
     pub fn setViewport(builder: *CommandBuilder, gc: *GraphicsContext, info: struct { flip_z: bool, width: u32, height: u32 }) !void {

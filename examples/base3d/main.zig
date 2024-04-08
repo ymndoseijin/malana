@@ -21,8 +21,19 @@ fn key_down(keys: ui.KeyState, mods: i32, dt: f32) !void {
 
     try state.cam.spatialMove(keys.pressed_table, mods, dt, &state.cam.move, graphics.Camera.DefaultSpatial);
 }
-
 pub fn main() !void {
+    const PushConstants: graphics.DataDescription = .{ .T = extern struct {
+        cam_pos: [3]f32 align(4 * 4),
+        cam_transform: math.Mat4 align(4 * 4),
+        light_count: i32,
+    } };
+
+    const LightArray: graphics.DataDescription = .{ .T = extern struct {
+        pos: [3]f32 align(4 * 4),
+        intensity: [3]f32 align(4 * 4),
+        matrix: math.Mat4 align(4 * 4),
+    } };
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const ally = gpa.allocator();
@@ -43,6 +54,104 @@ pub fn main() !void {
     const obj_file = arg_it.next() orelse return error.NotEnoughArguments;
 
     var obj_parser = try ui.graphics.ObjParse.init(ally);
+
+    // shadow testing
+
+    const shadow_res = 1024 * 4;
+
+    const LightObject = struct {
+        pub fn init(pos: math.Vec3, intensity: [3]f32) !@This() {
+            const shadow_pass = try graphics.RenderPass.init(&state.main_win.gc, .{
+                .format = state.main_win.swapchain.surface_format.format,
+                .target = true,
+            });
+
+            const shadow_tex = try graphics.Texture.init(state.main_win, shadow_res, shadow_res, .{
+                .preferred_format = .depth,
+                .sampled = true,
+            });
+
+            const shadow_diffuse = try graphics.Texture.init(state.main_win, shadow_res, shadow_res, .{
+                .preferred_format = .srgb,
+                .is_render_target = true,
+            });
+
+            const shadow_buffer = try graphics.Framebuffer.init(&state.main_win.gc, .{
+                .attachments = &.{ shadow_diffuse.image_view, shadow_tex.image_view },
+                .render_pass = shadow_pass.pass,
+                .width = shadow_res,
+                .height = shadow_res,
+            });
+
+            return .{
+                .shadow_pass = shadow_pass,
+                .shadow_tex = shadow_tex,
+                .shadow_diffuse = shadow_diffuse,
+                .shadow_buffer = shadow_buffer,
+                .pos = pos,
+                .intensity = intensity,
+            };
+        }
+
+        shadow_pass: graphics.RenderPass,
+        shadow_tex: graphics.Texture,
+        shadow_diffuse: graphics.Texture,
+        shadow_buffer: graphics.Framebuffer,
+        pos: math.Vec3,
+        intensity: [3]f32,
+    };
+
+    const exp = 30;
+    const lights = [_]LightObject{
+        try LightObject.init(Vec3.init(.{ 2, 0, 2 }), .{ exp, 0, 0 }),
+        try LightObject.init(Vec3.init(.{ -2, 2, 2 }), .{ 0, exp, 0 }),
+        try LightObject.init(Vec3.init(.{ 2, 2, -2 }), .{ 0, 0, exp }),
+    };
+
+    // render screen
+    var screen_obj = try obj_parser.parse("resources/screen.obj");
+    defer screen_obj.deinit();
+
+    const ScreenPipeline: graphics.PipelineDescription = .{
+        .vertex_description = .{
+            .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
+        },
+        .render_type = .triangle,
+        .depth_test = true,
+        .cull_type = .none,
+        .uniform_descriptions = &.{
+            .{ .size = graphics.GlobalUniform.getSize(), .idx = 0 },
+            .{ .size = graphics.SpatialMesh.Uniform.getSize(), .idx = 1 },
+        },
+        .constants_size = PushConstants.getSize(),
+        .global_ubo = true,
+        .sampler_descriptions = &.{.{ .idx = 2 }},
+    };
+
+    const screen_vert = try graphics.Shader.init(state.main_win.gc, &shaders.shadow_vert, .vertex);
+    defer screen_vert.deinit(state.main_win.gc);
+
+    const screen_frag = try graphics.Shader.init(state.main_win.gc, &shaders.shadow_frag, .fragment);
+    defer screen_frag.deinit(state.main_win.gc);
+
+    var screen_pipeline = try graphics.RenderPipeline.init(ally, .{
+        .description = ScreenPipeline,
+        .shaders = &.{ screen_vert, screen_frag },
+        .render_pass = state.first_pass,
+        .gc = &state.main_win.gc,
+        .flipped_z = true,
+    });
+    defer screen_pipeline.deinit(&state.main_win.gc);
+
+    const screen_drawing = try ally.create(graphics.Drawing);
+    const screen = try graphics.SpatialMesh.init(screen_drawing, state.main_win, .{
+        .pos = math.Vec3.init(.{ 0, 0, 0 }),
+        .pipeline = screen_pipeline,
+    });
+    try screen.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 2, .textures = &.{lights[0].shadow_tex} }} });
+
+    // get obj model
+
     var object = try obj_parser.parse(obj_file);
     defer object.deinit();
 
@@ -50,17 +159,6 @@ pub fn main() !void {
     defer triangle_vert.deinit(state.main_win.gc);
     const triangle_frag = try graphics.Shader.init(state.main_win.gc, &shaders.frag, .fragment);
     defer triangle_frag.deinit(state.main_win.gc);
-
-    const PushConstants: graphics.DataDescription = .{ .T = extern struct {
-        cam_pos: [3]f32 align(4 * 4),
-        cam_transform: math.Mat4 align(4 * 4),
-        light_count: i32,
-    } };
-
-    const LightArray: graphics.DataDescription = .{ .T = extern struct {
-        pos: [3]f32 align(4 * 4),
-        intensity: [3]f32 align(4 * 4),
-    } };
 
     const TrianglePipeline: graphics.PipelineDescription = .{
         .vertex_description = .{
@@ -70,26 +168,16 @@ pub fn main() !void {
         .depth_test = true,
         .cull_type = .back,
         .uniform_descriptions = &.{
-            .{
-                .size = graphics.GlobalUniform.getSize(),
-                .idx = 0,
-            },
-            .{
-                .size = graphics.SpatialMesh.Uniform.getSize(),
-                .idx = 1,
-            },
-            .{
-                .size = LightArray.getSize(),
-                .idx = 2,
-                .boundless = true,
-            },
+            .{ .size = graphics.GlobalUniform.getSize(), .idx = 0 },
+            .{ .size = graphics.SpatialMesh.Uniform.getSize(), .idx = 1 },
+            .{ .size = LightArray.getSize(), .idx = 2, .boundless = true },
         },
         .constants_size = PushConstants.getSize(),
         .global_ubo = true,
-        .sampler_descriptions = &.{.{
-            .idx = 3,
-            .boundless = true,
-        }},
+        .sampler_descriptions = &.{
+            .{ .idx = 3, .boundless = true }, // cubemaps
+            .{ .idx = 4, .boundless = true }, // shadow_maps
+        },
         .bindless = true,
     };
 
@@ -124,15 +212,21 @@ pub fn main() !void {
     });
     defer other.deinit();
 
-    const camera_obj = try graphics.SpatialMesh.init(&state.scene, .{
+    const camera_drawing = try state.scene.new();
+    const camera_obj = try graphics.SpatialMesh.init(camera_drawing, state.main_win, .{
         .pos = math.Vec3.init(.{ 0, 0, 0 }),
         .pipeline = pipeline,
     });
     try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 3, .textures = &.{ cubemap, other } }} });
+    for (lights, 0..) |light, i| {
+        try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 4, .dst = @intCast(i), .textures = &.{light.shadow_tex} }} });
+    }
 
     try graphics.SpatialMesh.Pipeline.vertex_description.bindVertex(camera_obj.drawing, object.vertices.items, object.indices.items);
 
     state.key_down = key_down;
+
+    // fps counter
 
     var fps = try graphics.TextFt.init(ally, .{
         .path = "resources/cmunrm.ttf",
@@ -145,6 +239,9 @@ pub fn main() !void {
     defer fps.deinit();
     fps.transform.translation = math.Vec2.init(.{ 10, 10 });
 
+    std.debug.print("{any}\n", .{screen_obj.vertices.items});
+    try graphics.SpatialMesh.Pipeline.vertex_description.bindVertex(screen.drawing, screen_obj.vertices.items, screen_obj.indices.items);
+
     while (state.main_win.alive) {
         try state.updateEvents();
 
@@ -152,20 +249,24 @@ pub fn main() !void {
             .spatial_pos = .{ 0, 0, 0 },
         };
 
-        var spin = math.Mat3.scaling(math.Vec3.splat(@floatCast(@sin(state.time)))).mul(math.rotationY(f32, @floatCast(state.time * 5.0)));
-
-        const exp = 30 * 3;
+        var spin = math.rotationY(f32, @floatCast(state.time * 5.0));
 
         (try camera_obj.drawing.getUniformOrCreate(1, 0)).setAsUniform(graphics.SpatialMesh.Uniform, uniform);
 
-        (try camera_obj.drawing.getUniformOrCreate(2, 0)).setAsUniform(LightArray, .{
-            .pos = spin.dot(Vec3.init(.{ 5, 10, 5 })).val,
-            .intensity = .{ 0, exp, 0 },
-        });
-        (try camera_obj.drawing.getUniformOrCreate(2, 1)).setAsUniform(LightArray, .{
-            .pos = spin.dot(Vec3.init(.{ 5, -10, 5 })).val,
-            .intensity = .{ exp, 0, 0 },
-        });
+        //const first_pos = spin.dot(Vec3.init(.{ 2, 2, 2 }));
+
+        for (lights, 0..) |light, i| {
+            const spinned_pos = spin.dot(light.pos);
+            const light_matrix = math.orthoMatrix(-10, 10, -10, 10, 1.0, 20.0).mul(
+                math.lookAtMatrix(spinned_pos, Vec3.init(.{ 0, 0, 0 }), Vec3.init(.{ 0, 1, 0 })),
+            );
+
+            (try camera_obj.drawing.getUniformOrCreate(2, @intCast(i))).setAsUniform(LightArray, .{
+                .pos = spinned_pos.val,
+                .intensity = light.intensity,
+                .matrix = light_matrix,
+            });
+        }
 
         try fps.clear();
         try fps.printFmt(ally, "FPS: {}", .{@as(u32, @intFromFloat(1 / state.dt))});
@@ -179,13 +280,45 @@ pub fn main() !void {
         state.image_index = try swapchain.acquireImage(gc, frame_id);
         try builder.beginCommand(gc);
 
-        const data: PushConstants.T = .{
+        // shadow pass
+        for (lights) |light| {
+            const spinned_pos = spin.dot(light.pos);
+            const light_matrix = math.orthoMatrix(-10, 10, -10, 10, 1.0, 20.0).mul(
+                math.lookAtMatrix(spinned_pos, Vec3.init(.{ 0, 0, 0 }), Vec3.init(.{ 0, 1, 0 })),
+            );
+            const data: PushConstants.T = .{
+                .cam_pos = Vec3.init(.{ 0, 0, 0 }).val,
+                .cam_transform = light_matrix,
+                .light_count = lights.len,
+            };
+            builder.push(PushConstants, gc, pipeline, &data);
+
+            try builder.transitionLayout(gc, light.shadow_tex.image, .{
+                .old_layout = .undefined,
+                .new_layout = .depth_stencil_attachment_optimal,
+            });
+            try builder.setViewport(gc, .{ .flip_z = state.scene.flip_z, .width = shadow_res, .height = shadow_res });
+            builder.beginRenderPass(gc, light.shadow_pass, light.shadow_buffer, .{
+                .x = 0,
+                .y = 0,
+                .width = shadow_res,
+                .height = shadow_res,
+            });
+            try state.scene.draw(builder);
+            builder.endRenderPass(gc);
+            try builder.transitionLayout(gc, light.shadow_tex.image, .{
+                .old_layout = .depth_stencil_attachment_optimal,
+                .new_layout = .shader_read_only_optimal,
+            });
+        }
+
+        const data = .{
             .cam_pos = state.cam.move.val,
             .cam_transform = state.cam.transform_mat,
-            .light_count = 2,
+            .light_count = lights.len,
         };
         builder.push(PushConstants, gc, pipeline, &data);
-
+        // first
         try builder.setViewport(gc, .{ .flip_z = state.scene.flip_z, .width = extent.width, .height = extent.height });
         builder.beginRenderPass(gc, state.first_pass, state.post_buffer, .{
             .x = 0,
@@ -194,8 +327,10 @@ pub fn main() !void {
             .height = extent.height,
         });
         try state.scene.draw(builder);
+        try screen_drawing.draw(builder.getCurrent(), .{ .frame_id = builder.frame_id, .bind_pipeline = true });
         builder.endRenderPass(gc);
 
+        // post
         try builder.setViewport(gc, .{ .flip_z = false, .width = extent.width, .height = extent.height });
         builder.beginRenderPass(gc, state.scene.window.render_pass, state.scene.window.framebuffers[@intFromEnum(state.image_index)], .{
             .x = 0,

@@ -69,7 +69,7 @@ pub const ObjParse = struct {
                     };
                     face[i].uv = blk: {
                         if (uv_id_or) |uv_id| {
-                            if (uv_id.len == 0) {
+                            if (uv_id.len != 0) {
                                 break :blk uvs.items[try std.fmt.parseInt(usize, uv_id, 10) - 1];
                             }
                         }

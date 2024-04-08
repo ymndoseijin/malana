@@ -295,6 +295,19 @@ pub fn perspectiveMatrix(fovy: f32, aspect: f32, nearZ: f32, farZ: f32) Mat4 {
     });
 }
 
+pub fn orthoMatrix(left: f32, right: f32, bottom: f32, top: f32, near_z: f32, far_z: f32) Mat4 {
+    const rl = 1.0 / (right - left);
+    const tb = 1.0 / (top - bottom);
+    const f_n = -1.0 / (far_z - near_z);
+
+    return Mat4.init(.{
+        .{ 2 * rl, 0, 0, -(right + left) * rl },
+        .{ 0, 2 * tb, 0, -(top + bottom) * tb },
+        .{ 0, 0, f_n, near_z * f_n },
+        .{ 0, 0, 0, 1 },
+    });
+}
+
 pub fn lookAtMatrix(eye: Vec3, center: Vec3, up: Vec3) Mat4 {
     const f_vec = center.sub(eye).norm();
     const s_vec = f_vec.cross(up).norm();
