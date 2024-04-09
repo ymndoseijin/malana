@@ -1350,7 +1350,7 @@ pub const Drawing = struct {
             };
         }
 
-        const pool_info = vk.DescriptorPoolCreateInfo{
+        const pool_info: vk.DescriptorPoolCreateInfo = .{
             .max_sets = frames,
             .p_pool_sizes = pool_sizes.ptr,
             .pool_size_count = @intCast(pipeline.bindings.len),
@@ -2723,6 +2723,10 @@ pub const Binding = union(enum) {
     sampler: SamplerDescription,
 };
 
+pub const Set = struct {
+    bindings: []const Binding,
+};
+
 pub const PipelineDescription = struct {
     vertex_description: VertexDescription,
     render_type: RenderType,
@@ -2731,7 +2735,7 @@ pub const PipelineDescription = struct {
 
     constants_size: ?usize = null,
 
-    bindings: []const Binding = &.{},
+    sets: []const Set = &.{},
 
     attachment_descriptions: []const AttachmentDescription = &.{.{}},
     // assume DefaultUbo at index 0
@@ -2753,7 +2757,7 @@ pub const RenderPipeline = struct {
 
     vk_pipeline: vk.Pipeline,
     layout: vk.PipelineLayout,
-    descriptor_layout: vk.DescriptorSetLayout,
+    descriptor_layout: []vk.DescriptorSetLayout,
     bindings: []vk.DescriptorSetLayoutBinding,
     uniform_count: usize,
 
