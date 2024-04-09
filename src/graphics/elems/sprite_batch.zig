@@ -36,7 +36,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             },
             .render_type = .triangle,
             .depth_test = false,
-            .bindings = &.{
+            .sets = &.{.{ .bindings = &.{
                 .{ .uniform = .{
                     .size = graphics.GlobalUniform.getSize(),
                 } },
@@ -45,7 +45,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
                     .boundless = true,
                 } },
                 .{ .sampler = .{ .boundless = true } },
-            },
+            } }},
             .global_ubo = true,
             .bindless = true,
         };
@@ -102,7 +102,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             }
 
             pub fn getUniformOr(sprite: Sprite, binding: u32) ?graphics.BufferHandle {
-                return sprite.batch.drawing.getUniformOr(binding, sprite.idx);
+                return sprite.batch.drawing.getUniformOr(0, binding, sprite.idx);
             }
 
             pub fn updateTransform(sprite: Sprite) void {
@@ -150,7 +150,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
 
             const current_idx = blk: {
                 if (batch.free_space.items.len == 0) {
-                    for (1..2) |i| _ = try batch.drawing.getUniformOrCreate(@intCast(i), batch.count);
+                    for (1..2) |i| _ = try batch.drawing.getUniformOrCreate(0, @intCast(i), batch.count);
                     batch.count += 1;
                     break :blk batch.count - 1;
                 }
@@ -161,8 +161,8 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
 
             try description.vertex_description.bindVertex(batch.drawing, batch.vertices.items, batch.indices.items);
 
-            batch.drawing.getUniformOr(1, current_idx).?.setAsUniformField(SpriteUniform, .transform, default_transform.getMat().cast(4, 4));
-            batch.drawing.getUniformOr(1, current_idx).?.setAsUniformField(SpriteUniform, .opacity, 1.0);
+            batch.drawing.getUniformOr(0, 1, current_idx).?.setAsUniformField(SpriteUniform, .transform, default_transform.getMat().cast(4, 4));
+            batch.drawing.getUniformOr(0, 1, current_idx).?.setAsUniformField(SpriteUniform, .opacity, 1.0);
             //batch.drawing.getUniformOr(1, current_idx).?.setAsUniform(graphics.GlobalUniform, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
             try batch.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .dst = current_idx, .idx = 2, .textures = &.{tex} }} });

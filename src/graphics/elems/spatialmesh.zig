@@ -38,10 +38,10 @@ pub fn CustomSpatialMesh(comptime InUniform: graphics.DataDescription) type {
             .render_type = .triangle,
             .depth_test = true,
             .cull_type = .back,
-            .bindings = &.{
+            .sets = &.{.{ .bindings = &.{
                 .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
                 .{ .uniform = .{ .size = Uniform.getSize() } },
-            },
+            } }},
             .global_ubo = true,
         };
 
@@ -63,8 +63,8 @@ pub fn CustomSpatialMesh(comptime InUniform: graphics.DataDescription) type {
                 .pipeline = info.pipeline,
             });
 
-            (try drawing.getUniformOrCreate(1, 0)).setAsUniformField(Uniform, .spatial_pos, info.pos.val);
-            (try drawing.getUniformOrCreate(0, 0)).setAsUniform(graphics.GlobalUniform, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+            (try drawing.getUniformOrCreate(0, 1, 0)).setAsUniformField(Uniform, .spatial_pos, info.pos.val);
+            (try drawing.getUniformOrCreate(0, 0, 0)).setAsUniform(graphics.GlobalUniform, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
             return .{
                 .drawing = drawing,

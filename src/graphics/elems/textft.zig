@@ -86,7 +86,7 @@ pub const Text = struct {
         },
         .render_type = .triangle,
         .depth_test = false,
-        .bindings = &.{
+        .sets = &.{.{ .bindings = &.{
             .{ .uniform = .{
                 .size = graphics.GlobalUniform.getSize(),
             } },
@@ -95,7 +95,7 @@ pub const Text = struct {
                 .boundless = true,
             } },
             .{ .sampler = .{ .boundless = true } },
-        },
+        } }},
         .global_ubo = true,
         .bindless = true,
     };

@@ -63,6 +63,7 @@ pub fn main() !void {
         .format = state.main_win.swapchain.surface_format.format,
         .target = true,
     });
+    defer shadow_pass.deinit(&state.main_win.gc);
 
     const LightObject = struct {
         pub fn init(pass: graphics.RenderPass, pos: math.Vec3, intensity: [3]f32) !@This() {
@@ -96,6 +97,12 @@ pub fn main() !void {
             };
         }
 
+        pub fn deinit(light: @This()) void {
+            light.shadow_tex.deinit();
+            light.shadow_diffuse.deinit();
+            light.shadow_buffer.deinit(state.main_win.gc);
+        }
+
         shadow_pass: graphics.RenderPass,
         shadow_tex: graphics.Texture,
         shadow_diffuse: graphics.Texture,
@@ -114,6 +121,8 @@ pub fn main() !void {
         try LightObject.init(shadow_pass, Vec3.init(.{ 2, 2, -2 }), .{ 0, 0, exp }),
     };
 
+    defer for (lights) |light| light.deinit();
+
     // render screen
     var screen_obj = try obj_parser.parse("resources/screen.obj");
     defer screen_obj.deinit();
@@ -125,11 +134,11 @@ pub fn main() !void {
         .render_type = .triangle,
         .depth_test = true,
         .cull_type = .none,
-        .bindings = &.{
+        .sets = &.{.{ .bindings = &.{
             .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
             .{ .uniform = .{ .size = graphics.SpatialMesh.Uniform.getSize() } },
             .{ .sampler = .{} },
-        },
+        } }},
         .constants_size = PushConstants.getSize(),
         .global_ubo = true,
     };
@@ -150,10 +159,14 @@ pub fn main() !void {
     defer screen_pipeline.deinit(&state.main_win.gc);
 
     const screen_drawing = try ally.create(graphics.Drawing);
+    defer ally.destroy(screen_drawing);
+
     const screen = try graphics.SpatialMesh.init(screen_drawing, state.main_win, .{
         .pos = math.Vec3.init(.{ 0, 0, 0 }),
         .pipeline = screen_pipeline,
     });
+    defer screen_drawing.deinit(ally);
+
     try screen.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 2, .textures = &.{lights[0].shadow_tex} }} });
 
     // get obj model
@@ -173,13 +186,15 @@ pub fn main() !void {
         .render_type = .triangle,
         .depth_test = true,
         .cull_type = .back,
-        .bindings = &.{
-            .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
-            .{ .uniform = .{ .size = graphics.SpatialMesh.Uniform.getSize() } },
-            .{ .uniform = .{ .size = LightArray.getSize(), .boundless = true } },
-            .{ .sampler = .{ .boundless = true } }, // cubemaps
-            .{ .sampler = .{ .boundless = true } }, // shadow maps
-        },
+        .sets = &.{.{
+            .bindings = &.{
+                .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
+                .{ .uniform = .{ .size = graphics.SpatialMesh.Uniform.getSize() } },
+                .{ .uniform = .{ .size = LightArray.getSize(), .boundless = true } },
+                .{ .sampler = .{ .boundless = true } }, // cubemaps
+                .{ .sampler = .{ .boundless = true } }, // shadow maps
+            },
+        }},
         .constants_size = PushConstants.getSize(),
         .global_ubo = true,
         .bindless = true,
@@ -229,12 +244,18 @@ pub fn main() !void {
     camera_obj.drawing.vert_count = object.vertices.items.len;
 
     const camera_vertex = try graphics.SpatialMesh.Pipeline.vertex_description.createBuffer(gc, object.vertices.items.len);
+    defer camera_vertex.deinit(gc);
+
     try camera_vertex.setVertex(graphics.SpatialMesh.Pipeline.vertex_description, gc, state.main_win.pool, object.vertices.items);
     camera_obj.drawing.vertex_buffer = camera_vertex;
+    defer camera_obj.drawing.vertex_buffer = null;
 
     const camera_index = try graphics.BufferHandle.init(gc, .{ .size = @sizeOf(u32) * object.indices.items.len, .buffer_type = .index });
+    defer camera_index.deinit(gc);
+
     try camera_index.setIndices(gc, state.main_win.pool, object.indices.items);
     camera_obj.drawing.index_buffer = camera_index;
+    defer camera_obj.drawing.index_buffer = null;
 
     // shadow drawing
     const ShadowPipeline: graphics.PipelineDescription = .{
@@ -244,10 +265,10 @@ pub fn main() !void {
         .render_type = .triangle,
         .depth_test = true,
         .cull_type = .none,
-        .bindings = &.{
+        .sets = &.{.{ .bindings = &.{
             .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
             .{ .uniform = .{ .size = graphics.SpatialMesh.Uniform.getSize() } },
-        },
+        } }},
         .attachment_descriptions = &.{.{}},
         .constants_size = PushConstants.getSize(),
         .global_ubo = true,
@@ -262,14 +283,19 @@ pub fn main() !void {
     defer shadow_pipeline.deinit(&state.main_win.gc);
 
     const shadow_drawing = try ally.create(graphics.Drawing);
+    defer ally.destroy(shadow_drawing);
+
     const shadow_mesh = try graphics.SpatialMesh.init(shadow_drawing, state.main_win, .{
         .pos = math.Vec3.init(.{ 0, 0, 0 }),
         .pipeline = shadow_pipeline,
     });
+    defer shadow_drawing.deinit(ally);
 
     shadow_mesh.drawing.vert_count = object.vertices.items.len;
     shadow_mesh.drawing.vertex_buffer = camera_vertex;
+    defer shadow_mesh.drawing.vertex_buffer = null;
     shadow_mesh.drawing.index_buffer = camera_index;
+    defer shadow_mesh.drawing.index_buffer = null;
 
     state.key_down = key_down;
 
@@ -298,7 +324,7 @@ pub fn main() !void {
 
         //var spin = math.rotationY(f32, @floatCast(state.time * 5.0));
 
-        (try camera_obj.drawing.getUniformOrCreate(1, 0)).setAsUniform(graphics.SpatialMesh.Uniform, uniform);
+        (try camera_obj.drawing.getUniformOrCreate(0, 1, 0)).setAsUniform(graphics.SpatialMesh.Uniform, uniform);
 
         //const first_pos = spin.dot(Vec3.init(.{ 2, 2, 2 }));
 
@@ -308,7 +334,7 @@ pub fn main() !void {
                 math.lookAtMatrix(spinned_pos, Vec3.init(.{ 0, 0, 0 }), Vec3.init(.{ 0, 1, 0 })),
             );
 
-            (try camera_obj.drawing.getUniformOrCreate(2, @intCast(i))).setAsUniform(LightArray, .{
+            (try camera_obj.drawing.getUniformOrCreate(0, 2, @intCast(i))).setAsUniform(LightArray, .{
                 .pos = spinned_pos.val,
                 .intensity = light.intensity,
                 .matrix = light_matrix,

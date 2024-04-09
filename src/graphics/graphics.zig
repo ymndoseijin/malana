@@ -1317,8 +1317,8 @@ pub const Drawing = struct {
     vertex_buffer: ?BufferHandle,
     index_buffer: ?BufferHandle,
     descriptor_sets: []vk.DescriptorSet,
-    descriptor_pool: vk.DescriptorPool,
-    uniform_buffers: []std.ArrayList(UniformHandle),
+    descriptor_pools: []vk.DescriptorPool,
+    uniform_buffers: [][]std.ArrayList(UniformHandle),
 
     window: *Window,
     global_ubo: bool,
@@ -1336,26 +1336,32 @@ pub const Drawing = struct {
     pub fn init(drawing: *Drawing, ally: std.mem.Allocator, info: Info) !void {
         const win = info.win;
         const pipeline = info.pipeline;
+        const description = info.pipeline.description;
         const gc = &win.gc;
 
-        const frames: u32 = frames_in_flight;
+        //const frames: u32 = frames_in_flight;
 
-        const pool_sizes = try ally.alloc(vk.DescriptorPoolSize, pipeline.bindings.len);
-        defer ally.free(pool_sizes);
+        const pools = try ally.alloc(vk.DescriptorPool, description.sets.len);
 
-        for (pool_sizes, pipeline.bindings) |*pool_size, binding| {
-            pool_size.* = .{
-                .type = binding.descriptor_type,
-                .descriptor_count = frames * binding.descriptor_count,
+        for (pools, description.sets, pipeline.set_bindings) |*pool, set_desc, bindings| {
+            const pool_sizes = try ally.alloc(vk.DescriptorPoolSize, set_desc.bindings.len);
+            defer ally.free(pool_sizes);
+
+            for (pool_sizes, bindings) |*pool_size, binding| {
+                pool_size.* = .{
+                    .type = binding.descriptor_type,
+                    .descriptor_count = binding.descriptor_count,
+                };
+            }
+
+            const pool_info: vk.DescriptorPoolCreateInfo = .{
+                .max_sets = 1,
+                .p_pool_sizes = pool_sizes.ptr,
+                .pool_size_count = @intCast(bindings.len),
+                .flags = if (pipeline.description.bindless) .{ .update_after_bind_bit = true } else .{},
             };
+            pool.* = try gc.vkd.createDescriptorPool(gc.dev, &pool_info, null);
         }
-
-        const pool_info: vk.DescriptorPoolCreateInfo = .{
-            .max_sets = frames,
-            .p_pool_sizes = pool_sizes.ptr,
-            .pool_size_count = @intCast(pipeline.bindings.len),
-            .flags = if (pipeline.description.bindless) .{ .update_after_bind_bit = true } else .{},
-        };
 
         drawing.* = .{
             //.cube_textures = std.ArrayList(u32).init(ally),
@@ -1364,8 +1370,8 @@ pub const Drawing = struct {
             .vertex_buffer = null,
             .index_buffer = null,
             .uniform_buffers = undefined,
-            .descriptor_pool = try gc.vkd.createDescriptorPool(gc.dev, &pool_info, null),
-            .descriptor_sets = &.{},
+            .descriptor_pools = pools,
+            .descriptor_sets = try ally.alloc(vk.DescriptorSet, pipeline.description.sets.len),
             .window = win,
             .global_ubo = pipeline.description.global_ubo,
         };
@@ -1374,26 +1380,26 @@ pub const Drawing = struct {
         try drawing.createUniformBuffers(ally);
     }
 
-    pub fn getUniformOr(drawing: *Drawing, binding: u32, dst: u32) ?BufferHandle {
-        for (drawing.uniform_buffers[binding].items) |uniform| {
+    pub fn getUniformOr(drawing: *Drawing, set: u32, binding: u32, dst: u32) ?BufferHandle {
+        for (drawing.uniform_buffers[set][binding].items) |uniform| {
             if (uniform.idx == dst) return uniform.buffer;
         }
         return null;
     }
 
-    pub fn getUniformOrCreate(drawing: *Drawing, binding: u32, dst: u32) !BufferHandle {
+    pub fn getUniformOrCreate(drawing: *Drawing, set: u32, binding: u32, dst: u32) !BufferHandle {
         const pipeline_description = drawing.pipeline.description;
-        for (drawing.uniform_buffers[binding].items) |uniform| {
+        for (drawing.uniform_buffers[set][binding].items) |uniform| {
             if (uniform.idx == dst) return uniform.buffer;
         }
-        try drawing.uniform_buffers[binding].append(.{
+        try drawing.uniform_buffers[set][binding].append(.{
             .idx = dst,
             .buffer = try BufferHandle.init(&drawing.window.gc, .{
-                .size = pipeline_description.bindings[binding].uniform.size,
+                .size = pipeline_description.sets[set].bindings[binding].uniform.size,
                 .buffer_type = .uniform,
             }),
         });
-        const buffer = drawing.uniform_buffers[binding].items[drawing.uniform_buffers[binding].items.len - 1];
+        const buffer = drawing.uniform_buffers[set][binding].items[drawing.uniform_buffers[set][binding].items.len - 1];
 
         try drawing.updateDescriptorSets(drawing.window.ally, .{ .uniforms = &.{.{ .dst = dst, .idx = binding, .buffer = buffer.buffer }} });
 
@@ -1402,23 +1408,28 @@ pub const Drawing = struct {
 
     pub fn createUniformBuffers(drawing: *Drawing, ally: std.mem.Allocator) !void {
         const pipeline_description = drawing.pipeline.description;
-        drawing.uniform_buffers = try ally.alloc(std.ArrayList(UniformHandle), drawing.pipeline.uniform_count);
 
-        var uniform_i: usize = 0;
-        for (pipeline_description.bindings, 0..) |binding, i| {
-            if (binding == .uniform) {
-                const description = binding.uniform;
-                const array = &drawing.uniform_buffers[uniform_i];
+        drawing.uniform_buffers = try ally.alloc([]std.ArrayList(UniformHandle), pipeline_description.sets.len);
 
-                array.* = std.ArrayList(UniformHandle).init(ally);
-                uniform_i += 1;
+        for (pipeline_description.sets, drawing.uniform_buffers, 0..) |set_desc, *set_uniforms, set_i| {
+            set_uniforms.* = try ally.alloc(std.ArrayList(UniformHandle), pipeline_description.getUniformCount(set_i));
 
-                if (!description.boundless) {
-                    try array.append(.{ .idx = 0, .buffer = try BufferHandle.init(&drawing.window.gc, .{
-                        .size = description.size,
-                        .buffer_type = .uniform,
-                    }) });
-                    try drawing.updateDescriptorSets(ally, .{ .uniforms = &.{.{ .idx = @intCast(i), .buffer = array.items[0].buffer }} });
+            var uniform_i: usize = 0;
+            for (set_desc.bindings, 0..) |binding, i| {
+                if (binding == .uniform) {
+                    const description = binding.uniform;
+                    const array = &drawing.uniform_buffers[set_i][uniform_i];
+
+                    array.* = std.ArrayList(UniformHandle).init(ally);
+                    uniform_i += 1;
+
+                    if (!description.boundless) {
+                        try array.append(.{ .idx = 0, .buffer = try BufferHandle.init(&drawing.window.gc, .{
+                            .size = description.size,
+                            .buffer_type = .uniform,
+                        }) });
+                        try drawing.updateDescriptorSets(ally, .{ .uniforms = &.{.{ .idx = @intCast(i), .buffer = array.items[0].buffer }} });
+                    }
                 }
             }
         }
@@ -1429,13 +1440,18 @@ pub const Drawing = struct {
 
         win.gc.vkd.deviceWaitIdle(win.gc.dev) catch return;
 
-        for (self.uniform_buffers) |*array| {
-            for (array.items) |uni| uni.buffer.deinit(&win.gc);
-            array.deinit();
+        for (self.uniform_buffers) |set_array| {
+            for (set_array) |*array| {
+                for (array.items) |uni| uni.buffer.deinit(&win.gc);
+                array.deinit();
+            }
+            ally.free(set_array);
         }
         ally.free(self.uniform_buffers);
 
-        win.gc.vkd.destroyDescriptorPool(win.gc.dev, self.descriptor_pool, null);
+        for (self.descriptor_pools) |pool| win.gc.vkd.destroyDescriptorPool(win.gc.dev, pool, null);
+
+        ally.free(self.descriptor_pools);
         ally.free(self.descriptor_sets);
 
         if (self.index_buffer) |ib| ib.deinit(&win.gc);
@@ -1444,41 +1460,36 @@ pub const Drawing = struct {
 
     pub fn createDescriptorSets(self: *Drawing, ally: std.mem.Allocator) !void {
         var gc = &self.window.gc;
-        const layouts = try ally.alloc(vk.DescriptorSetLayout, frames_in_flight);
-        defer ally.free(layouts);
-        for (layouts) |*l| l.* = self.pipeline.descriptor_layout;
 
         const pipeline = self.pipeline.description;
 
-        const counts = try ally.alloc(u32, frames_in_flight);
-        defer ally.free(counts);
+        for (self.descriptor_sets, self.descriptor_pools, self.pipeline.layouts) |*set, pool, *layout| {
+            const counts = try ally.create(u32);
+            defer ally.destroy(counts);
 
-        for (counts) |*c| {
-            c.* = if (pipeline.bindless) max_boundless else 1;
+            counts.* = if (pipeline.bindless) max_boundless else 1;
+
+            const variable_counts: vk.DescriptorSetVariableDescriptorCountAllocateInfo = .{
+                .descriptor_set_count = 1,
+                .p_descriptor_counts = @ptrCast(counts),
+            };
+
+            const allocate_info: vk.DescriptorSetAllocateInfo = .{
+                .descriptor_pool = pool,
+                .descriptor_set_count = 1,
+                .p_set_layouts = @ptrCast(layout),
+                .p_next = &variable_counts,
+            };
+
+            try gc.vkd.allocateDescriptorSets(gc.dev, &allocate_info, @ptrCast(set));
         }
-
-        const variable_counts: vk.DescriptorSetVariableDescriptorCountAllocateInfo = .{
-            .descriptor_set_count = frames_in_flight,
-            .p_descriptor_counts = counts.ptr,
-        };
-
-        const frames: u32 = @intCast(frames_in_flight);
-        const allocate_info = vk.DescriptorSetAllocateInfo{
-            .descriptor_pool = self.descriptor_pool,
-            .descriptor_set_count = frames,
-            .p_set_layouts = layouts.ptr,
-            .p_next = &variable_counts,
-        };
-
-        self.descriptor_sets = try ally.alloc(vk.DescriptorSet, frames_in_flight);
-
-        try gc.vkd.allocateDescriptorSets(gc.dev, &allocate_info, self.descriptor_sets.ptr);
     }
 
     pub const SamplerWrite = struct {
         dst: u32 = 0,
         // binding index
         idx: u32,
+        set: u32 = 0,
         textures: []const Texture = &.{},
     };
 
@@ -1486,6 +1497,7 @@ pub const Drawing = struct {
         dst: u32 = 0,
         // binding index
         idx: u32,
+        set: u32 = 0,
         buffer: BufferHandle,
     };
 
@@ -1496,58 +1508,56 @@ pub const Drawing = struct {
         var gc = &self.window.gc;
         try gc.vkd.deviceWaitIdle(gc.dev);
 
-        for (0..frames_in_flight) |i| {
-            var arena = std.heap.ArenaAllocator.init(ally);
-            defer arena.deinit();
-            const arena_ally = arena.allocator();
+        var arena = std.heap.ArenaAllocator.init(ally);
+        defer arena.deinit();
+        const arena_ally = arena.allocator();
 
-            var descriptor_writes = std.ArrayList(vk.WriteDescriptorSet).init(arena_ally);
-            defer descriptor_writes.deinit();
+        var descriptor_writes = std.ArrayList(vk.WriteDescriptorSet).init(arena_ally);
+        defer descriptor_writes.deinit();
 
-            for (options.uniforms) |uniform| {
-                const buffer_info = try arena_ally.alloc(vk.DescriptorBufferInfo, 1);
+        for (options.uniforms) |uniform| {
+            const buffer_info = try arena_ally.alloc(vk.DescriptorBufferInfo, 1);
 
-                buffer_info[0] = vk.DescriptorBufferInfo{
-                    .buffer = uniform.buffer.buff_mem.buffer,
-                    .offset = 0,
-                    .range = uniform.buffer.size,
-                };
+            buffer_info[0] = vk.DescriptorBufferInfo{
+                .buffer = uniform.buffer.buff_mem.buffer,
+                .offset = 0,
+                .range = uniform.buffer.size,
+            };
 
-                try descriptor_writes.append(.{
-                    .dst_set = self.descriptor_sets[i],
-                    .dst_binding = uniform.idx,
-                    .dst_array_element = uniform.dst,
-                    .descriptor_type = .uniform_buffer,
-                    .descriptor_count = 1,
-                    .p_buffer_info = @ptrCast(&buffer_info[0]),
-                    .p_image_info = undefined,
-                    .p_texel_buffer_view = undefined,
-                });
-            }
-
-            for (options.samplers) |write| {
-                const image_infos = try arena_ally.alloc(vk.DescriptorImageInfo, write.textures.len);
-
-                for (image_infos, 0..) |*info, texture_i| info.* = .{
-                    .image_layout = .shader_read_only_optimal,
-                    .image_view = write.textures[texture_i].image_view,
-                    .sampler = write.textures[texture_i].sampler,
-                };
-
-                try descriptor_writes.append(.{
-                    .dst_set = self.descriptor_sets[i],
-                    .dst_binding = write.idx,
-                    .dst_array_element = write.dst,
-                    .descriptor_type = .combined_image_sampler,
-                    .descriptor_count = @intCast(write.textures.len),
-                    .p_buffer_info = undefined,
-                    .p_image_info = image_infos.ptr,
-                    .p_texel_buffer_view = undefined,
-                });
-            }
-
-            gc.vkd.updateDescriptorSets(gc.dev, @intCast(descriptor_writes.items.len), descriptor_writes.items.ptr, 0, null);
+            try descriptor_writes.append(.{
+                .dst_set = self.descriptor_sets[uniform.set],
+                .dst_binding = uniform.idx,
+                .dst_array_element = uniform.dst,
+                .descriptor_type = .uniform_buffer,
+                .descriptor_count = 1,
+                .p_buffer_info = @ptrCast(&buffer_info[0]),
+                .p_image_info = undefined,
+                .p_texel_buffer_view = undefined,
+            });
         }
+
+        for (options.samplers) |write| {
+            const image_infos = try arena_ally.alloc(vk.DescriptorImageInfo, write.textures.len);
+
+            for (image_infos, 0..) |*info, texture_i| info.* = .{
+                .image_layout = .shader_read_only_optimal,
+                .image_view = write.textures[texture_i].image_view,
+                .sampler = write.textures[texture_i].sampler,
+            };
+
+            try descriptor_writes.append(.{
+                .dst_set = self.descriptor_sets[write.set],
+                .dst_binding = write.idx,
+                .dst_array_element = write.dst,
+                .descriptor_type = .combined_image_sampler,
+                .descriptor_count = @intCast(write.textures.len),
+                .p_buffer_info = undefined,
+                .p_image_info = image_infos.ptr,
+                .p_texel_buffer_view = undefined,
+            });
+        }
+
+        gc.vkd.updateDescriptorSets(gc.dev, @intCast(descriptor_writes.items.len), descriptor_writes.items.ptr, 0, null);
     }
 
     pub fn draw(self: *Drawing, command_buffer: vk.CommandBuffer, options: struct {
@@ -1564,8 +1574,8 @@ pub const Drawing = struct {
             .graphics,
             self.pipeline.layout,
             0,
-            1,
-            @ptrCast(&self.descriptor_sets[options.frame_id]),
+            @intCast(self.descriptor_sets.len),
+            self.descriptor_sets.ptr,
             0,
             null,
         );
@@ -2093,7 +2103,8 @@ pub const CommandBuilder = struct {
     }
 
     pub fn getCurrent(builder: CommandBuilder) vk.CommandBuffer {
-        return builder.buffers[builder.frame_id];
+        //return builder.buffers[builder.frame_id];
+        return builder.buffers[0];
     }
 
     pub fn next(builder: *CommandBuilder) void {
@@ -2571,7 +2582,7 @@ pub const Scene = struct {
         var last_pipeline: u64 = 0;
         var is_first = true;
         for (scene.drawing_array.items) |elem| {
-            if (elem.global_ubo) elem.getUniformOr(0, 0).?.setAsUniform(GlobalUniform, .{ .time = now, .in_resolution = resolution });
+            if (elem.global_ubo) elem.getUniformOr(0, 0, 0).?.setAsUniform(GlobalUniform, .{ .time = now, .in_resolution = resolution });
             try elem.draw(builder.getCurrent(), .{
                 .frame_id = frame_id,
                 .bind_pipeline = is_first or (last_pipeline != @intFromEnum(elem.pipeline.vk_pipeline)),
@@ -2742,6 +2753,14 @@ pub const PipelineDescription = struct {
     global_ubo: bool = false,
     bindless: bool = false,
 
+    pub fn getUniformCount(pipeline: PipelineDescription, set: usize) usize {
+        var uniforms: usize = 0;
+        for (pipeline.sets[set].bindings) |binding| {
+            if (binding == .uniform) uniforms += 1;
+        }
+        return uniforms;
+    }
+
     pub fn getBindingDescription(pipeline: PipelineDescription) vk.VertexInputBindingDescription {
         return .{
             .binding = 0,
@@ -2757,9 +2776,8 @@ pub const RenderPipeline = struct {
 
     vk_pipeline: vk.Pipeline,
     layout: vk.PipelineLayout,
-    descriptor_layout: []vk.DescriptorSetLayout,
-    bindings: []vk.DescriptorSetLayoutBinding,
-    uniform_count: usize,
+    layouts: []vk.DescriptorSetLayout,
+    set_bindings: [][]vk.DescriptorSetLayoutBinding,
 
     pub const Info = struct {
         description: PipelineDescription,
@@ -2770,71 +2788,74 @@ pub const RenderPipeline = struct {
     };
     pub fn init(ally: std.mem.Allocator, info: Info) !RenderPipeline {
         const shaders = info.shaders;
-        const pipeline = info.description;
+        const description = info.description;
         const gc = info.gc;
 
-        var bindings = try ally.alloc(vk.DescriptorSetLayoutBinding, pipeline.bindings.len);
-        var binding_flags = try ally.alloc(vk.DescriptorBindingFlags, pipeline.bindings.len);
-        defer ally.free(binding_flags);
+        const set_bindings = try ally.alloc([]vk.DescriptorSetLayoutBinding, description.sets.len);
+        const layouts = try ally.alloc(vk.DescriptorSetLayout, description.sets.len);
 
-        var uniform_count: usize = 0;
+        for (description.sets, set_bindings, layouts) |set, *bindings, *descriptor_layout| {
+            bindings.* = try ally.alloc(vk.DescriptorSetLayoutBinding, set.bindings.len);
+            var binding_flags = try ally.alloc(vk.DescriptorBindingFlags, set.bindings.len);
+            defer ally.free(binding_flags);
 
-        for (pipeline.bindings, 0..) |binding, idx| {
-            switch (binding) {
-                .uniform => |description| {
-                    uniform_count += 1;
-                    bindings[idx] = .{
-                        .binding = @intCast(idx),
-                        .descriptor_count = if (description.boundless) max_boundless else 1,
-                        .descriptor_type = .uniform_buffer,
-                        .p_immutable_samplers = null,
-                        .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
-                    };
+            for (set.bindings, 0..) |binding, idx| {
+                switch (binding) {
+                    .uniform => |binding_desc| {
+                        bindings.*[idx] = .{
+                            .binding = @intCast(idx),
+                            .descriptor_count = if (binding_desc.boundless) max_boundless else 1,
+                            .descriptor_type = .uniform_buffer,
+                            .p_immutable_samplers = null,
+                            .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
+                        };
 
-                    binding_flags[idx] = if (description.boundless) .{
-                        //.variable_descriptor_count_bit = true,
-                        .partially_bound_bit = true,
-                        .update_after_bind_bit = true,
-                        .update_unused_while_pending_bit = true,
-                    } else .{};
-                },
+                        binding_flags[idx] = if (binding_desc.boundless) .{
+                            //.variable_descriptor_count_bit = true,
+                            .partially_bound_bit = true,
+                            .update_after_bind_bit = true,
+                            .update_unused_while_pending_bit = true,
+                        } else .{};
+                    },
 
-                .sampler => |description| {
-                    bindings[idx] = vk.DescriptorSetLayoutBinding{
-                        .binding = @intCast(idx),
-                        .descriptor_count = if (description.boundless) max_boundless else 1,
-                        .descriptor_type = .combined_image_sampler,
-                        .p_immutable_samplers = null,
-                        .stage_flags = .{ .fragment_bit = true },
-                    };
+                    .sampler => |binding_desc| {
+                        bindings.*[idx] = vk.DescriptorSetLayoutBinding{
+                            .binding = @intCast(idx),
+                            .descriptor_count = if (binding_desc.boundless) max_boundless else 1,
+                            .descriptor_type = .combined_image_sampler,
+                            .p_immutable_samplers = null,
+                            .stage_flags = .{ .fragment_bit = true },
+                        };
 
-                    binding_flags[idx] = if (description.boundless) .{
-                        //.variable_descriptor_count_bit = true,
-                        .partially_bound_bit = true,
-                        .update_after_bind_bit = true,
-                        .update_unused_while_pending_bit = true,
-                    } else .{};
-                },
+                        binding_flags[idx] = if (binding_desc.boundless) .{
+                            //.variable_descriptor_count_bit = true,
+                            .partially_bound_bit = true,
+                            .update_after_bind_bit = true,
+                            .update_unused_while_pending_bit = true,
+                        } else .{};
+                    },
+                }
             }
+
+            const layout_info: vk.DescriptorSetLayoutCreateInfo = .{
+                .binding_count = @intCast(bindings.len),
+                .p_bindings = bindings.ptr,
+                .flags = .{ .update_after_bind_pool_bit = description.bindless },
+                .p_next = &vk.DescriptorSetLayoutBindingFlagsCreateInfo{
+                    .binding_count = @intCast(bindings.len),
+                    .p_binding_flags = binding_flags.ptr,
+                },
+            };
+
+            descriptor_layout.* = try gc.vkd.createDescriptorSetLayout(gc.dev, &layout_info, null);
         }
 
-        const layout_info: vk.DescriptorSetLayoutCreateInfo = .{
-            .binding_count = @intCast(bindings.len),
-            .p_bindings = bindings.ptr,
-            .flags = .{ .update_after_bind_pool_bit = pipeline.bindless },
-            .p_next = &vk.DescriptorSetLayoutBindingFlagsCreateInfo{
-                .binding_count = @intCast(bindings.len),
-                .p_binding_flags = binding_flags.ptr,
-            },
-        };
-
-        const descriptor_layout = try gc.vkd.createDescriptorSetLayout(gc.dev, &layout_info, null);
         const pipeline_layout = try gc.vkd.createPipelineLayout(gc.dev, &.{
             .flags = .{},
-            .set_layout_count = 1,
-            .p_set_layouts = @ptrCast(&descriptor_layout),
-            .push_constant_range_count = if (pipeline.constants_size) |_| 1 else 0,
-            .p_push_constant_ranges = if (pipeline.constants_size) |size| @ptrCast(&vk.PushConstantRange{
+            .set_layout_count = @intCast(layouts.len),
+            .p_set_layouts = layouts.ptr,
+            .push_constant_range_count = if (description.constants_size) |_| 1 else 0,
+            .p_push_constant_ranges = if (description.constants_size) |size| @ptrCast(&vk.PushConstantRange{
                 .offset = 0,
                 .size = @intCast(size),
                 .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
@@ -2855,11 +2876,11 @@ pub const RenderPipeline = struct {
             };
         }
 
-        var attribute_desc = try ally.alloc(vk.VertexInputAttributeDescription, pipeline.vertex_description.vertex_attribs.len);
+        var attribute_desc = try ally.alloc(vk.VertexInputAttributeDescription, description.vertex_description.vertex_attribs.len);
         defer ally.free(attribute_desc);
         {
             var off: u32 = 0;
-            for (pipeline.vertex_description.vertex_attribs, 0..) |attrib, i| {
+            for (description.vertex_description.vertex_attribs, 0..) |attrib, i| {
                 attribute_desc[i] = .{
                     .binding = 0,
                     .location = @intCast(i),
@@ -2870,11 +2891,12 @@ pub const RenderPipeline = struct {
             }
         }
 
-        const binding_description = pipeline.getBindingDescription();
+        const binding_description = description.getBindingDescription();
 
         const dynstate = [_]vk.DynamicState{ .viewport, .scissor };
 
-        const attachments = try ally.alloc(vk.PipelineColorBlendAttachmentState, pipeline.attachment_descriptions.len);
+        const attachments = try ally.alloc(vk.PipelineColorBlendAttachmentState, description.attachment_descriptions.len);
+        defer ally.free(attachments);
         for (attachments) |*a| {
             a.* = .{
                 .blend_enable = vk.TRUE,
@@ -2918,7 +2940,7 @@ pub const RenderPipeline = struct {
                     .depth_clamp_enable = vk.FALSE,
                     .rasterizer_discard_enable = vk.FALSE,
                     .polygon_mode = .fill,
-                    .cull_mode = switch (pipeline.cull_type) {
+                    .cull_mode = switch (description.cull_type) {
                         .back => .{ .back_bit = true },
                         .front => .{ .front_bit = true },
                         .front_and_back => .{ .front_bit = true, .back_bit = true },
@@ -2939,8 +2961,8 @@ pub const RenderPipeline = struct {
                     .alpha_to_one_enable = vk.FALSE,
                 },
                 .p_depth_stencil_state = &vk.PipelineDepthStencilStateCreateInfo{
-                    .depth_test_enable = if (pipeline.depth_test) vk.TRUE else vk.FALSE,
-                    .depth_write_enable = if (pipeline.depth_test) vk.TRUE else vk.FALSE,
+                    .depth_test_enable = if (description.depth_test) vk.TRUE else vk.FALSE,
+                    .depth_write_enable = if (description.depth_test) vk.TRUE else vk.FALSE,
                     .depth_compare_op = .less,
                     .depth_bounds_test_enable = vk.FALSE,
                     .min_depth_bounds = 0,
@@ -2973,20 +2995,23 @@ pub const RenderPipeline = struct {
         return .{
             .vk_pipeline = vk_pipeline,
             .layout = pipeline_layout,
-            .descriptor_layout = descriptor_layout,
+            .layouts = layouts,
             .ally = ally,
-            .bindings = bindings,
-            .uniform_count = uniform_count,
+            .set_bindings = set_bindings,
             .description = info.description,
         };
     }
 
-    pub fn deinit(self: *RenderPipeline, gc: *const GraphicsContext) void {
-        self.ally.free(self.bindings);
+    pub fn deinit(render: *RenderPipeline, gc: *const GraphicsContext) void {
+        for (render.set_bindings) |bindings| render.ally.free(bindings);
+        render.ally.free(render.set_bindings);
+
         gc.vkd.deviceWaitIdle(gc.dev) catch return;
-        gc.vkd.destroyPipeline(gc.dev, self.vk_pipeline, null);
-        gc.vkd.destroyPipelineLayout(gc.dev, self.layout, null);
-        gc.vkd.destroyDescriptorSetLayout(gc.dev, self.descriptor_layout, null);
+        gc.vkd.destroyPipeline(gc.dev, render.vk_pipeline, null);
+        gc.vkd.destroyPipelineLayout(gc.dev, render.layout, null);
+
+        for (render.layouts) |layout| gc.vkd.destroyDescriptorSetLayout(gc.dev, layout, null);
+        render.ally.free(render.layouts);
     }
 };
 

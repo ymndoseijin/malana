@@ -37,7 +37,7 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
             },
             .render_type = .triangle,
             .depth_test = false,
-            .bindings = &.{
+            .sets = &.{.{ .bindings = &.{
                 .{ .uniform = .{
                     .size = graphics.GlobalUniform.getSize(),
                 } },
@@ -45,7 +45,7 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
                     .size = SpriteUniform.getSize(),
                 } },
                 .{ .sampler = .{} },
-            },
+            } }},
             .global_ubo = true,
         };
 
