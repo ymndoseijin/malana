@@ -54,15 +54,27 @@ float calculate_shadow(int i) {
    vec3 light_pos = light_space.xyz / light_space.w;
 
    light_pos = light_pos * 0.5 + 0.5;
-
    float bef = light_space.z / light_space.w;
-   float shadow_depth = texture(shadow_maps[nonuniformEXT(i)], light_pos.xy * vec2(1, -1) + vec2(0, 1)).r;
 
    float bias = max(0.05 * (1.0 - dot(n, normalize(lights[nonuniformEXT(i)].light.pos - in_pos))), 0.005)/2;
    bias = 0.005;
 
-   if ((bef - bias) > shadow_depth) return 1.0;
-   return 0.0;
+   float shadow_val = 0;
+   vec2 tex_size = 1 / vec2(4096, 4096);
+
+   const int blur_radius = 1;
+   int blur_size = blur_radius * 2 + 1;
+   blur_size *= blur_size;
+
+   for (int x = -blur_radius; x <= blur_radius; x++) {
+      for (int y = -blur_radius; y <= blur_radius; y++) {
+         vec2 sample_loc = light_pos.xy * vec2(1, -1) + vec2(0, 1);
+         float shadow_depth = texture(shadow_maps[nonuniformEXT(i)], sample_loc + vec2(x, y) * tex_size).r;
+         shadow_val += (bef - bias) > shadow_depth ? 1 : 0;
+      }
+   }
+
+   return shadow_val / blur_size;
 }
 
 void main() {

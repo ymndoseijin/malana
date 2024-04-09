@@ -872,6 +872,7 @@ pub const TextureInfo = struct {
     is_render_target: bool = false,
     sampled: bool = false,
     cubemap: bool = false,
+    compare_less: bool = false,
     preferred_format: ?PreferredFormat = null,
 };
 
@@ -972,8 +973,8 @@ pub const Texture = struct {
             .max_anisotropy = properties.limits.max_sampler_anisotropy,
             .border_color = .int_opaque_black,
             .unnormalized_coordinates = vk.FALSE,
-            .compare_enable = vk.FALSE,
-            .compare_op = .always,
+            .compare_enable = if (info.compare_less) vk.TRUE else vk.FALSE,
+            .compare_op = if (info.compare_less) .less else .always,
             .mipmap_mode = .linear,
             .mip_lod_bias = 0,
             .min_lod = 0,
@@ -1313,8 +1314,8 @@ pub const Drawing = struct {
     vert_count: usize,
 
     // vulkan
-    vertex_buffer: ?BufferMemory,
-    index_buffer: ?BufferMemory,
+    vertex_buffer: ?BufferHandle,
+    index_buffer: ?BufferHandle,
     descriptor_sets: []vk.DescriptorSet,
     descriptor_pool: vk.DescriptorPool,
     uniform_buffers: []std.ArrayList(UniformHandle),
@@ -1387,7 +1388,10 @@ pub const Drawing = struct {
         }
         try drawing.uniform_buffers[binding].append(.{
             .idx = dst,
-            .buffer = try BufferHandle.init(pipeline_description.uniform_descriptions[binding].size, &drawing.window.gc),
+            .buffer = try BufferHandle.init(&drawing.window.gc, .{
+                .size = pipeline_description.uniform_descriptions[binding].size,
+                .buffer_type = .uniform,
+            }),
         });
         const buffer = drawing.uniform_buffers[binding].items[drawing.uniform_buffers[binding].items.len - 1];
 
@@ -1402,7 +1406,10 @@ pub const Drawing = struct {
         for (drawing.uniform_buffers, pipeline_description.uniform_descriptions, 0..) |*array, description, i| {
             array.* = std.ArrayList(UniformHandle).init(ally);
             if (!description.boundless) {
-                try array.append(.{ .idx = 0, .buffer = try BufferHandle.init(description.size, &drawing.window.gc) });
+                try array.append(.{ .idx = 0, .buffer = try BufferHandle.init(&drawing.window.gc, .{
+                    .size = description.size,
+                    .buffer_type = .uniform,
+                }) });
                 try drawing.updateDescriptorSets(ally, .{ .uniforms = &.{.{ .idx = @intCast(i), .buffer = array.items[0].buffer }} });
             }
         }
@@ -1414,7 +1421,7 @@ pub const Drawing = struct {
         win.gc.vkd.deviceWaitIdle(win.gc.dev) catch return;
 
         for (self.uniform_buffers) |*array| {
-            for (array.items) |uni| uni.buffer.buff_mem.deinit(&win.gc);
+            for (array.items) |uni| uni.buffer.deinit(&win.gc);
             array.deinit();
         }
         ally.free(self.uniform_buffers);
@@ -1494,7 +1501,7 @@ pub const Drawing = struct {
                 buffer_info[0] = vk.DescriptorBufferInfo{
                     .buffer = uniform.buffer.buff_mem.buffer,
                     .offset = 0,
-                    .range = @intFromEnum(uniform.buffer.size),
+                    .range = uniform.buffer.size,
                 };
 
                 try descriptor_writes.append(.{
@@ -1534,44 +1541,6 @@ pub const Drawing = struct {
         }
     }
 
-    pub fn bindIndexBuffer(self: *Drawing, indices: []const u32) !void {
-        if (indices.len == 0) return;
-        var gc = &self.window.gc;
-        const pool = self.window.pool;
-
-        if (self.index_buffer) |ib| {
-            try gc.vkd.deviceWaitIdle(gc.dev);
-            ib.deinit(gc);
-        }
-
-        const buffer = try gc.vkd.createBuffer(gc.dev, &.{
-            .size = @sizeOf(u32) * indices.len,
-            .usage = .{ .transfer_dst_bit = true, .index_buffer_bit = true },
-            .sharing_mode = .exclusive,
-        }, null);
-
-        const mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, buffer);
-        const memory = try gc.allocate(mem_reqs, .{ .device_local_bit = true });
-        try gc.vkd.bindBufferMemory(gc.dev, buffer, memory, 0);
-
-        const staging_buff = try gc.createStagingBuffer(@sizeOf(u32) * indices.len);
-        defer staging_buff.deinit(gc);
-
-        {
-            const data = try gc.vkd.mapMemory(gc.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
-            defer gc.vkd.unmapMemory(gc.dev, staging_buff.memory);
-
-            const gpu_indices: [*]u32 = @ptrCast(@alignCast(data));
-            for (indices, 0..) |index, i| {
-                gpu_indices[i] = index;
-            }
-        }
-
-        try copyBuffer(&self.window.gc, pool, buffer, staging_buff.buffer, @sizeOf(u32) * indices.len);
-
-        self.index_buffer = .{ .buffer = buffer, .memory = memory };
-    }
-
     pub fn draw(self: *Drawing, command_buffer: vk.CommandBuffer, options: struct {
         frame_id: usize,
         bind_pipeline: bool,
@@ -1580,7 +1549,7 @@ pub const Drawing = struct {
 
         if (options.bind_pipeline) gc.vkd.cmdBindPipeline(command_buffer, .graphics, self.pipeline.vk_pipeline);
         const offset = [_]vk.DeviceSize{0};
-        if (self.vertex_buffer) |vb| gc.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&vb.buffer), &offset);
+        if (self.vertex_buffer) |vb| gc.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&vb.buff_mem.buffer), &offset);
         gc.vkd.cmdBindDescriptorSets(
             command_buffer,
             .graphics,
@@ -1592,7 +1561,7 @@ pub const Drawing = struct {
             null,
         );
         if (self.index_buffer) |ib| {
-            gc.vkd.cmdBindIndexBuffer(command_buffer, ib.buffer, 0, .uint32);
+            gc.vkd.cmdBindIndexBuffer(command_buffer, ib.buff_mem.buffer, 0, .uint32);
             gc.vkd.cmdDrawIndexed(command_buffer, @intCast(self.vert_count), 1, 0, 0, 0);
         } else gc.vkd.cmdDraw(command_buffer, @intCast(self.vert_count), 1, 0, 0);
     }
@@ -2092,7 +2061,7 @@ pub const CommandBuilder = struct {
 
     pub fn push(builder: *CommandBuilder, comptime self: DataDescription, gc: *GraphicsContext, pipeline: RenderPipeline, constants: *const self.T) void {
         const cmdbuf = builder.getCurrent();
-        gc.vkd.cmdPushConstants(cmdbuf, pipeline.layout, .{ .vertex_bit = true, .fragment_bit = true }, 0, @intCast(@intFromEnum(self.getSize())), @alignCast(@ptrCast(constants)));
+        gc.vkd.cmdPushConstants(cmdbuf, pipeline.layout, .{ .vertex_bit = true, .fragment_bit = true }, 0, @intCast(self.getSize()), @alignCast(@ptrCast(constants)));
     }
 
     pub fn beginCommand(builder: *CommandBuilder, gc: *GraphicsContext) !void {
@@ -2657,9 +2626,9 @@ pub const VertexAttribute = struct {
 pub const VertexDescription = struct {
     vertex_attribs: []const VertexAttribute,
 
-    pub fn getAttributeType(comptime self: VertexDescription) type {
+    pub fn getAttributeType(comptime description: VertexDescription) type {
         var fields: []const std.builtin.Type.StructField = &.{};
-        for (self.vertex_attribs, 0..) |attrib, i| {
+        for (description.vertex_attribs, 0..) |attrib, i| {
             const T = attrib.getType();
             var num_buf: [128]u8 = undefined;
 
@@ -2683,57 +2652,39 @@ pub const VertexDescription = struct {
         });
     }
 
-    pub fn getVertexSize(self: VertexDescription) usize {
+    pub fn getVertexSize(description: VertexDescription) usize {
         var total: usize = 0;
-        for (self.vertex_attribs) |attrib| {
+        for (description.vertex_attribs) |attrib| {
             total += attrib.getSize();
         }
         return total;
     }
 
-    pub fn bindVertexBuffer(comptime self: VertexDescription, draw: *Drawing, vertices: []const self.getAttributeType()) !void {
-        if (vertices.len == 0) return;
+    pub fn createBuffer(comptime description: VertexDescription, gc: *GraphicsContext, vert_count: usize) !BufferHandle {
+        return BufferHandle.init(gc, .{ .size = vert_count * description.getVertexSize(), .buffer_type = .vertex });
+    }
+
+    pub fn bindVertex(comptime description: VertexDescription, draw: *Drawing, vertices: []const description.getAttributeType(), indices: []const u32) !void {
+        draw.vert_count = indices.len;
         var gc = &draw.window.gc;
-        const pool = draw.window.pool;
+
+        if (indices.len == 0) return;
 
         if (draw.vertex_buffer) |vb| {
+            try gc.vkd.deviceWaitIdle(draw.window.gc.dev);
+            vb.deinit(gc);
+        }
+
+        draw.vertex_buffer = try description.createBuffer(gc, vertices.len);
+        try draw.vertex_buffer.?.setVertex(description, gc, draw.window.pool, vertices);
+
+        if (draw.index_buffer) |vb| {
             try gc.vkd.deviceWaitIdle(gc.dev);
             vb.deinit(gc);
         }
 
-        const buffer = try gc.vkd.createBuffer(gc.dev, &.{
-            .size = self.getVertexSize() * vertices.len,
-            .usage = .{ .transfer_dst_bit = true, .vertex_buffer_bit = true },
-            .sharing_mode = .exclusive,
-        }, null);
-
-        const mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, buffer);
-        const memory = try gc.allocate(mem_reqs, .{ .device_local_bit = true });
-        try gc.vkd.bindBufferMemory(gc.dev, buffer, memory, 0);
-
-        const staging_buff = try gc.createStagingBuffer(self.getVertexSize() * vertices.len);
-        defer staging_buff.deinit(gc);
-
-        {
-            const data = try gc.vkd.mapMemory(gc.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
-            defer gc.vkd.unmapMemory(gc.dev, staging_buff.memory);
-
-            const gpu_vertices: [*]self.getAttributeType() = @ptrCast(@alignCast(data));
-            for (vertices, 0..) |vertex, i| {
-                gpu_vertices[i] = vertex;
-            }
-        }
-
-        try copyBuffer(&draw.window.gc, pool, buffer, staging_buff.buffer, self.getVertexSize() * vertices.len);
-
-        draw.vertex_buffer = .{ .buffer = buffer, .memory = memory };
-    }
-
-    pub fn bindVertex(comptime self: VertexDescription, draw: *Drawing, vertices: []const self.getAttributeType(), indices: []const u32) !void {
-        draw.vert_count = indices.len;
-
-        try self.bindVertexBuffer(draw, vertices);
-        try draw.bindIndexBuffer(indices);
+        draw.index_buffer = try BufferHandle.init(gc, .{ .size = @sizeOf(u32) * indices.len, .buffer_type = .index });
+        try draw.index_buffer.?.setIndices(gc, draw.window.pool, indices);
     }
 };
 
@@ -2750,10 +2701,12 @@ pub const SamplerDescription = struct {
 };
 
 pub const UniformDescription = struct {
-    size: DataSize,
+    size: usize,
     idx: u32,
     boundless: bool = false,
 };
+
+pub const AttachmentDescription = struct {};
 
 pub const PipelineDescription = struct {
     vertex_description: VertexDescription,
@@ -2761,9 +2714,10 @@ pub const PipelineDescription = struct {
     depth_test: bool,
     cull_type: CullType = .none,
 
-    constants_size: ?DataSize = null,
+    constants_size: ?usize = null,
     uniform_descriptions: []const UniformDescription = &.{},
     sampler_descriptions: []const SamplerDescription = &.{},
+    attachment_descriptions: []const AttachmentDescription = &.{.{}},
     // assume DefaultUbo at index 0
     global_ubo: bool = false,
     bindless: bool = false,
@@ -2855,7 +2809,7 @@ pub const RenderPipeline = struct {
             .push_constant_range_count = if (pipeline.constants_size) |_| 1 else 0,
             .p_push_constant_ranges = if (pipeline.constants_size) |size| @ptrCast(&vk.PushConstantRange{
                 .offset = 0,
-                .size = @intCast(@intFromEnum(size)),
+                .size = @intCast(size),
                 .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
             }) else undefined,
         }, null);
@@ -2892,6 +2846,20 @@ pub const RenderPipeline = struct {
         const binding_description = pipeline.getBindingDescription();
 
         const dynstate = [_]vk.DynamicState{ .viewport, .scissor };
+
+        const attachments = try ally.alloc(vk.PipelineColorBlendAttachmentState, pipeline.attachment_descriptions.len);
+        for (attachments) |*a| {
+            a.* = .{
+                .blend_enable = vk.TRUE,
+                .src_color_blend_factor = .src_alpha,
+                .dst_color_blend_factor = .one_minus_src_alpha,
+                .color_blend_op = .add,
+                .src_alpha_blend_factor = .one,
+                .dst_alpha_blend_factor = .one_minus_src_alpha,
+                .alpha_blend_op = .add,
+                .color_write_mask = .{ .r_bit = true, .g_bit = true, .b_bit = true, .a_bit = true },
+            };
+        }
 
         var vk_pipeline: vk.Pipeline = undefined;
         _ = try gc.vkd.createGraphicsPipelines(
@@ -2957,17 +2925,8 @@ pub const RenderPipeline = struct {
                 .p_color_blend_state = &vk.PipelineColorBlendStateCreateInfo{
                     .logic_op_enable = vk.FALSE,
                     .logic_op = .clear,
-                    .attachment_count = 1,
-                    .p_attachments = @ptrCast(&vk.PipelineColorBlendAttachmentState{
-                        .blend_enable = vk.TRUE,
-                        .src_color_blend_factor = .src_alpha,
-                        .dst_color_blend_factor = .one_minus_src_alpha,
-                        .color_blend_op = .add,
-                        .src_alpha_blend_factor = .one,
-                        .dst_alpha_blend_factor = .one_minus_src_alpha,
-                        .alpha_blend_op = .add,
-                        .color_write_mask = .{ .r_bit = true, .g_bit = true, .b_bit = true, .a_bit = true },
-                    }),
+                    .attachment_count = @intCast(attachments.len),
+                    .p_attachments = attachments.ptr,
                     .blend_constants = [_]f32{ 0, 0, 0, 0 },
                 },
                 .p_dynamic_state = &vk.PipelineDynamicStateCreateInfo{
@@ -3015,8 +2974,6 @@ pub const LinePipeline = RenderPipeline{
     .depth_test = true,
 };
 
-pub const DataSize = enum(usize) { _ };
-
 pub const BufferMemory = struct {
     pub fn deinit(buff: BufferMemory, gc: *GraphicsContext) void {
         gc.vkd.destroyBuffer(gc.dev, buff.buffer, null);
@@ -3028,47 +2985,122 @@ pub const BufferMemory = struct {
 
 pub const BufferHandle = struct {
     buff_mem: BufferMemory,
-    size: DataSize,
-    data: *anyopaque,
+    size: usize,
+    data: ?*anyopaque,
 
-    pub fn init(size: DataSize, gc: *GraphicsContext) !BufferHandle {
+    pub fn init(gc: *GraphicsContext, options: struct {
+        size: usize,
+        buffer_type: enum {
+            uniform,
+            index,
+            vertex,
+        },
+    }) !BufferHandle {
         const buffer = try gc.vkd.createBuffer(gc.dev, &.{
-            .size = @intFromEnum(size),
-            .usage = .{ .uniform_buffer_bit = true },
+            .size = options.size,
+            .usage = switch (options.buffer_type) {
+                .uniform => .{ .uniform_buffer_bit = true },
+                .index => .{ .index_buffer_bit = true, .transfer_dst_bit = true },
+                .vertex => .{ .vertex_buffer_bit = true, .transfer_dst_bit = true },
+            },
             .sharing_mode = .exclusive,
         }, null);
 
         const mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, buffer);
-        const memory = try gc.allocate(mem_reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
+        const memory = try gc.allocate(mem_reqs, switch (options.buffer_type) {
+            .uniform => .{ .host_visible_bit = true, .host_coherent_bit = true },
+            else => .{ .device_local_bit = true },
+        });
         try gc.vkd.bindBufferMemory(gc.dev, buffer, memory, 0);
-
-        const data = try gc.vkd.mapMemory(gc.dev, memory, 0, vk.WHOLE_SIZE, .{});
 
         return .{
             .buff_mem = .{ .buffer = buffer, .memory = memory },
-            .size = size,
-            .data = data.?,
+            .size = options.size,
+            .data = if (options.buffer_type == .uniform) (try gc.vkd.mapMemory(gc.dev, memory, 0, vk.WHOLE_SIZE, .{})).? else null,
         };
     }
 
+    pub fn deinit(buffer: BufferHandle, gc: *GraphicsContext) void {
+        buffer.buff_mem.deinit(gc);
+    }
+
+    pub fn setIndices(buffer: BufferHandle, gc: *GraphicsContext, pool: vk.CommandPool, indices: []const u32) !void {
+        if (indices.len == 0) return;
+
+        const staging_buff = try gc.createStagingBuffer(@sizeOf(u32) * indices.len);
+        defer staging_buff.deinit(gc);
+
+        {
+            const data = try gc.vkd.mapMemory(gc.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
+            defer gc.vkd.unmapMemory(gc.dev, staging_buff.memory);
+
+            const gpu_indices: [*]u32 = @ptrCast(@alignCast(data));
+            for (indices, 0..) |index, i| {
+                gpu_indices[i] = index;
+            }
+        }
+
+        try copyBuffer(gc, pool, buffer.buff_mem.buffer, staging_buff.buffer, @sizeOf(u32) * indices.len);
+    }
+
+    pub fn setVertex(
+        buffer: BufferHandle,
+        comptime self: VertexDescription,
+        gc: *GraphicsContext,
+        pool: vk.CommandPool,
+        vertices: []const self.getAttributeType(),
+    ) !void {
+        if (vertices.len == 0) return;
+
+        const staging_buff = try gc.createStagingBuffer(self.getVertexSize() * vertices.len);
+        defer staging_buff.deinit(gc);
+
+        {
+            const data = try gc.vkd.mapMemory(gc.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
+            defer gc.vkd.unmapMemory(gc.dev, staging_buff.memory);
+
+            const gpu_vertices: [*]self.getAttributeType() = @ptrCast(@alignCast(data));
+            for (vertices, 0..) |vertex, i| {
+                gpu_vertices[i] = vertex;
+            }
+        }
+
+        try copyBuffer(gc, pool, buffer.buff_mem.buffer, staging_buff.buffer, self.getVertexSize() * vertices.len);
+    }
+
+    pub fn setBytesStaging(buffer: BufferHandle, gc: *GraphicsContext, pool: vk.CommandPool, bytes: []const u8) !void {
+        const staging_buff = try gc.createStagingBuffer(bytes.len);
+        defer staging_buff.deinit(gc);
+
+        {
+            const data = try gc.vkd.mapMemory(gc.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
+            defer gc.vkd.unmapMemory(gc.dev, staging_buff.memory);
+
+            const data_bytes: [*]u8 = @ptrCast(@alignCast(data));
+            @memcpy(data_bytes, bytes);
+        }
+
+        try copyBuffer(gc, pool, buffer.buff_mem.buffer, staging_buff.buffer, bytes.len);
+    }
+
     pub fn setAsUniform(buffer: BufferHandle, comptime self: DataDescription, ubo: self.T) void {
-        @as(*self.T, @alignCast(@ptrCast(buffer.data))).* = ubo;
+        @as(*self.T, @alignCast(@ptrCast(buffer.data.?))).* = ubo;
     }
     pub fn setAsUniformField(buffer: BufferHandle, comptime self: DataDescription, comptime field: std.meta.FieldEnum(self.T), target: anytype) void {
-        @field(@as(*self.T, @alignCast(@ptrCast(buffer.data))), @tagName(field)) = target;
+        @field(@as(*self.T, @alignCast(@ptrCast(buffer.data.?))), @tagName(field)) = target;
     }
 };
 
 pub const DataDescription = struct {
     T: type,
 
-    pub fn getSize(comptime self: DataDescription) DataSize {
+    pub fn getSize(comptime self: DataDescription) usize {
         std.mem.doNotOptimizeAway(@sizeOf(self.T));
-        return @enumFromInt(@sizeOf(self.T));
+        return @sizeOf(self.T);
     }
 
     pub fn createBuffer(comptime self: DataDescription, gc: *GraphicsContext) !BufferHandle {
-        return BufferHandle.init(self.getSize(), gc);
+        return BufferHandle.init(gc, .{ .size = self.getSize() });
     }
 };
 

@@ -59,16 +59,19 @@ pub fn main() !void {
 
     const shadow_res = 1024 * 4;
 
-    const LightObject = struct {
-        pub fn init(pos: math.Vec3, intensity: [3]f32) !@This() {
-            const shadow_pass = try graphics.RenderPass.init(&state.main_win.gc, .{
-                .format = state.main_win.swapchain.surface_format.format,
-                .target = true,
-            });
+    const shadow_pass = try graphics.RenderPass.init(&state.main_win.gc, .{
+        .format = state.main_win.swapchain.surface_format.format,
+        .target = true,
+    });
 
+    const LightObject = struct {
+        pub fn init(pass: graphics.RenderPass, pos: math.Vec3, intensity: [3]f32) !@This() {
             const shadow_tex = try graphics.Texture.init(state.main_win, shadow_res, shadow_res, .{
                 .preferred_format = .depth,
                 .sampled = true,
+                .compare_less = true,
+                .mag_filter = .linear,
+                .min_filter = .linear,
             });
 
             const shadow_diffuse = try graphics.Texture.init(state.main_win, shadow_res, shadow_res, .{
@@ -78,13 +81,13 @@ pub fn main() !void {
 
             const shadow_buffer = try graphics.Framebuffer.init(&state.main_win.gc, .{
                 .attachments = &.{ shadow_diffuse.image_view, shadow_tex.image_view },
-                .render_pass = shadow_pass.pass,
+                .render_pass = pass.pass,
                 .width = shadow_res,
                 .height = shadow_res,
             });
 
             return .{
-                .shadow_pass = shadow_pass,
+                .shadow_pass = pass,
                 .shadow_tex = shadow_tex,
                 .shadow_diffuse = shadow_diffuse,
                 .shadow_buffer = shadow_buffer,
@@ -101,11 +104,14 @@ pub fn main() !void {
         intensity: [3]f32,
     };
 
+    //var xoshiro = std.Random.Xoshiro256.init(252);
+    //const random = xoshiro.random();
     const exp = 30;
+
     const lights = [_]LightObject{
-        try LightObject.init(Vec3.init(.{ 2, 0, 2 }), .{ exp, 0, 0 }),
-        try LightObject.init(Vec3.init(.{ -2, 2, 2 }), .{ 0, exp, 0 }),
-        try LightObject.init(Vec3.init(.{ 2, 2, -2 }), .{ 0, 0, exp }),
+        try LightObject.init(shadow_pass, Vec3.init(.{ 2, 0, 2 }), .{ exp, 0, 0 }),
+        try LightObject.init(shadow_pass, Vec3.init(.{ -2, 2, 2 }), .{ 0, exp, 0 }),
+        try LightObject.init(shadow_pass, Vec3.init(.{ 2, 2, -2 }), .{ 0, 0, exp }),
     };
 
     // render screen
@@ -222,7 +228,50 @@ pub fn main() !void {
         try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 4, .dst = @intCast(i), .textures = &.{light.shadow_tex} }} });
     }
 
-    try graphics.SpatialMesh.Pipeline.vertex_description.bindVertex(camera_obj.drawing, object.vertices.items, object.indices.items);
+    camera_obj.drawing.vert_count = object.vertices.items.len;
+
+    const camera_vertex = try graphics.SpatialMesh.Pipeline.vertex_description.createBuffer(gc, object.vertices.items.len);
+    try camera_vertex.setVertex(graphics.SpatialMesh.Pipeline.vertex_description, gc, state.main_win.pool, object.vertices.items);
+    camera_obj.drawing.vertex_buffer = camera_vertex;
+
+    const camera_index = try graphics.BufferHandle.init(gc, .{ .size = @sizeOf(u32) * object.indices.items.len, .buffer_type = .index });
+    try camera_index.setIndices(gc, state.main_win.pool, object.indices.items);
+    camera_obj.drawing.index_buffer = camera_index;
+
+    // shadow drawing
+    const ShadowPipeline: graphics.PipelineDescription = .{
+        .vertex_description = .{
+            .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 3 } },
+        },
+        .render_type = .triangle,
+        .depth_test = true,
+        .cull_type = .none,
+        .uniform_descriptions = &.{
+            .{ .size = graphics.GlobalUniform.getSize(), .idx = 0 },
+            .{ .size = graphics.SpatialMesh.Uniform.getSize(), .idx = 1 },
+        },
+        .attachment_descriptions = &.{.{}},
+        .constants_size = PushConstants.getSize(),
+        .global_ubo = true,
+    };
+    var shadow_pipeline = try graphics.RenderPipeline.init(ally, .{
+        .description = ShadowPipeline,
+        .shaders = &.{triangle_vert},
+        .render_pass = shadow_pass,
+        .gc = &state.main_win.gc,
+        .flipped_z = true,
+    });
+    defer shadow_pipeline.deinit(&state.main_win.gc);
+
+    const shadow_drawing = try ally.create(graphics.Drawing);
+    const shadow_mesh = try graphics.SpatialMesh.init(shadow_drawing, state.main_win, .{
+        .pos = math.Vec3.init(.{ 0, 0, 0 }),
+        .pipeline = shadow_pipeline,
+    });
+
+    shadow_mesh.drawing.vert_count = object.vertices.items.len;
+    shadow_mesh.drawing.vertex_buffer = camera_vertex;
+    shadow_mesh.drawing.index_buffer = camera_index;
 
     state.key_down = key_down;
 
@@ -257,7 +306,7 @@ pub fn main() !void {
 
         for (lights, 0..) |light, i| {
             const spinned_pos = spin.dot(light.pos);
-            const light_matrix = math.orthoMatrix(-10, 10, -10, 10, 1.0, 20.0).mul(
+            const light_matrix = math.orthoMatrix(-5, 5, -5, 5, 1.0, 20.0).mul(
                 math.lookAtMatrix(spinned_pos, Vec3.init(.{ 0, 0, 0 }), Vec3.init(.{ 0, 1, 0 })),
             );
 
@@ -283,7 +332,7 @@ pub fn main() !void {
         // shadow pass
         for (lights) |light| {
             const spinned_pos = spin.dot(light.pos);
-            const light_matrix = math.orthoMatrix(-10, 10, -10, 10, 1.0, 20.0).mul(
+            const light_matrix = math.orthoMatrix(-5, 5, -5, 5, 1.0, 20.0).mul(
                 math.lookAtMatrix(spinned_pos, Vec3.init(.{ 0, 0, 0 }), Vec3.init(.{ 0, 1, 0 })),
             );
             const data: PushConstants.T = .{
@@ -304,7 +353,7 @@ pub fn main() !void {
                 .width = shadow_res,
                 .height = shadow_res,
             });
-            try state.scene.draw(builder);
+            try shadow_drawing.draw(builder.getCurrent(), .{ .frame_id = builder.frame_id, .bind_pipeline = true });
             builder.endRenderPass(gc);
             try builder.transitionLayout(gc, light.shadow_tex.image, .{
                 .old_layout = .depth_stencil_attachment_optimal,
