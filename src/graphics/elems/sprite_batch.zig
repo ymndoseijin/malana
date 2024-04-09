@@ -36,19 +36,17 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             },
             .render_type = .triangle,
             .depth_test = false,
-            .uniform_descriptions = &.{ .{
-                .size = graphics.GlobalUniform.getSize(),
-                .idx = 0,
-            }, .{
-                .size = SpriteUniform.getSize(),
-                .idx = 1,
-                .boundless = true,
-            } },
+            .bindings = &.{
+                .{ .uniform = .{
+                    .size = graphics.GlobalUniform.getSize(),
+                } },
+                .{ .uniform = .{
+                    .size = SpriteUniform.getSize(),
+                    .boundless = true,
+                } },
+                .{ .sampler = .{ .boundless = true } },
+            },
             .global_ubo = true,
-            .sampler_descriptions = &.{.{
-                .idx = 2,
-                .boundless = true,
-            }},
             .bindless = true,
         };
 

@@ -38,13 +38,10 @@ pub fn CustomSpatialMesh(comptime InUniform: graphics.DataDescription) type {
             .render_type = .triangle,
             .depth_test = true,
             .cull_type = .back,
-            .uniform_descriptions = &.{ .{
-                .size = graphics.GlobalUniform.getSize(),
-                .idx = 0,
-            }, .{
-                .size = Uniform.getSize(),
-                .idx = 1,
-            } },
+            .bindings = &.{
+                .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
+                .{ .uniform = .{ .size = Uniform.getSize() } },
+            },
             .global_ubo = true,
         };
 

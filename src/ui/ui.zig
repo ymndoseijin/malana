@@ -122,13 +122,12 @@ pub const Ui = struct {
         },
         .render_type = .triangle,
         .depth_test = false,
-        .uniform_descriptions = &.{.{
-            .size = graphics.GlobalUniform.getSize(),
-            .idx = 0,
-        }},
-        .sampler_descriptions = &.{.{
-            .idx = 1,
-        }},
+        .bindings = &.{
+            .{ .uniform = .{
+                .size = graphics.GlobalUniform.getSize(),
+            } },
+            .{ .sampler = .{} },
+        },
         .global_ubo = true,
         .cull_type = .none,
     };

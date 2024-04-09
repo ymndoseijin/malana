@@ -37,17 +37,16 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
             },
             .render_type = .triangle,
             .depth_test = false,
-            .uniform_descriptions = &.{ .{
-                .size = graphics.GlobalUniform.getSize(),
-                .idx = 0,
-            }, .{
-                .size = SpriteUniform.getSize(),
-                .idx = 1,
-            } },
+            .bindings = &.{
+                .{ .uniform = .{
+                    .size = graphics.GlobalUniform.getSize(),
+                } },
+                .{ .uniform = .{
+                    .size = SpriteUniform.getSize(),
+                } },
+                .{ .sampler = .{} },
+            },
             .global_ubo = true,
-            .sampler_descriptions = &.{.{
-                .idx = 2,
-            }},
         };
 
         pub const Self = @This();

@@ -1389,7 +1389,7 @@ pub const Drawing = struct {
         try drawing.uniform_buffers[binding].append(.{
             .idx = dst,
             .buffer = try BufferHandle.init(&drawing.window.gc, .{
-                .size = pipeline_description.uniform_descriptions[binding].size,
+                .size = pipeline_description.bindings[binding].uniform.size,
                 .buffer_type = .uniform,
             }),
         });
@@ -1402,15 +1402,24 @@ pub const Drawing = struct {
 
     pub fn createUniformBuffers(drawing: *Drawing, ally: std.mem.Allocator) !void {
         const pipeline_description = drawing.pipeline.description;
-        drawing.uniform_buffers = try ally.alloc(std.ArrayList(UniformHandle), pipeline_description.uniform_descriptions.len);
-        for (drawing.uniform_buffers, pipeline_description.uniform_descriptions, 0..) |*array, description, i| {
-            array.* = std.ArrayList(UniformHandle).init(ally);
-            if (!description.boundless) {
-                try array.append(.{ .idx = 0, .buffer = try BufferHandle.init(&drawing.window.gc, .{
-                    .size = description.size,
-                    .buffer_type = .uniform,
-                }) });
-                try drawing.updateDescriptorSets(ally, .{ .uniforms = &.{.{ .idx = @intCast(i), .buffer = array.items[0].buffer }} });
+        drawing.uniform_buffers = try ally.alloc(std.ArrayList(UniformHandle), drawing.pipeline.uniform_count);
+
+        var uniform_i: usize = 0;
+        for (pipeline_description.bindings, 0..) |binding, i| {
+            if (binding == .uniform) {
+                const description = binding.uniform;
+                const array = &drawing.uniform_buffers[uniform_i];
+
+                array.* = std.ArrayList(UniformHandle).init(ally);
+                uniform_i += 1;
+
+                if (!description.boundless) {
+                    try array.append(.{ .idx = 0, .buffer = try BufferHandle.init(&drawing.window.gc, .{
+                        .size = description.size,
+                        .buffer_type = .uniform,
+                    }) });
+                    try drawing.updateDescriptorSets(ally, .{ .uniforms = &.{.{ .idx = @intCast(i), .buffer = array.items[0].buffer }} });
+                }
             }
         }
     }
@@ -1778,10 +1787,13 @@ pub const WindowInfo = struct {
 
 pub const Framebuffer = struct {
     pub const FramebufferInfo = struct {
+        // TODO: change this to a Texture instead
         attachments: []const vk.ImageView,
         render_pass: vk.RenderPass,
+
         width: u32,
         height: u32,
+        layers: u32 = 1,
     };
     buffer: vk.Framebuffer,
 
@@ -1796,7 +1808,7 @@ pub const Framebuffer = struct {
                 .p_attachments = info.attachments.ptr,
                 .width = info.width,
                 .height = info.height,
-                .layers = 1,
+                .layers = info.layers,
             }, null),
         };
     }
@@ -2696,17 +2708,20 @@ const CullType = enum {
 };
 
 pub const SamplerDescription = struct {
-    idx: u32,
     boundless: bool = false,
 };
 
 pub const UniformDescription = struct {
     size: usize,
-    idx: u32,
     boundless: bool = false,
 };
 
 pub const AttachmentDescription = struct {};
+
+pub const Binding = union(enum) {
+    uniform: UniformDescription,
+    sampler: SamplerDescription,
+};
 
 pub const PipelineDescription = struct {
     vertex_description: VertexDescription,
@@ -2715,8 +2730,9 @@ pub const PipelineDescription = struct {
     cull_type: CullType = .none,
 
     constants_size: ?usize = null,
-    uniform_descriptions: []const UniformDescription = &.{},
-    sampler_descriptions: []const SamplerDescription = &.{},
+
+    bindings: []const Binding = &.{},
+
     attachment_descriptions: []const AttachmentDescription = &.{.{}},
     // assume DefaultUbo at index 0
     global_ubo: bool = false,
@@ -2739,6 +2755,7 @@ pub const RenderPipeline = struct {
     layout: vk.PipelineLayout,
     descriptor_layout: vk.DescriptorSetLayout,
     bindings: []vk.DescriptorSetLayoutBinding,
+    uniform_count: usize,
 
     pub const Info = struct {
         description: PipelineDescription,
@@ -2752,43 +2769,49 @@ pub const RenderPipeline = struct {
         const pipeline = info.description;
         const gc = info.gc;
 
-        var bindings = try ally.alloc(vk.DescriptorSetLayoutBinding, pipeline.uniform_descriptions.len + pipeline.sampler_descriptions.len);
-
-        var binding_flags = try ally.alloc(vk.DescriptorBindingFlags, pipeline.uniform_descriptions.len + pipeline.sampler_descriptions.len);
+        var bindings = try ally.alloc(vk.DescriptorSetLayoutBinding, pipeline.bindings.len);
+        var binding_flags = try ally.alloc(vk.DescriptorBindingFlags, pipeline.bindings.len);
         defer ally.free(binding_flags);
 
-        for (pipeline.uniform_descriptions) |description| {
-            bindings[description.idx] = .{
-                .binding = description.idx,
-                .descriptor_count = if (description.boundless) max_boundless else 1,
-                .descriptor_type = .uniform_buffer,
-                .p_immutable_samplers = null,
-                .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
-            };
+        var uniform_count: usize = 0;
 
-            binding_flags[description.idx] = if (description.boundless) .{
-                //.variable_descriptor_count_bit = true,
-                .partially_bound_bit = true,
-                .update_after_bind_bit = true,
-                .update_unused_while_pending_bit = true,
-            } else .{};
-        }
+        for (pipeline.bindings, 0..) |binding, idx| {
+            switch (binding) {
+                .uniform => |description| {
+                    uniform_count += 1;
+                    bindings[idx] = .{
+                        .binding = @intCast(idx),
+                        .descriptor_count = if (description.boundless) max_boundless else 1,
+                        .descriptor_type = .uniform_buffer,
+                        .p_immutable_samplers = null,
+                        .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
+                    };
 
-        for (pipeline.sampler_descriptions) |description| {
-            bindings[description.idx] = vk.DescriptorSetLayoutBinding{
-                .binding = description.idx,
-                .descriptor_count = if (description.boundless) max_boundless else 1,
-                .descriptor_type = .combined_image_sampler,
-                .p_immutable_samplers = null,
-                .stage_flags = .{ .fragment_bit = true },
-            };
+                    binding_flags[idx] = if (description.boundless) .{
+                        //.variable_descriptor_count_bit = true,
+                        .partially_bound_bit = true,
+                        .update_after_bind_bit = true,
+                        .update_unused_while_pending_bit = true,
+                    } else .{};
+                },
 
-            binding_flags[description.idx] = if (description.boundless) .{
-                //.variable_descriptor_count_bit = true,
-                .partially_bound_bit = true,
-                .update_after_bind_bit = true,
-                .update_unused_while_pending_bit = true,
-            } else .{};
+                .sampler => |description| {
+                    bindings[idx] = vk.DescriptorSetLayoutBinding{
+                        .binding = @intCast(idx),
+                        .descriptor_count = if (description.boundless) max_boundless else 1,
+                        .descriptor_type = .combined_image_sampler,
+                        .p_immutable_samplers = null,
+                        .stage_flags = .{ .fragment_bit = true },
+                    };
+
+                    binding_flags[idx] = if (description.boundless) .{
+                        //.variable_descriptor_count_bit = true,
+                        .partially_bound_bit = true,
+                        .update_after_bind_bit = true,
+                        .update_unused_while_pending_bit = true,
+                    } else .{};
+                },
+            }
         }
 
         const layout_info: vk.DescriptorSetLayoutCreateInfo = .{
@@ -2949,6 +2972,7 @@ pub const RenderPipeline = struct {
             .descriptor_layout = descriptor_layout,
             .ally = ally,
             .bindings = bindings,
+            .uniform_count = uniform_count,
             .description = info.description,
         };
     }

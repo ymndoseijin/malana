@@ -27,13 +27,14 @@ pub const ColoredRect = struct {
         .render_type = .triangle,
         .depth_test = false,
         .cull_type = .none,
-        .uniform_descriptions = &.{ .{
-            .size = graphics.GlobalUniform.getSize(),
-            .idx = 0,
-        }, .{
-            .size = ColoredRectUniform.getSize(),
-            .idx = 1,
-        } },
+        .bindings = &.{
+            .{ .uniform = .{
+                .size = graphics.GlobalUniform.getSize(),
+            } },
+            .{ .uniform = .{
+                .size = ColoredRectUniform.getSize(),
+            } },
+        },
         .global_ubo = true,
     };
 

@@ -57,7 +57,7 @@ pub fn main() !void {
 
     // shadow testing
 
-    const shadow_res = 1024 * 4;
+    const shadow_res = 1024;
 
     const shadow_pass = try graphics.RenderPass.init(&state.main_win.gc, .{
         .format = state.main_win.swapchain.surface_format.format,
@@ -125,13 +125,13 @@ pub fn main() !void {
         .render_type = .triangle,
         .depth_test = true,
         .cull_type = .none,
-        .uniform_descriptions = &.{
-            .{ .size = graphics.GlobalUniform.getSize(), .idx = 0 },
-            .{ .size = graphics.SpatialMesh.Uniform.getSize(), .idx = 1 },
+        .bindings = &.{
+            .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
+            .{ .uniform = .{ .size = graphics.SpatialMesh.Uniform.getSize() } },
+            .{ .sampler = .{} },
         },
         .constants_size = PushConstants.getSize(),
         .global_ubo = true,
-        .sampler_descriptions = &.{.{ .idx = 2 }},
     };
 
     const screen_vert = try graphics.Shader.init(state.main_win.gc, &shaders.shadow_vert, .vertex);
@@ -173,17 +173,15 @@ pub fn main() !void {
         .render_type = .triangle,
         .depth_test = true,
         .cull_type = .back,
-        .uniform_descriptions = &.{
-            .{ .size = graphics.GlobalUniform.getSize(), .idx = 0 },
-            .{ .size = graphics.SpatialMesh.Uniform.getSize(), .idx = 1 },
-            .{ .size = LightArray.getSize(), .idx = 2, .boundless = true },
+        .bindings = &.{
+            .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
+            .{ .uniform = .{ .size = graphics.SpatialMesh.Uniform.getSize() } },
+            .{ .uniform = .{ .size = LightArray.getSize(), .boundless = true } },
+            .{ .sampler = .{ .boundless = true } }, // cubemaps
+            .{ .sampler = .{ .boundless = true } }, // shadow maps
         },
         .constants_size = PushConstants.getSize(),
         .global_ubo = true,
-        .sampler_descriptions = &.{
-            .{ .idx = 3, .boundless = true }, // cubemaps
-            .{ .idx = 4, .boundless = true }, // shadow_maps
-        },
         .bindless = true,
     };
 
@@ -246,9 +244,9 @@ pub fn main() !void {
         .render_type = .triangle,
         .depth_test = true,
         .cull_type = .none,
-        .uniform_descriptions = &.{
-            .{ .size = graphics.GlobalUniform.getSize(), .idx = 0 },
-            .{ .size = graphics.SpatialMesh.Uniform.getSize(), .idx = 1 },
+        .bindings = &.{
+            .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
+            .{ .uniform = .{ .size = graphics.SpatialMesh.Uniform.getSize() } },
         },
         .attachment_descriptions = &.{.{}},
         .constants_size = PushConstants.getSize(),
@@ -298,14 +296,14 @@ pub fn main() !void {
             .spatial_pos = .{ 0, 0, 0 },
         };
 
-        var spin = math.rotationY(f32, @floatCast(state.time * 5.0));
+        //var spin = math.rotationY(f32, @floatCast(state.time * 5.0));
 
         (try camera_obj.drawing.getUniformOrCreate(1, 0)).setAsUniform(graphics.SpatialMesh.Uniform, uniform);
 
         //const first_pos = spin.dot(Vec3.init(.{ 2, 2, 2 }));
 
         for (lights, 0..) |light, i| {
-            const spinned_pos = spin.dot(light.pos);
+            const spinned_pos = light.pos;
             const light_matrix = math.orthoMatrix(-5, 5, -5, 5, 1.0, 20.0).mul(
                 math.lookAtMatrix(spinned_pos, Vec3.init(.{ 0, 0, 0 }), Vec3.init(.{ 0, 1, 0 })),
             );
@@ -331,7 +329,7 @@ pub fn main() !void {
 
         // shadow pass
         for (lights) |light| {
-            const spinned_pos = spin.dot(light.pos);
+            const spinned_pos = light.pos;
             const light_matrix = math.orthoMatrix(-5, 5, -5, 5, 1.0, 20.0).mul(
                 math.lookAtMatrix(spinned_pos, Vec3.init(.{ 0, 0, 0 }), Vec3.init(.{ 0, 1, 0 })),
             );
