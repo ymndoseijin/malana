@@ -9,7 +9,7 @@ layout (location = 0) in vec2 in_uv;
 layout (location = 1) in vec3 in_normal;
 layout (location = 2) in vec3 in_pos;
 
-layout (binding = 0) uniform GlobalUBO {
+layout (set = 0, binding = 0) uniform GlobalUBO {
    float time;
    vec2 in_resolution;
 } global_ubo;
@@ -20,17 +20,17 @@ struct Light {
    mat4 matrix;
 };
 
-layout (binding = 1) uniform SpatialUBO {
+layout (set = 0, binding = 1) uniform SpatialUBO {
    vec3 pos;
 } spatial_ubo;
 
-layout (binding = 2) uniform LightArray {
+layout (set = 0, binding = 2) uniform LightArray {
    Light light;
 } lights[];
 
-layout (binding = 3) uniform samplerCube cubemap[];
+layout (set = 1, binding = 0) uniform samplerCube cubemap[];
 
-layout (binding = 4) uniform sampler2D shadow_maps[];
+layout (set = 2, binding = 0) uniform sampler2D shadow_maps[];
 
 layout (push_constant) uniform Constants {
    vec3 cam_pos;

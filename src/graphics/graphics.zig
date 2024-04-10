@@ -4,7 +4,7 @@ pub const glfw = @cImport({
     @cInclude("GLFW/glfw3.h");
 });
 
-const AREA_SIZE = 512;
+const AREA_SIZE = 5120;
 
 const max_boundless = 256;
 
@@ -2108,7 +2108,8 @@ pub const CommandBuilder = struct {
     }
 
     pub fn next(builder: *CommandBuilder) void {
-        builder.frame_id = (builder.frame_id + 1) % frames_in_flight;
+        //builder.frame_id = (builder.frame_id + 1) % frames_in_flight;
+        builder.frame_id = 0;
     }
     pub fn init(gc: *GraphicsContext, pool: vk.CommandPool, ally: std.mem.Allocator) !CommandBuilder {
         const cmd_buffs = try ally.alloc(vk.CommandBuffer, frames_in_flight);
@@ -2811,7 +2812,7 @@ pub const RenderPipeline = struct {
                         };
 
                         binding_flags[idx] = if (binding_desc.boundless) .{
-                            //.variable_descriptor_count_bit = true,
+                            .variable_descriptor_count_bit = true,
                             .partially_bound_bit = true,
                             .update_after_bind_bit = true,
                             .update_unused_while_pending_bit = true,
@@ -2828,7 +2829,7 @@ pub const RenderPipeline = struct {
                         };
 
                         binding_flags[idx] = if (binding_desc.boundless) .{
-                            //.variable_descriptor_count_bit = true,
+                            .variable_descriptor_count_bit = true,
                             .partially_bound_bit = true,
                             .update_after_bind_bit = true,
                             .update_unused_while_pending_bit = true,

@@ -36,16 +36,24 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             },
             .render_type = .triangle,
             .depth_test = false,
-            .sets = &.{.{ .bindings = &.{
-                .{ .uniform = .{
-                    .size = graphics.GlobalUniform.getSize(),
-                } },
-                .{ .uniform = .{
-                    .size = SpriteUniform.getSize(),
-                    .boundless = true,
-                } },
-                .{ .sampler = .{ .boundless = true } },
-            } }},
+            .sets = &.{
+                .{
+                    .bindings = &.{
+                        .{ .uniform = .{
+                            .size = graphics.GlobalUniform.getSize(),
+                        } },
+                        .{ .uniform = .{
+                            .size = SpriteUniform.getSize(),
+                            .boundless = true,
+                        } },
+                    },
+                },
+                .{
+                    .bindings = &.{
+                        .{ .sampler = .{ .boundless = true } },
+                    },
+                },
+            },
             .global_ubo = true,
             .bindless = true,
         };
@@ -114,7 +122,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             }
             pub fn setTexture(sprite: *Sprite, tex: graphics.Texture) !void {
                 const ally = sprite.batch.drawing.window.ally;
-                try sprite.batch.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .dst = sprite.idx, .idx = 2, .textures = &.{tex} }} });
+                try sprite.batch.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .set = 1, .idx = 0, .dst = sprite.idx, .textures = &.{tex} }} });
             }
         };
 
@@ -165,7 +173,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             batch.drawing.getUniformOr(0, 1, current_idx).?.setAsUniformField(SpriteUniform, .opacity, 1.0);
             //batch.drawing.getUniformOr(1, current_idx).?.setAsUniform(graphics.GlobalUniform, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
-            try batch.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .dst = current_idx, .idx = 2, .textures = &.{tex} }} });
+            try batch.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .set = 1, .idx = 0, .dst = current_idx, .textures = &.{tex} }} });
 
             //.vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 1, .attribute = .uint } },
             //const tipo = description.vertex_description.getAttributeType();

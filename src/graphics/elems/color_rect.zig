@@ -59,12 +59,12 @@ pub const ColoredRect = struct {
             .{ .{ 0, 1, 1 }, .{ 0, 1 } },
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
-        drawing.getUniformOr(1, 0).?.setAsUniform(ColoredRectUniform, .{
+        drawing.getUniformOr(0, 1, 0).?.setAsUniform(ColoredRectUniform, .{
             .transform = default_transform.getMat().cast(4, 4),
             .color = color,
         });
 
-        drawing.getUniformOr(1, 0).?.setAsUniform(graphics.GlobalUniform, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+        drawing.getUniformOr(0, 1, 0).?.setAsUniform(graphics.GlobalUniform, .{ .time = 0, .in_resolution = .{ 1, 1 } });
 
         return ColoredRect{
             .drawing = drawing,
@@ -73,7 +73,7 @@ pub const ColoredRect = struct {
     }
 
     pub fn updateTransform(self: ColoredRect) void {
-        self.drawing.getUniformOr(1, 0).?.setAsUniformField(ColoredRectUniform, .transform, self.transform.getMat().cast(4, 4));
+        self.drawing.getUniformOr(0, 1, 0).?.setAsUniformField(ColoredRectUniform, .transform, self.transform.getMat().cast(4, 4));
     }
 
     transform: graphics.Transform2D,

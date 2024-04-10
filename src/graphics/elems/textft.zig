@@ -86,16 +86,24 @@ pub const Text = struct {
         },
         .render_type = .triangle,
         .depth_test = false,
-        .sets = &.{.{ .bindings = &.{
-            .{ .uniform = .{
-                .size = graphics.GlobalUniform.getSize(),
-            } },
-            .{ .uniform = .{
-                .size = CharacterUniform.getSize(),
-                .boundless = true,
-            } },
-            .{ .sampler = .{ .boundless = true } },
-        } }},
+        .sets = &.{
+            .{
+                .bindings = &.{
+                    .{ .uniform = .{
+                        .size = graphics.GlobalUniform.getSize(),
+                    } },
+                    .{ .uniform = .{
+                        .size = CharacterUniform.getSize(),
+                        .boundless = true,
+                    } },
+                },
+            },
+            .{
+                .bindings = &.{
+                    .{ .sampler = .{ .boundless = true } },
+                },
+            },
+        },
         .global_ubo = true,
         .bindless = true,
     };

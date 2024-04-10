@@ -14,12 +14,12 @@ layout (binding = 1) uniform OtherUBO {
    vec3 color;
 } other_ubo[];
 
+layout(set = 1, binding = 0) uniform sampler2D texSampler[];
+
 layout (location = 0) in vec2 uv;
 layout (location = 1) flat in uint id;
 
 layout (location = 0) out vec4 FragColor;
-
-layout(binding = 2) uniform sampler2D texSampler[];
 
 void main()
 {

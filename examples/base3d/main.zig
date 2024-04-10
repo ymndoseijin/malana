@@ -186,15 +186,25 @@ pub fn main() !void {
         .render_type = .triangle,
         .depth_test = true,
         .cull_type = .back,
-        .sets = &.{.{
-            .bindings = &.{
-                .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
-                .{ .uniform = .{ .size = graphics.SpatialMesh.Uniform.getSize() } },
-                .{ .uniform = .{ .size = LightArray.getSize(), .boundless = true } },
-                .{ .sampler = .{ .boundless = true } }, // cubemaps
-                .{ .sampler = .{ .boundless = true } }, // shadow maps
+        .sets = &.{
+            .{
+                .bindings = &.{
+                    .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
+                    .{ .uniform = .{ .size = graphics.SpatialMesh.Uniform.getSize() } },
+                    .{ .uniform = .{ .size = LightArray.getSize(), .boundless = true } },
+                },
             },
-        }},
+            .{
+                .bindings = &.{
+                    .{ .sampler = .{ .boundless = true } }, // cubemaps
+                },
+            },
+            .{
+                .bindings = &.{
+                    .{ .sampler = .{ .boundless = true } }, // shadow maps
+                },
+            },
+        },
         .constants_size = PushConstants.getSize(),
         .global_ubo = true,
         .bindless = true,
@@ -236,9 +246,9 @@ pub fn main() !void {
         .pos = math.Vec3.init(.{ 0, 0, 0 }),
         .pipeline = pipeline,
     });
-    try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 3, .textures = &.{ cubemap, other } }} });
+    try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .set = 1, .idx = 0, .textures = &.{ cubemap, other } }} });
     for (lights, 0..) |light, i| {
-        try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 4, .dst = @intCast(i), .textures = &.{light.shadow_tex} }} });
+        try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .set = 2, .idx = 0, .dst = @intCast(i), .textures = &.{light.shadow_tex} }} });
     }
 
     camera_obj.drawing.vert_count = object.vertices.items.len;
