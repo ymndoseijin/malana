@@ -146,6 +146,11 @@ pub fn build(b: *std.Build) void {
                 .{ "frag", "shaders/shader.frag", .{} },
                 .{ "shadow_vert", "shaders/shadow.vert", .{} },
                 .{ "shadow_frag", "shaders/shadow.frag", .{} },
+                .{ "line_vert", "shaders/line.vert", .{} },
+                .{ "line_frag", "shaders/line.frag", .{} },
+                .{ "compute", "shaders/compute.comp", .{} },
+                .{ "points_vert", "shaders/point.vert", .{} },
+                .{ "points_frag", "shaders/point.frag", .{} },
             },
         },
         .{

@@ -45,7 +45,6 @@ pub fn main() !void {
     defer state.deinit(ally);
 
     const gc = &state.main_win.gc;
-    const builder = &state.command_builder;
 
     // get obj file
     var arg_it = std.process.args();
@@ -111,8 +110,8 @@ pub fn main() !void {
         intensity: [3]f32,
     };
 
-    //var xoshiro = std.Random.Xoshiro256.init(252);
-    //const random = xoshiro.random();
+    var xoshiro = std.Random.Xoshiro256.init(252);
+    const random = xoshiro.random();
     const exp = 30;
 
     const lights = [_]LightObject{
@@ -325,21 +324,180 @@ pub fn main() !void {
     std.debug.print("{any}\n", .{screen_obj.vertices.items});
     try graphics.SpatialMesh.Pipeline.vertex_description.bindVertex(screen.drawing, screen_obj.vertices.items, screen_obj.indices.items);
 
+    const line_vert = try graphics.Shader.init(state.main_win.gc, &shaders.line_vert, .vertex);
+    defer line_vert.deinit(gc.*);
+    const line_frag = try graphics.Shader.init(state.main_win.gc, &shaders.line_frag, .fragment);
+    defer line_frag.deinit(gc.*);
+
+    var line_pipeline = try graphics.RenderPipeline.init(ally, .{
+        .description = .{
+            .vertex_description = .{
+                .vertex_attribs = &.{.{ .size = 3 }},
+            },
+            .render_type = .triangle,
+            .depth_test = true,
+            .cull_type = .none,
+            .sets = &.{.{ .bindings = &.{
+                .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
+            } }},
+            .global_ubo = true,
+            .constants_size = PushConstants.getSize(),
+        },
+        .shaders = &.{ line_vert, line_frag },
+        .render_pass = state.first_pass,
+        .gc = &state.main_win.gc,
+        .flipped_z = true,
+    });
+    defer line_pipeline.deinit(&state.main_win.gc);
+    var line = try graphics.Line.init(try state.scene.new(), state.main_win, .{ .pipeline = line_pipeline });
+
+    const ComputeUniform: graphics.DataDescription = .{
+        .T = extern struct {
+            delta: f32,
+        },
+    };
+
+    const Particle = extern struct {
+        pos: [2]f32 align(4 * 2),
+        vel: [2]f32 align(4 * 2),
+        color: [4]f32 align(4 * 4),
+    };
+    const ParticleBuffer: graphics.DataDescription = .{
+        .T = extern struct {
+            particle: Particle,
+        },
+    };
+
+    const ComputeDescription: graphics.ComputeDescription = .{
+        .sets = &.{.{ .bindings = &.{
+            .{ .uniform = .{ .size = ComputeUniform.getSize() } },
+            .{ .storage = .{ .size = ParticleBuffer.getSize() } },
+            .{ .storage = .{ .size = ParticleBuffer.getSize() } },
+        } }},
+    };
+    const compute_shader = try graphics.Shader.init(state.main_win.gc, &shaders.compute, .compute);
+    defer compute_shader.deinit(gc.*);
+
+    var compute_pipeline = try graphics.ComputePipeline.init(ally, .{
+        .description = ComputeDescription,
+        .shader = compute_shader,
+        .gc = &state.main_win.gc,
+        .flipped_z = true,
+    });
+    defer compute_pipeline.deinit(&state.main_win.gc);
+    var compute = try graphics.Compute.init(ally, .{ .win = state.main_win, .pipeline = compute_pipeline });
+    defer compute.deinit(ally);
+
+    const particle_count = 4096;
+    compute.setCount(particle_count / 256, 1, 1);
+
+    const compute_buffer = try graphics.BufferHandle.init(gc, .{ .size = ParticleBuffer.getSize() * particle_count, .buffer_type = .storage });
+    defer compute_buffer.deinit(gc);
+
+    const particles = try ally.alloc(Particle, particle_count);
+    defer ally.free(particles);
+
+    for (particles) |*particle| {
+        const r = 0.25 * @sqrt(random.float(f32));
+        const theta = random.float(f32) * 2 * 3.14159265358979323846;
+        const x = r * @cos(theta);
+        const y = r * @sin(theta);
+        const vec = math.Vec2.init(.{ x, y });
+
+        particle.pos = vec.val;
+        particle.vel = vec.norm().scale(0.00025).val;
+        particle.color = .{ random.float(f32), random.float(f32), random.float(f32), 1.0 };
+    }
+
+    try compute_buffer.setStorage(ParticleBuffer, gc, state.main_win.pool, .{ .data = particles, .index = 0 });
+
+    try compute.descriptor.updateDescriptorSets(ally, .{ .storage = &.{.{ .idx = 1, .buffer = compute_buffer }} });
+    try compute.descriptor.updateDescriptorSets(ally, .{ .storage = &.{.{ .idx = 2, .buffer = compute_buffer }} });
+
+    const points_vert = try graphics.Shader.init(state.main_win.gc, &shaders.points_vert, .vertex);
+    defer points_vert.deinit(state.main_win.gc);
+
+    const points_frag = try graphics.Shader.init(state.main_win.gc, &shaders.points_frag, .fragment);
+    defer points_frag.deinit(state.main_win.gc);
+
+    const points_description: graphics.PipelineDescription = comptime .{
+        .vertex_description = .{
+            .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 } },
+        },
+        .render_type = .triangle,
+        .depth_test = false,
+        .cull_type = .none,
+        .sets = &.{.{ .bindings = &.{
+            .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
+            .{ .storage = .{ .size = ParticleBuffer.getSize() } },
+        } }},
+        .constants_size = PushConstants.getSize(),
+        .global_ubo = true,
+    };
+
+    var points_pipeline = try graphics.RenderPipeline.init(ally, .{
+        .description = points_description,
+        .shaders = &.{ points_vert, points_frag },
+        .render_pass = state.first_pass,
+        .gc = &state.main_win.gc,
+        .flipped_z = true,
+    });
+    defer points_pipeline.deinit(gc);
+
+    const points_drawing = try ally.create(graphics.Drawing);
+    defer ally.destroy(points_drawing);
+
+    try points_drawing.init(ally, .{
+        .win = state.main_win,
+        .pipeline = points_pipeline,
+    });
+    defer points_drawing.deinit(ally);
+
+    const point_size = 1;
+
+    try points_description.vertex_description.bindVertex(points_drawing, &.{
+        .{ .{ 0, 0, 1 }, .{ 0, 0 } },
+        .{ .{ point_size, 0, 1 }, .{ 1, 0 } },
+        .{ .{ point_size, point_size, 1 }, .{ 1, 1 } },
+        .{ .{ 0, point_size, 1 }, .{ 0, 1 } },
+    }, &.{ 0, 1, 2, 2, 3, 0 });
+
+    try points_drawing.descriptor.updateDescriptorSets(ally, .{ .storage = &.{.{ .idx = 1, .buffer = compute_buffer }} });
+
     while (state.main_win.alive) {
         try state.updateEvents();
+
+        compute.descriptor.getUniformOr(0, 0, 0).?.setAsUniform(ComputeUniform, .{ .delta = 20 });
+
+        var spring_verts = std.ArrayList(math.Vec3).init(ally);
+        defer spring_verts.deinit();
+        const spring_count = 1024;
+
+        for (0..spring_count) |i_in| {
+            const rot = 18.8495559;
+            var i: f32 = @floatFromInt(i_in);
+            i /= spring_count;
+            i *= rot;
+
+            const scale: f32 = @abs(@sin(@as(f32, @floatCast(state.time))));
+
+            try spring_verts.append(math.Vec3.init(.{ @cos(i), i / rot * scale * 4, @sin(i) }));
+        }
+
+        try line.set(ally, .{ .vertices = spring_verts.items });
 
         const uniform: graphics.SpatialMesh.Uniform.T = .{
             .spatial_pos = .{ 0, 0, 0 },
         };
 
-        //var spin = math.rotationY(f32, @floatCast(state.time * 5.0));
+        var spin = math.rotationY(f32, @floatCast(state.time * 5.0));
 
         (try camera_obj.drawing.getUniformOrCreate(0, 1, 0)).setAsUniform(graphics.SpatialMesh.Uniform, uniform);
 
         //const first_pos = spin.dot(Vec3.init(.{ 2, 2, 2 }));
 
         for (lights, 0..) |light, i| {
-            const spinned_pos = light.pos;
+            const spinned_pos = spin.dot(light.pos);
             const light_matrix = math.orthoMatrix(-5, 5, -5, 5, 1.0, 20.0).mul(
                 math.lookAtMatrix(spinned_pos, Vec3.init(.{ 0, 0, 0 }), Vec3.init(.{ 0, 1, 0 })),
             );
@@ -354,9 +512,24 @@ pub fn main() !void {
         try fps.clear();
         try fps.printFmt(ally, "FPS: {}", .{@as(u32, @intFromFloat(1 / state.dt))});
 
+        // begin frame
+
+        const builder = &state.command_builder;
         const frame_id = builder.frame_id;
         const swapchain = &state.main_win.swapchain;
         const extent = swapchain.extent;
+
+        // compute compute
+        const compute_builder = &state.compute_builder;
+        try compute.wait(frame_id);
+
+        try compute_builder.beginCommand(gc);
+        try compute.dispatch(compute_builder.getCurrent(), .{ .bind_pipeline = true, .frame_id = 0 });
+        try compute_builder.endCommand(gc);
+
+        try compute.submit(ally, compute_builder.*, .{});
+
+        // render graphics
 
         try swapchain.wait(gc, frame_id);
 
@@ -365,7 +538,7 @@ pub fn main() !void {
 
         // shadow pass
         for (lights) |light| {
-            const spinned_pos = light.pos;
+            const spinned_pos = spin.dot(light.pos);
             const light_matrix = math.orthoMatrix(-5, 5, -5, 5, 1.0, 20.0).mul(
                 math.lookAtMatrix(spinned_pos, Vec3.init(.{ 0, 0, 0 }), Vec3.init(.{ 0, 1, 0 })),
             );
@@ -374,7 +547,7 @@ pub fn main() !void {
                 .cam_transform = light_matrix,
                 .light_count = lights.len,
             };
-            builder.push(PushConstants, gc, pipeline, &data);
+            builder.push(PushConstants, gc, pipeline.pipeline, &data);
 
             try builder.transitionLayout(gc, light.shadow_tex.image, .{
                 .old_layout = .undefined,
@@ -400,7 +573,7 @@ pub fn main() !void {
             .cam_transform = state.cam.transform_mat,
             .light_count = lights.len,
         };
-        builder.push(PushConstants, gc, pipeline, &data);
+        builder.push(PushConstants, gc, pipeline.pipeline, &data);
         // first
         try builder.setViewport(gc, .{ .flip_z = state.scene.flip_z, .width = extent.width, .height = extent.height });
         builder.beginRenderPass(gc, state.first_pass, state.post_buffer, .{
@@ -411,6 +584,11 @@ pub fn main() !void {
         });
         try state.scene.draw(builder);
         try screen_drawing.draw(builder.getCurrent(), .{ .frame_id = builder.frame_id, .bind_pipeline = true });
+        try points_drawing.draw(builder.getCurrent(), .{
+            .frame_id = builder.frame_id,
+            .bind_pipeline = true,
+            .instances = particle_count,
+        });
         builder.endRenderPass(gc);
 
         // post
@@ -425,6 +603,11 @@ pub fn main() !void {
         builder.endRenderPass(gc);
 
         try builder.endCommand(gc);
-        try state.submit();
+
+        try swapchain.submit(gc, state.command_builder, .{ .wait = &.{
+            .{ .semaphore = compute.compute_semaphores[frame_id], .type = .vertex },
+            .{ .semaphore = swapchain.image_acquired[frame_id], .type = .color },
+        } });
+        try swapchain.present(gc, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = state.image_index });
     }
 }

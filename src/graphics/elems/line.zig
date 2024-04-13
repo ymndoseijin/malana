@@ -6,47 +6,75 @@ const geometry = @import("geometry");
 const graphics = @import("../graphics.zig");
 const common = @import("common");
 
-const BdfParse = @import("parsing").BdfParse;
-
-const Mesh = geometry.Mesh;
-const Vertex = geometry.Vertex;
-const HalfEdge = geometry.HalfEdge;
-
-const Drawing = graphics.Drawing;
-const glfw = graphics.glfw;
-const LinePipeline = graphics.LinePipeline;
-const Mat4 = math.Mat4;
-const Vec3 = math.Vec3;
-const Vec3Utils = math.Vec3Utils;
-
 pub const Line = struct {
-    pub fn init(drawing: *Drawing(LinePipeline), ally: std.mem.Allocator, vert: []const Vec3, color: []const Vec3, shader: u32) !Line {
-        //var shader = try graphics.Shader.setupShader(@embedFile("shaders/line/vertex.glsl"), @embedFile("shaders/line/fragment.glsl"));
-        drawing.* = graphics.Drawing(LinePipeline).init(shader);
+    pub const Pipeline: graphics.PipelineDescription = .{
+        .vertex_description = .{
+            .vertex_attribs = &.{.{ .size = 3 }},
+        },
+        .render_type = .triangle,
+        .depth_test = true,
+        .cull_type = .none,
+        .sets = &.{.{ .bindings = &.{
+            .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
+        } }},
+        .global_ubo = true,
+    };
 
-        var vertices = std.ArrayList(f32).init(ally);
-        var indices = std.ArrayList(u32).init(ally);
+    //pub const Uniform = InUniform;
 
+    drawing: *graphics.Drawing,
+    //vertices: []math.Vec3,
+
+    const LineInfo = struct {
+        pipeline: graphics.RenderPipeline,
+    };
+
+    const Self = @This();
+
+    pub fn set(line: *Line, ally: std.mem.Allocator, info: struct {
+        vertices: []const math.Vec3,
+        thickness: f32 = 0.1,
+    }) !void {
+        var vertices = std.ArrayList(Pipeline.vertex_description.getAttributeType()).init(ally);
         defer vertices.deinit();
+
+        var indices = std.ArrayList(u32).init(ally);
         defer indices.deinit();
 
-        for (vert, color, 0..) |v, c, i| {
-            const arr = .{ v[0], v[1], v[2], c[0], c[1], c[2] };
-            inline for (arr) |f| {
-                try vertices.append(f);
-            }
-            try indices.append(@intCast(i));
+        for (0..info.vertices.len) |i_in| {
+            const i: u32 = if (i_in == info.vertices.len - 1) @intCast(i_in - 1) else @intCast(i_in);
+            const n_i: u32 = if (i_in == info.vertices.len - 1) @intCast(i_in) else @intCast(i_in + 1);
+
+            if (i == 0) continue;
+
+            const vert = info.vertices[i];
+            const next = info.vertices[n_i];
+
+            const vec = next.sub(vert).norm();
+            const parallel = vec.cross(math.Vec3.init(.{ 0, 1, 0 })).norm().scale(info.thickness);
+
+            try vertices.append(.{vert.add(parallel.scale(-1)).val});
+            try vertices.append(.{vert.add(parallel).val});
+
+            try indices.append(2 * (i - 1));
+            try indices.append(2 * (i - 1) + 1);
+            try indices.append(2 * (i - 1) + 2);
+            try indices.append(2 * (i - 1) + 1);
+            try indices.append(2 * (i - 1) + 3);
+            try indices.append(2 * (i - 1) + 2);
         }
 
-        drawing.bindVertex(vertices.items, indices.items);
+        try Pipeline.vertex_description.bindVertex(line.drawing, vertices.items, indices.items);
+    }
 
-        return Line{
-            .vertices = vertices.items,
-            .indices = indices.items,
+    pub fn init(drawing: *graphics.Drawing, window: *graphics.Window, info: LineInfo) !Self {
+        try drawing.init(window.ally, .{
+            .win = window,
+            .pipeline = info.pipeline,
+        });
+
+        return .{
             .drawing = drawing,
         };
     }
-    vertices: []f32,
-    indices: []u32,
-    drawing: *Drawing(LinePipeline),
 };

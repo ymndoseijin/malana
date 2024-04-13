@@ -76,6 +76,7 @@ pub const Ui = struct {
     main_win: *graphics.Window,
     scene: graphics.Scene,
     command_builder: graphics.CommandBuilder,
+    compute_builder: graphics.CommandBuilder,
 
     post_scene: graphics.Scene,
     first_pass: graphics.RenderPass,
@@ -221,6 +222,7 @@ pub const Ui = struct {
             .dt = 0,
             .scene = undefined,
             .command_builder = try graphics.CommandBuilder.init(&main_win.gc, main_win.pool, ally),
+            .compute_builder = try graphics.CommandBuilder.init(&main_win.gc, main_win.pool, ally),
             .multisampling_tex = multisampling_tex,
             .post_color_tex = post_tex,
             .post_depth_tex = depth_tex,
@@ -354,6 +356,7 @@ pub const Ui = struct {
         self.scene.deinit();
         self.post_scene.deinit();
         self.command_builder.deinit(&self.main_win.gc, self.main_win.pool, self.main_win.ally);
+        self.compute_builder.deinit(&self.main_win.gc, self.main_win.pool, self.main_win.ally);
         self.main_win.deinit();
         self.bdf.deinit();
         graphics.deinitGraphics();
