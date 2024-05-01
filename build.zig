@@ -9,6 +9,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
+
     const zilliam_dep = b.dependency("zilliam", .{
         .target = target,
         .optimize = optimize,
@@ -58,7 +60,7 @@ pub fn build(b: *std.Build) void {
 
     const elem_shaders = ShaderCompileStep.create(
         b,
-        &[_][]const u8{ "glslc", "--target-env=vulkan1.2" },
+        &[_][]const u8{ "glslc", "-g", "--target-env=vulkan1.2" },
         "-o",
     );
 
@@ -136,6 +138,26 @@ pub fn build(b: *std.Build) void {
             },
         },
         .{
+            .name = "wave",
+            .shaders = &.{
+                .{ "vert", "shaders/shader.vert", .{} },
+                .{ "frag", "shaders/shader.frag", .{} },
+                .{ "image_vert", "shaders/image.vert", .{} },
+                .{ "image_frag", "shaders/image.frag", .{} },
+                .{ "compute", "shaders/compute.comp", .{} },
+            },
+        },
+        .{
+            .name = "gravity",
+            .shaders = &.{
+                .{ "vert", "shaders/shader.vert", .{} },
+                .{ "frag", "shaders/shader.frag", .{} },
+                .{ "compute", "shaders/compute.comp", .{} },
+                .{ "points_vert", "shaders/point.vert", .{} },
+                .{ "points_frag", "shaders/point.frag", .{} },
+            },
+        },
+        .{
             .name = "base2d",
             .shaders = &.{},
         },
@@ -148,9 +170,6 @@ pub fn build(b: *std.Build) void {
                 .{ "shadow_frag", "shaders/shadow.frag", .{} },
                 .{ "line_vert", "shaders/line.vert", .{} },
                 .{ "line_frag", "shaders/line.frag", .{} },
-                .{ "compute", "shaders/compute.comp", .{} },
-                .{ "points_vert", "shaders/point.vert", .{} },
-                .{ "points_frag", "shaders/point.frag", .{} },
             },
         },
         .{
@@ -174,6 +193,28 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         });
+
+        if (tracy) |tracy_path| {
+            const client_cpp = b.pathJoin(
+                &[_][]const u8{ tracy_path, "public", "TracyClient.cpp" },
+            );
+
+            // On mingw, we need to opt into windows 7+ to get some features required by tracy.
+            const tracy_c_flags: []const []const u8 = if (target.result.os.tag == .windows and target.result.abi == .gnu)
+                &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined", "-D_WIN32_WINNT=0x601" }
+            else
+                &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
+
+            exe.addIncludePath(.{ .cwd_relative = tracy_path });
+            exe.addCSourceFile(.{ .file = .{ .cwd_relative = client_cpp }, .flags = tracy_c_flags });
+            exe.root_module.linkSystemLibrary("c++", .{ .use_pkg_config = .no });
+            exe.linkLibC();
+
+            if (target.result.os.tag == .windows) {
+                exe.linkSystemLibrary("dbghelp");
+                exe.linkSystemLibrary("ws2_32");
+            }
+        }
 
         exe.root_module.addImport("ui", ui);
 

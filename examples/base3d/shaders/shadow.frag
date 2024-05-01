@@ -20,7 +20,7 @@ struct Light {
 };
 
 layout (binding = 1) uniform SpatialUBO {
-   vec3 pos;
+   vec4 pos;
 } spatial_ubo;
 
 layout (binding = 2) uniform sampler2D tex;

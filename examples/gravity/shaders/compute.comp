@@ -1,0 +1,60 @@
+#version 450
+
+struct Particle {
+   vec2 position;
+   vec2 velocity;
+   vec4 color;
+};
+
+layout (binding = 0) uniform ParameterUBO {
+   float deltaTime;
+   bool mouse_on;
+   vec2 mouse_pos;
+   uint particle_count;
+} ubo;
+
+layout(std140, binding = 1) readonly buffer ParticleSSBOIn {
+   Particle particlesIn[];
+};
+
+layout(std140, binding = 2) buffer ParticleSSBOOut {
+   Particle particlesOut[];
+};
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main() 
+{
+   uint index = gl_GlobalInvocationID.x; 
+
+   Particle particleIn = particlesIn[index];
+
+   vec2 force = vec2(0);
+
+   if (ubo.mouse_on) {
+      vec2 r = particleIn.position - ubo.mouse_pos;
+
+      float ra = length(r);
+
+      force += 5000 * ubo.particle_count/1000 / (ra*ra) * -r;
+   }
+
+   for (int i = 0; i < ubo.particle_count; i++) {
+      if (i == index) continue;
+
+      vec2 r = particleIn.position - particlesIn[i].position;
+
+      float ra = length(r);
+
+      force += 10.2 / (ra*ra) * -r;
+   }
+
+   const float damp = 0;
+
+   vec2 velocity = particleIn.velocity + force * ubo.deltaTime - particleIn.velocity * damp * ubo.deltaTime;
+   particlesOut[index].velocity = velocity;
+   particlesOut[index].position = particleIn.position + particleIn.velocity.xy * ubo.deltaTime;
+   float color_val = min(1.0, length(velocity) / 100);
+   particlesOut[index].color = vec4(color_val, color_val * 0.37, 0.0, 1.0);
+
+}

@@ -1,0 +1,110 @@
+#version 450
+
+layout (binding = 0) uniform ParameterUBO {
+   float delta;
+   float time;
+   float freq;
+   int mouse_on;
+   vec2 mouse_pos;
+   int size;
+} ubo;
+
+layout (push_constant) uniform Constants {
+   int switch_val;
+} constants;
+
+
+layout(rgba32f, binding = 1) uniform image2D spaces[3];
+layout(binding = 2) uniform sampler2D base_image;
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+const int start = 0;
+const float amp = 10;
+
+float getGrid(ivec2 coord) {
+   if (ubo.mouse_on == 1 && distance(coord, ubo.mouse_pos * ubo.size) < 5) {
+      return sin(ubo.time * ubo.freq) * amp;
+   }
+
+   if (coord.x > ubo.size - 1 || coord.x < start || coord.y > ubo.size - 1 || coord.y < start) return 0;
+
+   vec2 uv = coord;
+   uv /= ubo.size;
+
+   float factor = 1 - texture(base_image, uv).r;
+
+   if (constants.switch_val == 0) {
+      return factor * imageLoad(spaces[1], coord).r;
+   } else if (constants.switch_val == 1) {
+      return factor * imageLoad(spaces[2], coord).r;
+   } else {
+      return factor * imageLoad(spaces[0], coord).r;
+   }
+}
+
+float getGridPrevious(ivec2 coord) {
+   if (ubo.mouse_on == 1 && distance(coord, ubo.mouse_pos * ubo.size) < 5) {
+      return sin(ubo.time * ubo.freq) * amp;
+   }
+
+   if (coord.x > ubo.size - 1 || coord.x < start || coord.y > ubo.size - 1 || coord.y < start) return 0;
+
+   vec2 uv = coord;
+   uv /= ubo.size;
+
+   float factor = 1 - texture(base_image, uv).r;
+
+   if (constants.switch_val == 0) {
+      return factor * imageLoad(spaces[0], coord).r;
+   } else if (constants.switch_val == 1) {
+      return factor * imageLoad(spaces[1], coord).r;
+   } else {
+      return factor * imageLoad(spaces[2], coord).r;
+   }
+}
+
+void main() 
+{
+   ivec2 pixel_coord = ivec2(gl_GlobalInvocationID.xy);
+
+   float dt = ubo.delta;
+   float dx = 750.0 / ubo.size;
+   float c = 5;
+
+   float dt2 = dt * dt;
+   float dx2 = dx * dx;
+   float dy2 = dx * dx;
+   float c2 = c * c;
+
+   float v_c = getGrid(pixel_coord);
+   float v_cp = getGridPrevious(pixel_coord);
+
+   float v_xp = getGrid(pixel_coord + ivec2(-1, 0));
+   float v_yp = getGrid(pixel_coord + ivec2(0, -1));
+
+   float v_xn = getGrid(pixel_coord + ivec2(1, 0));
+   float v_yn = getGrid(pixel_coord + ivec2(0, 1));
+
+   float out_pix = 0;
+
+   out_pix += -1 * 2 * dt2 * c2 * v_c / dy2;
+   out_pix += dt2 * c2 * v_yn / dy2;
+   out_pix += dt2 * c2 * v_yp / dy2;
+
+   out_pix += -1 * 2 * dt2 * c2 * v_c / dx2;
+   out_pix += dt2 * c2 * v_xn / dx2;
+   out_pix += dt2 * c2 * v_xp / dx2;
+
+   out_pix += 2 * v_c;
+   out_pix += -1 * v_cp;
+
+
+   if (constants.switch_val == 0) {
+      imageStore(spaces[2], pixel_coord, vec4(out_pix));
+   } else if (constants.switch_val == 1) {
+      imageStore(spaces[0], pixel_coord, vec4(out_pix));
+   } else {
+      imageStore(spaces[1], pixel_coord, vec4(out_pix));
+   }
+}

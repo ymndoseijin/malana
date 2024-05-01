@@ -19,6 +19,8 @@ const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
 
+const trace = @import("../tracy.zig").trace;
+
 const fs = 15;
 
 pub fn bdfToRgba(res: []bool) ![fs * fs]img.color.Rgba32 {
@@ -73,16 +75,16 @@ pub const Text = struct {
     };
 
     const CharacterUniform: graphics.DataDescription = .{ .T = extern struct {
-        transform: math.Mat4,
-        opacity: f32,
-        index: u32,
-        count: u32,
-        color: [3]f32 align(4 * 4),
+        transform: [4][4]f32 align(16),
+        opacity: f32 align(4),
+        index: u32 align(4),
+        count: u32 align(4),
+        color: [4]f32 align(16),
     } };
 
     pub const description: graphics.PipelineDescription = .{
         .vertex_description = .{
-            .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 }, .{ .size = 1, .attribute = .uint } },
+            .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 } },
         },
         .render_type = .triangle,
         .depth_test = false,
@@ -121,7 +123,13 @@ pub const Text = struct {
         }
 
         pub fn init(ally: std.mem.Allocator, parent: *Text, info: CharacterInfo) !Character {
+            const tracy = trace(@src());
+            defer tracy.end();
+
             const query: CodepointQuery = blk: {
+                const query_trace = trace(@src());
+                defer query_trace.end();
+
                 if (parent.codepoint_table.get(info.char)) |known_query| break :blk known_query;
                 try parent.face.loadChar(info.char, .{ .render = true });
                 const glyph = parent.face.glyph();
@@ -158,11 +166,15 @@ pub const Text = struct {
 
             const advance: f32 = @floatFromInt(metrics.horiAdvance);
 
-            const sprite = try parent.batch.newSprite(tex);
+            const default_transform: graphics.Transform2D = .{};
 
-            sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .index, @as(u32, @intCast(info.index)));
-            sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(info.count)));
-            sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .opacity, parent.opacity);
+            const sprite = try parent.batch.newSprite(.{ .tex = tex, .uniform = .{
+                .transform = default_transform.getMat().cast(4, 4).columns,
+                .opacity = 1.0,
+                .index = @intCast(info.index),
+                .count = @intCast(info.count),
+                .color = .{ 1.0, 1.0, 1.0, 1.0 },
+            } });
 
             return .{
                 .parent = parent,
@@ -198,9 +210,7 @@ pub const Text = struct {
     }
 
     pub fn clear(self: *Text) !void {
-        for (self.characters.items) |c| {
-            try c.deinit();
-        }
+        self.batch.clear();
         self.characters.clearRetainingCapacity();
         self.codepoints.clearRetainingCapacity();
     }
@@ -240,7 +250,7 @@ pub const Text = struct {
                 .count = self.codepoints.items.len,
                 .index = index,
             });
-            char.sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .color, info.color);
+            char.sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .color, .{ info.color[0], info.color[1], info.color[2], 0.0 });
             try self.characters.append(char);
         }
 
@@ -252,6 +262,9 @@ pub const Text = struct {
     }
 
     pub fn update(self: *Text) !void {
+        const tracy = trace(@src());
+        defer tracy.end();
+
         if (self.characters.items.len == 0) return;
         var start: math.Vec2 = self.transform.translation;
         start.val[1] += self.line_spacing;
@@ -289,6 +302,7 @@ pub const Text = struct {
                 char.sprite.transform.translation = start.add(char.offset).sub(math.Vec2.init(.{ 0, @floatFromInt(char.tex.height) }));
                 char.sprite.transform.scale = math.Vec2.init(.{ @floatFromInt(char.tex.width), @floatFromInt(char.tex.height) });
                 char.sprite.updateTransform();
+
                 self.width = @max(self.width + char.advance, self.width);
                 start.val[0] += char.advance;
                 character_index += 1;

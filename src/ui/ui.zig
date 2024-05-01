@@ -175,7 +175,7 @@ pub const Ui = struct {
             //.multisampling = true,
         });
         const post_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{
-            .is_render_target = true,
+            .type = .render_target,
             .preferred_format = main_win.preferred_format,
         });
 
@@ -185,7 +185,7 @@ pub const Ui = struct {
         const post_pipeline = try graphics.RenderPipeline.init(ally, .{
             .description = post_description,
             .shaders = &main_win.default_shaders.post_shaders,
-            .render_pass = main_win.render_pass,
+            .rendering = main_win.rendering_options,
             .gc = &main_win.gc,
             .flipped_z = post_scene.flip_z,
         });
@@ -295,6 +295,8 @@ pub const Ui = struct {
 
         try swapchain.wait(gc, frame_id);
 
+        try state.scene.queue.execute();
+
         state.image_index = try swapchain.acquireImage(gc, frame_id);
         // build command
         try builder.beginCommand(gc);
@@ -329,7 +331,7 @@ pub const Ui = struct {
         const gc = &scene.window.gc;
         const frame_id = state.command_builder.frame_id;
 
-        try swapchain.submit(gc, state.command_builder, .{ .wait = &.{swapchain.image_acquired[frame_id]} });
+        try swapchain.submit(gc, state.command_builder, .{ .wait = &.{.{ .semaphore = swapchain.image_acquired[frame_id], .type = .color }} });
         try swapchain.present(gc, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = state.image_index });
         state.command_builder.next();
     }
@@ -384,7 +386,7 @@ pub const Ui = struct {
             .preferred_format = .depth,
         });
         state.post_color_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{
-            .is_render_target = true,
+            .type = .render_target,
             .preferred_format = state.main_win.preferred_format,
         });
 

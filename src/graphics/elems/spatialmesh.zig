@@ -23,7 +23,7 @@ const max_lights = 256;
 
 pub const DefaultUniform: graphics.DataDescription = .{
     .T = extern struct {
-        spatial_pos: [3]f32 align(4 * 4),
+        spatial_pos: [4]f32 align(16),
     },
 };
 
@@ -48,10 +48,10 @@ pub fn CustomSpatialMesh(comptime InUniform: graphics.DataDescription) type {
         pub const Uniform = InUniform;
 
         drawing: *Drawing,
-        pos: Vec3,
+        pos: math.Vec4,
 
         const SpatialInfo = struct {
-            pos: Vec3 = Vec3.init(.{ 0, 0, 0 }),
+            pos: math.Vec4 = math.Vec4.init(.{ 0, 0, 0, 0 }),
             pipeline: graphics.RenderPipeline,
         };
 

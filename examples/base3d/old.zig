@@ -145,7 +145,10 @@ pub fn main() !void {
     const screen_drawing = try ally.create(graphics.Drawing);
     defer ally.destroy(screen_drawing);
 
-    const screen = try graphics.SpatialMesh.init(screen_drawing, state.main_win, .{ .pipeline = screen_pipeline });
+    const screen = try graphics.SpatialMesh.init(screen_drawing, state.main_win, .{
+        .pos = math.Vec3.init(.{ 0, 0, 0 }),
+        .pipeline = screen_pipeline,
+    });
     defer screen_drawing.deinit(ally);
 
     try screen.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 2, .textures = &.{lights[0].shadow_tex} }} });
@@ -223,7 +226,10 @@ pub fn main() !void {
     defer other.deinit();
 
     const camera_drawing = try state.scene.new();
-    const camera_obj = try graphics.SpatialMesh.init(camera_drawing, state.main_win, .{ .pipeline = pipeline });
+    const camera_obj = try graphics.SpatialMesh.init(camera_drawing, state.main_win, .{
+        .pos = math.Vec3.init(.{ 0, 0, 0 }),
+        .pipeline = pipeline,
+    });
     try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .set = 1, .idx = 0, .textures = &.{ cubemap, other } }} });
     for (lights, 0..) |light, i| {
         try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .set = 2, .idx = 0, .dst = @intCast(i), .textures = &.{light.shadow_tex} }} });
@@ -276,7 +282,10 @@ pub fn main() !void {
     const shadow_drawing = try ally.create(graphics.Drawing);
     defer ally.destroy(shadow_drawing);
 
-    const shadow_mesh = try graphics.SpatialMesh.init(shadow_drawing, state.main_win, .{ .pipeline = shadow_pipeline });
+    const shadow_mesh = try graphics.SpatialMesh.init(shadow_drawing, state.main_win, .{
+        .pos = math.Vec3.init(.{ 0, 0, 0 }),
+        .pipeline = shadow_pipeline,
+    });
     defer shadow_drawing.deinit(ally);
 
     shadow_mesh.drawing.vert_count = object.vertices.items.len;
@@ -331,9 +340,6 @@ pub fn main() !void {
     var line = try graphics.Line.init(try state.scene.new(), state.main_win, .{ .pipeline = line_pipeline });
 
     while (state.main_win.alive) {
-        const frame = graphics.tracy.namedFrame("Frame");
-        defer frame.end();
-
         try state.updateEvents();
 
         var spring_verts = std.ArrayList(math.Vec3).init(ally);
@@ -354,7 +360,7 @@ pub fn main() !void {
         try line.set(ally, .{ .vertices = spring_verts.items });
 
         const uniform: graphics.SpatialMesh.Uniform.T = .{
-            .spatial_pos = .{ 0, 0, 0, 0 },
+            .spatial_pos = .{ 0, 0, 0 },
         };
 
         var spin = math.rotationY(f32, @floatCast(state.time * 5.0));
@@ -390,10 +396,29 @@ pub fn main() !void {
 
         try swapchain.wait(gc, frame_id);
 
-        try state.scene.queue.execute();
-
         state.image_index = try swapchain.acquireImage(gc, frame_id);
         try builder.beginCommand(gc);
+
+        builder.pipelineBarrier(gc, .{
+            .src_stage = .{ .color_attachment_output_bit = true },
+            .dst_stage = .{ .color_attachment_output_bit = true },
+            .image_barriers = &.{
+                .{
+                    .image = swapchain.getImage(state.image_index),
+                    .src_access = .{},
+                    .dst_access = .{ .color_attachment_write_bit = true },
+                    .old_layout = .undefined,
+                    .new_layout = .color_attachment_optimal,
+                },
+                .{
+                    .image = state.post_color_tex.image,
+                    .src_access = .{},
+                    .dst_access = .{ .color_attachment_write_bit = true },
+                    .old_layout = .undefined,
+                    .new_layout = .color_attachment_optimal,
+                },
+            },
+        });
 
         // shadow pass
         for (&lights) |*light| {
@@ -466,19 +491,6 @@ pub fn main() !void {
 
         // first
 
-        builder.pipelineBarrier(gc, .{
-            .src_stage = .{ .color_attachment_output_bit = true },
-            .dst_stage = .{ .color_attachment_output_bit = true },
-            .image_barriers = &.{
-                .{
-                    .image = state.post_color_tex.image,
-                    .src_access = .{},
-                    .dst_access = .{ .color_attachment_write_bit = true },
-                    .old_layout = .undefined,
-                    .new_layout = .color_attachment_optimal,
-                },
-            },
-        });
         state.post_color_tex.current_layout = .color_attachment_optimal;
 
         builder.pipelineBarrier(gc, .{
@@ -540,20 +552,6 @@ pub fn main() !void {
             },
         });
         state.post_color_tex.current_layout = .shader_read_only_optimal;
-
-        builder.pipelineBarrier(gc, .{
-            .src_stage = .{ .color_attachment_output_bit = true },
-            .dst_stage = .{ .color_attachment_output_bit = true },
-            .image_barriers = &.{
-                .{
-                    .image = swapchain.getImage(state.image_index),
-                    .src_access = .{},
-                    .dst_access = .{ .color_attachment_write_bit = true },
-                    .old_layout = .undefined,
-                    .new_layout = .color_attachment_optimal,
-                },
-            },
-        });
 
         // post
         builder.beginRendering(gc, .{

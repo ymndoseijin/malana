@@ -1,5 +1,4 @@
 #version 450
-#define max_lights 256
 
 layout (location = 0) in vec3 in_pos;
 layout (location = 1) in vec2 in_uv;
@@ -19,18 +18,17 @@ struct Light {
 };
 
 layout (binding = 1) uniform SpatialUBO {
-   vec3 pos;
-   int light_count;
-   Light lights[max_lights];
+   vec4 pos;
 } spatial_ubo;
 
 layout (push_constant) uniform Constants {
    vec3 cam_pos;
    mat4 cam_transform;
+   int light_count;
 } constants;
 
 void main() {
-   vec3 position = in_pos + spatial_ubo.pos;
+   vec3 position = in_pos + spatial_ubo.pos.xyz;
    vec4 vert = constants.cam_transform*vec4(position-constants.cam_pos, 1.0);
 
    out_pos = position;

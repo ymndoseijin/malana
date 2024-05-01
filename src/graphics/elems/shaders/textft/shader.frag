@@ -11,7 +11,7 @@ layout (binding = 1) uniform OtherUBO {
    float opacity;
    int index;
    int count;
-   vec3 color;
+   vec4 color;
 } other_ubo[];
 
 layout(set = 1, binding = 0) uniform sampler2D texSampler[];
@@ -24,7 +24,7 @@ layout (location = 0) out vec4 FragColor;
 void main()
 {
    vec4 col = texture(texSampler[nonuniformEXT(id)], uv);
-   col.rgb *= other_ubo[nonuniformEXT(id)].color;
+   col.rgb *= other_ubo[nonuniformEXT(id)].color.rgb;
    col.a *= other_ubo[nonuniformEXT(id)].opacity;
    FragColor = col;
 }

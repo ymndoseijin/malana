@@ -9,14 +9,20 @@ const math = @import("math");
 const Vec2 = math.Vec2;
 
 pub const Region = struct {
-    transform: graphics.Transform2D,
+    transform: ?graphics.Transform2D = null,
 
     pub fn isInside(self: Region, in_pos: [2]f32) bool {
-        const pos = Vec2.init(in_pos);
-        const relative = self.transform.reverse(pos).val;
-        return 0 <= relative[0] and relative[0] <= 1 and 0 <= relative[1] and relative[1] <= 1;
+        if (self.transform) |transform| {
+            const pos = Vec2.init(in_pos);
+            const relative = transform.reverse(pos).val;
+            return 0 <= relative[0] and relative[0] <= 1 and 0 <= relative[1] and relative[1] <= 1;
+        }
+
+        return true;
     }
 };
+
+const DefaultRegion: Region = .{};
 
 const Focusable = struct {
     key_func: *const fn (*anyopaque, *Callback, i32, i32, graphics.Action, i32) anyerror!void = defaultKey,
@@ -29,7 +35,7 @@ const Focusable = struct {
     focus_enter_func: *const fn (*anyopaque, *Callback) anyerror!bool = defaultFocus,
     focus_exit_func: *const fn (*anyopaque, *Callback) anyerror!void = defaultExit,
 
-    region: *Region,
+    region: *const Region = &DefaultRegion,
 
     pub fn defaultKey(_: *anyopaque, _: *Callback, _: i32, _: i32, _: graphics.Action, _: i32) !void {
         return;

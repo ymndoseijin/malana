@@ -21,7 +21,7 @@ struct Light {
 };
 
 layout (set = 0, binding = 1) uniform SpatialUBO {
-   vec3 pos;
+   vec4 pos;
 } spatial_ubo;
 
 layout (set = 0, binding = 2) uniform LightArray {

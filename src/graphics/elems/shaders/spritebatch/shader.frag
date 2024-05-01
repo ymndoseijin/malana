@@ -21,8 +21,8 @@ layout (location = 0) out vec4 FragColor;
 
 void main()
 {
-   vec4 col = texture(texSampler[nonuniformEXT(id)], uv);
-   col.a *= other_ubo[nonuniformEXT(id)].opacity;
+   vec4 col = texture(texSampler[id], uv);
+   col.a *= other_ubo[id].opacity;
    FragColor = col;
 }
 
