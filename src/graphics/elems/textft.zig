@@ -35,7 +35,7 @@ pub fn bdfToRgba(res: []bool) ![fs * fs]img.color.Rgba32 {
     return buf;
 }
 
-const Image = graphics.Image;
+const Image = graphics.Texture.Image;
 
 pub const Text = struct {
     characters: std.ArrayList(Character),

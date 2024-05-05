@@ -102,7 +102,6 @@ pub const Ui = struct {
     dt: f32,
 
     callback: Callback,
-    bdf: BdfParse,
 
     key_down: *const fn (KeyState, i32, f32) anyerror!void = defaultKeyDown,
     char_func: *const fn (codepoint: u32) anyerror!void = defaultChar,
@@ -114,7 +113,7 @@ pub const Ui = struct {
 
     const UiInfo = struct {
         window: graphics.WindowInfo = .{},
-        scene: graphics.SceneInfo = .{},
+        scene: graphics.Scene.SceneInfo = .{},
     };
 
     const post_description = graphics.PipelineDescription{
@@ -134,9 +133,6 @@ pub const Ui = struct {
     };
 
     pub fn init(ally: std.mem.Allocator, info: UiInfo) !*Ui {
-        var bdf = try BdfParse.init();
-        try bdf.parse("b12.bdf");
-
         try graphics.initGraphics(ally);
         _ = graphics.glfw.glfwWindowHint(graphics.glfw.GLFW_SAMPLES, 4);
 
@@ -160,7 +156,7 @@ pub const Ui = struct {
         const swapchain = main_win.swapchain;
 
         // Create a separate render target for post processing
-        const first_pass = try graphics.RenderPass.init(&main_win.gc, .{
+        const first_pass = try graphics.RenderPass.init(&main_win.gpu, .{
             .format = main_win.swapchain.surface_format.format,
             .target = true,
             //.multisampling = true,
@@ -186,7 +182,7 @@ pub const Ui = struct {
             .description = post_description,
             .shaders = &main_win.default_shaders.post_shaders,
             .rendering = main_win.rendering_options,
-            .gc = &main_win.gc,
+            .gpu = &main_win.gpu,
             .flipped_z = post_scene.flip_z,
         });
 
@@ -206,7 +202,7 @@ pub const Ui = struct {
             .{ .{ -1, 1, 1 }, .{ 0, 1 } },
         }, &.{ 0, 1, 2, 2, 3, 0 });
 
-        const framebuffer = try graphics.Framebuffer.init(&main_win.gc, .{
+        const framebuffer = try graphics.Framebuffer.init(&main_win.gpu, .{
             //.attachments = &.{ multisampling_tex.image_view, depth_tex.image_view, post_tex.image_view },
             .attachments = &.{ post_tex.image_view, depth_tex.image_view },
             .render_pass = first_pass.pass,
@@ -217,12 +213,11 @@ pub const Ui = struct {
         state.* = Ui{
             .main_win = main_win,
             .cam = cam,
-            .bdf = bdf,
             .time = 0,
             .dt = 0,
             .scene = undefined,
-            .command_builder = try graphics.CommandBuilder.init(&main_win.gc, main_win.pool, ally),
-            .compute_builder = try graphics.CommandBuilder.init(&main_win.gc, main_win.pool, ally),
+            .command_builder = try graphics.CommandBuilder.init(&main_win.gpu, main_win.pool, ally),
+            .compute_builder = try graphics.CommandBuilder.init(&main_win.gpu, main_win.pool, ally),
             .multisampling_tex = multisampling_tex,
             .post_color_tex = post_tex,
             .post_depth_tex = depth_tex,
@@ -287,52 +282,52 @@ pub const Ui = struct {
     pub fn draw(state: *Ui) !void {
         const scene = &state.scene;
 
-        const gc = &scene.window.gc;
+        const gpu = &scene.window.gpu;
         const swapchain = &scene.window.swapchain;
         const frame_id = state.command_builder.frame_id;
         const extent = scene.window.swapchain.extent;
         const builder = &state.command_builder;
 
-        try swapchain.wait(gc, frame_id);
+        try swapchain.wait(gpu, frame_id);
 
         try state.scene.queue.execute();
 
-        state.image_index = try swapchain.acquireImage(gc, frame_id);
+        state.image_index = try swapchain.acquireImage(gpu, frame_id);
         // build command
-        try builder.beginCommand(gc);
+        try builder.beginCommand(gpu);
 
-        try builder.setViewport(gc, .{ .flip_z = scene.flip_z, .width = extent.width, .height = extent.height });
-        builder.beginRenderPass(gc, state.first_pass, state.post_buffer, .{
+        try builder.setViewport(gpu, .{ .flip_z = scene.flip_z, .width = extent.width, .height = extent.height });
+        builder.beginRenderPass(gpu, state.first_pass, state.post_buffer, .{
             .x = 0,
             .y = 0,
             .width = extent.width,
             .height = extent.height,
         });
         try scene.draw(builder);
-        builder.endRenderPass(gc);
+        builder.endRenderPass(gpu);
 
-        try builder.setViewport(gc, .{ .flip_z = false, .width = extent.width, .height = extent.height });
-        builder.beginRenderPass(gc, scene.window.render_pass, scene.window.framebuffers[@intFromEnum(state.image_index)], .{
+        try builder.setViewport(gpu, .{ .flip_z = false, .width = extent.width, .height = extent.height });
+        builder.beginRenderPass(gpu, scene.window.render_pass, scene.window.framebuffers[@intFromEnum(state.image_index)], .{
             .x = 0,
             .y = 0,
             .width = extent.width,
             .height = extent.height,
         });
         try state.post_scene.draw(builder);
-        builder.endRenderPass(gc);
+        builder.endRenderPass(gpu);
 
-        try builder.endCommand(gc);
+        try builder.endCommand(gpu);
         try state.submit();
     }
 
     pub fn submit(state: *Ui) !void {
         const scene = &state.scene;
         const swapchain = &scene.window.swapchain;
-        const gc = &scene.window.gc;
+        const gpu = &scene.window.gpu;
         const frame_id = state.command_builder.frame_id;
 
-        try swapchain.submit(gc, state.command_builder, .{ .wait = &.{.{ .semaphore = swapchain.image_acquired[frame_id], .type = .color }} });
-        try swapchain.present(gc, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = state.image_index });
+        try swapchain.submit(gpu, state.command_builder, .{ .wait = &.{.{ .semaphore = swapchain.image_acquired[frame_id], .type = .color }} });
+        try swapchain.present(gpu, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = state.image_index });
         state.command_builder.next();
     }
 
@@ -345,29 +340,28 @@ pub const Ui = struct {
     }
 
     pub fn deinit(self: *Ui, ally: std.mem.Allocator) void {
-        self.main_win.gc.vkd.deviceWaitIdle(self.main_win.gc.dev) catch return;
+        self.main_win.gpu.vkd.deviceWaitIdle(self.main_win.gpu.dev) catch return;
 
         self.post_color_tex.deinit();
         self.multisampling_tex.deinit();
         self.post_depth_tex.deinit();
-        self.post_buffer.deinit(self.main_win.gc);
-        self.first_pass.deinit(&self.main_win.gc);
-        self.post_pipeline.deinit(&self.main_win.gc);
+        self.post_buffer.deinit(self.main_win.gpu);
+        self.first_pass.deinit(&self.main_win.gpu);
+        self.post_pipeline.deinit(&self.main_win.gpu);
 
         self.callback.deinit();
         self.scene.deinit();
         self.post_scene.deinit();
-        self.command_builder.deinit(&self.main_win.gc, self.main_win.pool, self.main_win.ally);
-        self.compute_builder.deinit(&self.main_win.gc, self.main_win.pool, self.main_win.ally);
+        self.command_builder.deinit(&self.main_win.gpu, self.main_win.pool, self.main_win.ally);
+        self.compute_builder.deinit(&self.main_win.gpu, self.main_win.pool, self.main_win.ally);
         self.main_win.deinit();
-        self.bdf.deinit();
         graphics.deinitGraphics();
         ally.destroy(self);
     }
 
     fn frameFunc(ptr: *anyopaque, width: i32, height: i32) !void {
         var state: *Ui = @ptrCast(@alignCast(ptr));
-        try state.main_win.gc.vkd.deviceWaitIdle(state.main_win.gc.dev);
+        try state.main_win.gpu.vkd.deviceWaitIdle(state.main_win.gpu.dev);
 
         const w: f32 = @floatFromInt(width);
         const h: f32 = @floatFromInt(height);
@@ -390,8 +384,8 @@ pub const Ui = struct {
             .preferred_format = state.main_win.preferred_format,
         });
 
-        state.post_buffer.deinit(state.main_win.gc);
-        state.post_buffer = try graphics.Framebuffer.init(&state.main_win.gc, .{
+        state.post_buffer.deinit(state.main_win.gpu);
+        state.post_buffer = try graphics.Framebuffer.init(&state.main_win.gpu, .{
             //.attachments = &.{ state.multisampling_tex.image_view, state.post_depth_tex.image_view, state.post_color_tex.image_view },
             .attachments = &.{ state.post_color_tex.image_view, state.post_depth_tex.image_view },
             .render_pass = state.first_pass.pass,

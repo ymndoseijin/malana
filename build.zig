@@ -16,11 +16,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const Algebra = zilliam.geo.Algebra(f32, 3, 0, 1);
-    const Blades = zilliam.blades.Blades(Algebra, .{});
-    const Type = Blades.Types[22];
+    //const Algebra = zilliam.geo.Algebra(f32, 3, 0, 1);
+    //const Blades = zilliam.blades.Blades(Algebra, .{});
+    //const Type = Blades.Types[22];
 
-    const generated_glsl = comptime zilliam.glsl_gen.generateGlsl(Type, "Motor");
+    //const generated_glsl = comptime zilliam.glsl_gen.generateGlsl(Type, "Motor");
 
     const zigimg_dep = b.dependency("zigimg", .{
         .target = target,
@@ -164,7 +164,7 @@ pub fn build(b: *std.Build) void {
         .{
             .name = "base3d",
             .shaders = &.{
-                .{ "vert", "shaders/shader.vert", .{ .preamble = generated_glsl } },
+                .{ "vert", "shaders/shader.vert", .{} },
                 .{ "frag", "shaders/shader.frag", .{} },
                 .{ "shadow_vert", "shaders/shadow.vert", .{} },
                 .{ "shadow_frag", "shaders/shadow.frag", .{} },

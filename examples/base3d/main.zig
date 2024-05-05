@@ -44,7 +44,7 @@ pub fn main() !void {
     });
     defer state.deinit(ally);
 
-    const gc = &state.main_win.gc;
+    const gpu = &state.main_win.gpu;
 
     // get obj file
     var arg_it = std.process.args();
@@ -58,11 +58,11 @@ pub fn main() !void {
 
     const shadow_res = 1024;
 
-    const shadow_pass = try graphics.RenderPass.init(&state.main_win.gc, .{
+    const shadow_pass = try graphics.RenderPass.init(&state.main_win.gpu, .{
         .format = state.main_win.swapchain.surface_format.format,
         .target = true,
     });
-    defer shadow_pass.deinit(&state.main_win.gc);
+    defer shadow_pass.deinit(&state.main_win.gpu);
 
     const LightObject = struct {
         pub fn init(pos: math.Vec3, intensity: [3]f32) !@This() {
@@ -127,20 +127,20 @@ pub fn main() !void {
         .global_ubo = true,
     };
 
-    const screen_vert = try graphics.Shader.init(state.main_win.gc, &shaders.shadow_vert, .vertex);
-    defer screen_vert.deinit(state.main_win.gc);
+    const screen_vert = try graphics.Shader.init(state.main_win.gpu, &shaders.shadow_vert, .vertex);
+    defer screen_vert.deinit(state.main_win.gpu);
 
-    const screen_frag = try graphics.Shader.init(state.main_win.gc, &shaders.shadow_frag, .fragment);
-    defer screen_frag.deinit(state.main_win.gc);
+    const screen_frag = try graphics.Shader.init(state.main_win.gpu, &shaders.shadow_frag, .fragment);
+    defer screen_frag.deinit(state.main_win.gpu);
 
     var screen_pipeline = try graphics.RenderPipeline.init(ally, .{
         .description = ScreenPipeline,
         .shaders = &.{ screen_vert, screen_frag },
         .rendering = state.main_win.rendering_options,
-        .gc = &state.main_win.gc,
+        .gpu = &state.main_win.gpu,
         .flipped_z = true,
     });
-    defer screen_pipeline.deinit(&state.main_win.gc);
+    defer screen_pipeline.deinit(&state.main_win.gpu);
 
     const screen_drawing = try ally.create(graphics.Drawing);
     defer ally.destroy(screen_drawing);
@@ -155,10 +155,10 @@ pub fn main() !void {
     var object = try obj_parser.parse(obj_file);
     defer object.deinit();
 
-    const triangle_vert = try graphics.Shader.init(state.main_win.gc, &shaders.vert, .vertex);
-    defer triangle_vert.deinit(state.main_win.gc);
-    const triangle_frag = try graphics.Shader.init(state.main_win.gc, &shaders.frag, .fragment);
-    defer triangle_frag.deinit(state.main_win.gc);
+    const triangle_vert = try graphics.Shader.init(state.main_win.gpu, &shaders.vert, .vertex);
+    defer triangle_vert.deinit(state.main_win.gpu);
+    const triangle_frag = try graphics.Shader.init(state.main_win.gpu, &shaders.frag, .fragment);
+    defer triangle_frag.deinit(state.main_win.gpu);
 
     const TrianglePipeline: graphics.PipelineDescription = .{
         .vertex_description = .{
@@ -195,10 +195,10 @@ pub fn main() !void {
         .description = TrianglePipeline,
         .shaders = &.{ triangle_vert, triangle_frag },
         .rendering = state.main_win.rendering_options,
-        .gc = &state.main_win.gc,
+        .gpu = &state.main_win.gpu,
         .flipped_z = true,
     });
-    defer pipeline.deinit(&state.main_win.gc);
+    defer pipeline.deinit(&state.main_win.gpu);
 
     var cubemap = try graphics.Texture.init(state.main_win, 1000, 1000, .{ .cubemap = true });
     try cubemap.setCube(ally, .{
@@ -231,17 +231,17 @@ pub fn main() !void {
 
     camera_obj.drawing.vert_count = object.vertices.items.len;
 
-    const camera_vertex = try graphics.SpatialMesh.Pipeline.vertex_description.createBuffer(gc, object.vertices.items.len);
-    defer camera_vertex.deinit(gc);
+    const camera_vertex = try graphics.SpatialMesh.Pipeline.vertex_description.createBuffer(gpu, object.vertices.items.len);
+    defer camera_vertex.deinit(gpu);
 
-    try camera_vertex.setVertex(graphics.SpatialMesh.Pipeline.vertex_description, gc, state.main_win.pool, object.vertices.items);
+    try camera_vertex.setVertex(graphics.SpatialMesh.Pipeline.vertex_description, gpu, state.main_win.pool, object.vertices.items);
     camera_obj.drawing.vertex_buffer = camera_vertex;
     defer camera_obj.drawing.vertex_buffer = null;
 
-    const camera_index = try graphics.BufferHandle.init(gc, .{ .size = @sizeOf(u32) * object.indices.items.len, .buffer_type = .index });
-    defer camera_index.deinit(gc);
+    const camera_index = try graphics.BufferHandle.init(gpu, .{ .size = @sizeOf(u32) * object.indices.items.len, .buffer_type = .index });
+    defer camera_index.deinit(gpu);
 
-    try camera_index.setIndices(gc, state.main_win.pool, object.indices.items);
+    try camera_index.setIndices(gpu, state.main_win.pool, object.indices.items);
     camera_obj.drawing.index_buffer = camera_index;
     defer camera_obj.drawing.index_buffer = null;
 
@@ -265,13 +265,13 @@ pub fn main() !void {
         .description = ShadowPipeline,
         .shaders = &.{triangle_vert},
         .rendering = .{
-            .depth_format = try gc.findDepthFormat(),
+            .depth_format = try gpu.findDepthFormat(),
             .color_formats = &.{},
         },
-        .gc = &state.main_win.gc,
+        .gpu = &state.main_win.gpu,
         .flipped_z = true,
     });
-    defer shadow_pipeline.deinit(&state.main_win.gc);
+    defer shadow_pipeline.deinit(&state.main_win.gpu);
 
     const shadow_drawing = try ally.create(graphics.Drawing);
     defer ally.destroy(shadow_drawing);
@@ -303,10 +303,10 @@ pub fn main() !void {
     std.debug.print("{any}\n", .{screen_obj.vertices.items});
     try graphics.SpatialMesh.Pipeline.vertex_description.bindVertex(screen.drawing, screen_obj.vertices.items, screen_obj.indices.items);
 
-    const line_vert = try graphics.Shader.init(state.main_win.gc, &shaders.line_vert, .vertex);
-    defer line_vert.deinit(gc.*);
-    const line_frag = try graphics.Shader.init(state.main_win.gc, &shaders.line_frag, .fragment);
-    defer line_frag.deinit(gc.*);
+    const line_vert = try graphics.Shader.init(state.main_win.gpu, &shaders.line_vert, .vertex);
+    defer line_vert.deinit(gpu.*);
+    const line_frag = try graphics.Shader.init(state.main_win.gpu, &shaders.line_frag, .fragment);
+    defer line_frag.deinit(gpu.*);
 
     var line_pipeline = try graphics.RenderPipeline.init(ally, .{
         .description = .{
@@ -324,10 +324,10 @@ pub fn main() !void {
         },
         .shaders = &.{ line_vert, line_frag },
         .rendering = state.main_win.rendering_options,
-        .gc = &state.main_win.gc,
+        .gpu = &state.main_win.gpu,
         .flipped_z = true,
     });
-    defer line_pipeline.deinit(&state.main_win.gc);
+    defer line_pipeline.deinit(&state.main_win.gpu);
     var line = try graphics.Line.init(try state.scene.new(), state.main_win, .{ .pipeline = line_pipeline });
 
     while (state.main_win.alive) {
@@ -388,16 +388,16 @@ pub fn main() !void {
 
         // render graphics
 
-        try swapchain.wait(gc, frame_id);
+        try swapchain.wait(gpu, frame_id);
 
         try state.scene.queue.execute();
 
-        state.image_index = try swapchain.acquireImage(gc, frame_id);
-        try builder.beginCommand(gc);
+        state.image_index = try swapchain.acquireImage(gpu, frame_id);
+        try builder.beginCommand(gpu);
 
         // shadow pass
         for (&lights) |*light| {
-            builder.pipelineBarrier(gc, .{
+            builder.pipelineBarrier(gpu, .{
                 .src_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
                 .dst_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
                 .image_barriers = &.{
@@ -423,10 +423,10 @@ pub fn main() !void {
                 .cam_transform = light_matrix,
                 .light_count = lights.len,
             };
-            builder.push(PushConstants, gc, pipeline.pipeline, &data);
+            builder.push(PushConstants, gpu, pipeline.pipeline, &data);
 
-            try builder.setViewport(gc, .{ .flip_z = state.scene.flip_z, .width = shadow_res, .height = shadow_res });
-            builder.beginRendering(gc, .{
+            try builder.setViewport(gpu, .{ .flip_z = state.scene.flip_z, .width = shadow_res, .height = shadow_res });
+            builder.beginRendering(gpu, .{
                 .color_attachments = &.{},
                 .depth_attachment = light.shadow_tex.getAttachment(),
                 .region = .{
@@ -437,11 +437,11 @@ pub fn main() !void {
                 },
             });
             try shadow_drawing.draw(builder.getCurrent(), .{ .frame_id = builder.frame_id, .bind_pipeline = true });
-            builder.endRendering(gc);
+            builder.endRendering(gpu);
         }
 
         for (&lights) |*light| {
-            builder.pipelineBarrier(gc, .{
+            builder.pipelineBarrier(gpu, .{
                 .src_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
                 .dst_stage = .{ .fragment_shader_bit = true },
                 .image_barriers = &.{
@@ -462,11 +462,11 @@ pub fn main() !void {
             .cam_transform = state.cam.transform_mat,
             .light_count = lights.len,
         };
-        builder.push(PushConstants, gc, pipeline.pipeline, &data);
+        builder.push(PushConstants, gpu, pipeline.pipeline, &data);
 
         // first
 
-        builder.pipelineBarrier(gc, .{
+        builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .color_attachment_output_bit = true },
             .dst_stage = .{ .color_attachment_output_bit = true },
             .image_barriers = &.{
@@ -481,7 +481,7 @@ pub fn main() !void {
         });
         state.post_color_tex.current_layout = .color_attachment_optimal;
 
-        builder.pipelineBarrier(gc, .{
+        builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
             .dst_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
             .image_barriers = &.{
@@ -496,7 +496,7 @@ pub fn main() !void {
         });
         state.post_depth_tex.current_layout = .depth_stencil_attachment_optimal;
 
-        builder.beginRendering(gc, .{
+        builder.beginRendering(gpu, .{
             .color_attachments = &.{state.post_color_tex.getAttachment()},
             .depth_attachment = state.post_depth_tex.getAttachment(),
             .region = .{
@@ -506,12 +506,12 @@ pub fn main() !void {
                 .height = extent.height,
             },
         });
-        try builder.setViewport(gc, .{ .flip_z = true, .width = extent.width, .height = extent.height });
+        try builder.setViewport(gpu, .{ .flip_z = true, .width = extent.width, .height = extent.height });
         try state.scene.draw(builder);
         try screen_drawing.draw(builder.getCurrent(), .{ .frame_id = builder.frame_id, .bind_pipeline = true });
-        builder.endRendering(gc);
+        builder.endRendering(gpu);
 
-        builder.pipelineBarrier(gc, .{
+        builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
             .dst_stage = .{ .fragment_shader_bit = true },
             .image_barriers = &.{
@@ -526,7 +526,7 @@ pub fn main() !void {
         });
         state.post_depth_tex.current_layout = .shader_read_only_optimal;
 
-        builder.pipelineBarrier(gc, .{
+        builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .color_attachment_output_bit = true },
             .dst_stage = .{ .fragment_shader_bit = true },
             .image_barriers = &.{
@@ -541,7 +541,7 @@ pub fn main() !void {
         });
         state.post_color_tex.current_layout = .shader_read_only_optimal;
 
-        builder.pipelineBarrier(gc, .{
+        builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .color_attachment_output_bit = true },
             .dst_stage = .{ .color_attachment_output_bit = true },
             .image_barriers = &.{
@@ -556,7 +556,7 @@ pub fn main() !void {
         });
 
         // post
-        builder.beginRendering(gc, .{
+        builder.beginRendering(gpu, .{
             .color_attachments = &.{swapchain.getAttachment(state.image_index)},
             .region = .{
                 .x = 0,
@@ -565,11 +565,11 @@ pub fn main() !void {
                 .height = extent.height,
             },
         });
-        try builder.setViewport(gc, .{ .flip_z = false, .width = extent.width, .height = extent.height });
+        try builder.setViewport(gpu, .{ .flip_z = false, .width = extent.width, .height = extent.height });
         try state.post_scene.draw(builder);
-        builder.endRendering(gc);
+        builder.endRendering(gpu);
 
-        builder.pipelineBarrier(gc, .{
+        builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .color_attachment_output_bit = true },
             .dst_stage = .{ .bottom_of_pipe_bit = true },
             .image_barriers = &.{
@@ -583,11 +583,11 @@ pub fn main() !void {
             },
         });
 
-        try builder.endCommand(gc);
+        try builder.endCommand(gpu);
 
-        try swapchain.submit(gc, state.command_builder, .{ .wait = &.{
+        try swapchain.submit(gpu, state.command_builder, .{ .wait = &.{
             .{ .semaphore = swapchain.image_acquired[frame_id], .flag = .{ .color_attachment_output_bit = true } },
         } });
-        try swapchain.present(gc, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = state.image_index });
+        try swapchain.present(gpu, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = state.image_index });
     }
 }

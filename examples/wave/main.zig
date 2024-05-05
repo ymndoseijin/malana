@@ -116,7 +116,7 @@ pub fn main() !void {
     state = try Ui.init(ally, .{ .window = .{ .name = "Wave Sim", .width = 800, .height = 800, .resizable = true } });
     defer state.deinit(ally);
 
-    const gc = &state.main_win.gc;
+    const gpu = &state.main_win.gpu;
     const win = state.main_win;
     state.key_down = keyDown;
 
@@ -149,16 +149,16 @@ pub fn main() !void {
     const space_tex = try graphics.Texture.initFromPath(ally, state.main_win, image_path, .{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
     defer space_tex.deinit();
 
-    const compute_shader = try graphics.Shader.init(win.gc, &shaders.compute, .compute);
-    defer compute_shader.deinit(gc.*);
+    const compute_shader = try graphics.Shader.init(win.gpu, &shaders.compute, .compute);
+    defer compute_shader.deinit(gpu.*);
 
     var compute_pipeline = try graphics.ComputePipeline.init(ally, .{
         .description = ComputeDescription,
         .shader = compute_shader,
-        .gc = &win.gc,
+        .gpu = &win.gpu,
         .flipped_z = true,
     });
-    defer compute_pipeline.deinit(&win.gc);
+    defer compute_pipeline.deinit(&win.gpu);
     var compute = try graphics.Compute.init(ally, .{ .win = win, .pipeline = compute_pipeline });
     defer compute.deinit(ally);
 
@@ -183,11 +183,11 @@ pub fn main() !void {
     try current_tex.setFromRgba(.{ .data = init_tex });
     try next_tex.setFromRgba(.{ .data = init_tex });
 
-    const image_vert = try graphics.Shader.init(win.gc, &shaders.image_vert, .vertex);
-    defer image_vert.deinit(win.gc);
+    const image_vert = try graphics.Shader.init(win.gpu, &shaders.image_vert, .vertex);
+    defer image_vert.deinit(win.gpu);
 
-    const image_frag = try graphics.Shader.init(win.gc, &shaders.image_frag, .fragment);
-    defer image_frag.deinit(win.gc);
+    const image_frag = try graphics.Shader.init(win.gpu, &shaders.image_frag, .fragment);
+    defer image_frag.deinit(win.gpu);
 
     const ImageUniform: graphics.DataDescription = .{ .T = extern struct {
         zoom: f32,
@@ -215,10 +215,10 @@ pub fn main() !void {
         .description = image_description,
         .shaders = &.{ image_vert, image_frag },
         .rendering = state.main_win.rendering_options,
-        .gc = &win.gc,
+        .gpu = &win.gpu,
         .flipped_z = true,
     });
-    defer image_pipeline.deinit(gc);
+    defer image_pipeline.deinit(gpu);
 
     const image_drawing = try ally.create(graphics.Drawing);
     defer ally.destroy(image_drawing);
@@ -321,7 +321,7 @@ pub fn main() !void {
         try compute.wait(frame_id);
 
         const compute_trace = graphics.tracy.traceNamed(@src(), "Compute Builder");
-        try compute_builder.beginCommand(gc);
+        try compute_builder.beginCommand(gpu);
 
         for (0..@intFromFloat(@round(speed))) |_| {
             const data: PushConstants.T = .{
@@ -331,28 +331,28 @@ pub fn main() !void {
             switch_val += 1;
             switch_val %= 3;
 
-            compute_builder.push(PushConstants, gc, compute_pipeline.pipeline, &data);
+            compute_builder.push(PushConstants, gpu, compute_pipeline.pipeline, &data);
 
             try compute.dispatch(compute_builder.getCurrent(), .{ .bind_pipeline = true, .frame_id = 0 });
         }
 
-        try compute_builder.endCommand(gc);
+        try compute_builder.endCommand(gpu);
         compute_trace.end();
 
         try compute.submit(ally, compute_builder.*, .{});
 
         // render graphics
 
-        try swapchain.wait(gc, frame_id);
+        try swapchain.wait(gpu, frame_id);
 
         try state.scene.queue.execute();
 
-        state.image_index = try swapchain.acquireImage(gc, frame_id);
+        state.image_index = try swapchain.acquireImage(gpu, frame_id);
 
         const builder_trace = graphics.tracy.traceNamed(@src(), "Color Builder");
-        try builder.beginCommand(gc);
+        try builder.beginCommand(gpu);
 
-        builder.pipelineBarrier(gc, .{
+        builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .color_attachment_output_bit = true },
             .dst_stage = .{ .color_attachment_output_bit = true },
             .image_barriers = &.{
@@ -366,7 +366,7 @@ pub fn main() !void {
             },
         });
 
-        builder.pipelineBarrier(gc, .{
+        builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .color_attachment_output_bit = true },
             .dst_stage = .{ .color_attachment_output_bit = true },
             .image_barriers = &.{
@@ -381,7 +381,7 @@ pub fn main() !void {
         });
         state.post_color_tex.current_layout = .color_attachment_optimal;
 
-        builder.pipelineBarrier(gc, .{
+        builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
             .dst_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
             .image_barriers = &.{
@@ -397,8 +397,8 @@ pub fn main() !void {
         state.post_depth_tex.current_layout = .depth_stencil_attachment_optimal;
 
         // first
-        try builder.setViewport(gc, .{ .flip_z = state.scene.flip_z, .width = extent.width, .height = extent.height });
-        builder.beginRendering(gc, .{
+        try builder.setViewport(gpu, .{ .flip_z = state.scene.flip_z, .width = extent.width, .height = extent.height });
+        builder.beginRendering(gpu, .{
             .color_attachments = &.{state.post_color_tex.getAttachment()},
             .depth_attachment = state.post_depth_tex.getAttachment(),
             .region = .{
@@ -413,9 +413,9 @@ pub fn main() !void {
             .bind_pipeline = true,
         });
         try state.scene.draw(builder);
-        builder.endRendering(gc);
+        builder.endRendering(gpu);
 
-        builder.pipelineBarrier(gc, .{
+        builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .color_attachment_output_bit = true },
             .dst_stage = .{ .fragment_shader_bit = true },
             .image_barriers = &.{
@@ -430,8 +430,8 @@ pub fn main() !void {
         });
 
         // post
-        try builder.setViewport(gc, .{ .flip_z = false, .width = extent.width, .height = extent.height });
-        builder.beginRendering(gc, .{
+        try builder.setViewport(gpu, .{ .flip_z = false, .width = extent.width, .height = extent.height });
+        builder.beginRendering(gpu, .{
             .color_attachments = &.{swapchain.getAttachment(state.image_index)},
             .region = .{
                 .x = 0,
@@ -441,22 +441,22 @@ pub fn main() !void {
             },
         });
         try state.post_scene.draw(builder);
-        builder.endRendering(gc);
+        builder.endRendering(gpu);
 
-        try builder.transitionLayout(gc, swapchain.getImage(state.image_index), .{
+        try builder.transitionLayout(gpu, swapchain.getImage(state.image_index), .{
             .old_layout = .color_attachment_optimal,
             .new_layout = .present_src_khr,
         });
 
-        try builder.endCommand(gc);
+        try builder.endCommand(gpu);
         builder_trace.end();
 
-        try swapchain.submit(gc, state.command_builder, .{ .wait = &.{
+        try swapchain.submit(gpu, state.command_builder, .{ .wait = &.{
             .{ .semaphore = compute.compute_semaphores[frame_id], .flag = .{ .fragment_shader_bit = true, .vertex_input_bit = true } },
             .{ .semaphore = swapchain.image_acquired[frame_id], .flag = .{ .color_attachment_output_bit = true } },
         } });
-        try swapchain.present(gc, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = state.image_index });
+        try swapchain.present(gpu, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = state.image_index });
     }
 
-    try win.gc.vkd.deviceWaitIdle(win.gc.dev);
+    try win.gpu.vkd.deviceWaitIdle(win.gpu.dev);
 }
