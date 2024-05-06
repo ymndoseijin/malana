@@ -5,7 +5,6 @@ const img = @import("img");
 const geometry = @import("geometry");
 const graphics = @import("../graphics.zig");
 const common = @import("common");
-const freetype = @import("freetype");
 
 const BdfParse = @import("parsing").BdfParse;
 
@@ -23,6 +22,11 @@ const trace = @import("../tracy.zig").trace;
 
 const fs = 15;
 
+const freetype = @cImport({
+    @cInclude("ft2build.h");
+    @cInclude("freetype/freetype.h");
+});
+
 pub fn bdfToRgba(res: []bool) ![fs * fs]img.color.Rgba32 {
     var buf: [fs * fs]img.color.Rgba32 = undefined;
     for (res, 0..) |val, i| {
@@ -39,7 +43,7 @@ const Image = graphics.Texture.Image;
 
 pub const Text = struct {
     characters: std.ArrayList(Character),
-    face: freetype.Face,
+    face: freetype.FT_Face,
 
     width: f32,
     height: f32,
@@ -63,7 +67,7 @@ pub const Text = struct {
     scene: *graphics.Scene,
 
     const CodepointQuery = struct {
-        metrics: freetype.GlyphMetrics,
+        metrics: freetype.FT_Glyph_Metrics,
         tex: graphics.Texture,
     };
 
@@ -131,29 +135,29 @@ pub const Text = struct {
                 defer query_trace.end();
 
                 if (parent.codepoint_table.get(info.char)) |known_query| break :blk known_query;
-                try parent.face.loadChar(info.char, .{ .render = true });
-                const glyph = parent.face.glyph();
-                const bitmap = glyph.bitmap();
+                _ = freetype.FT_Load_Char(parent.face, info.char, freetype.FT_LOAD_RENDER);
+                const glyph = parent.face.*.glyph;
+                const bitmap = glyph.*.bitmap;
 
                 var image: Image = .{
-                    .data = try ally.alloc(img.color.Rgba32, bitmap.rows() * bitmap.width()),
-                    .width = bitmap.width(),
-                    .height = bitmap.rows(),
+                    .data = try ally.alloc(img.color.Rgba32, bitmap.rows * bitmap.width),
+                    .width = bitmap.width,
+                    .height = bitmap.rows,
                 };
                 defer ally.free(image.data);
 
-                for (0..bitmap.rows()) |i_in| {
-                    for (0..bitmap.width()) |j| {
+                for (0..bitmap.rows) |i_in| {
+                    for (0..bitmap.width) |j| {
                         const i = if (parent.flip_y) image.height - i_in - 1 else i_in;
-                        const s: u8 = bitmap.buffer().?[i_in * bitmap.width() + j];
+                        const s: u8 = bitmap.buffer[i_in * bitmap.width + j];
                         image.data[i * image.width + j] = .{ .r = 255, .g = 255, .b = 255, .a = s };
                     }
                 }
 
                 var new_tex = try graphics.Texture.init(parent.scene.window, image.width, image.height, .{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
                 try new_tex.setFromRgba(image);
-                try parent.codepoint_table.put(info.char, .{ .tex = new_tex, .metrics = glyph.metrics() });
-                break :blk .{ .tex = new_tex, .metrics = glyph.metrics() };
+                try parent.codepoint_table.put(info.char, .{ .tex = new_tex, .metrics = glyph.*.metrics });
+                break :blk .{ .tex = new_tex, .metrics = glyph.*.metrics };
             };
 
             const metrics = query.metrics;
@@ -218,9 +222,9 @@ pub const Text = struct {
     pub fn getExtent(self: Text, unicode: []const u32) !f32 {
         var res: f32 = 0;
         for (unicode) |c| {
-            try self.face.loadChar(c, .{ .render = true });
-            const glyph = self.face.glyph();
-            const metrics = glyph.metrics();
+            _ = freetype.FT_Load_Char(self.face, c, freetype.FT_LOAD_RENDER);
+            const glyph = self.face.*.glyph;
+            const metrics = glyph.*.metrics;
             const advance: f32 = @floatFromInt(metrics.horiAdvance);
             res += advance / 64;
         }
@@ -337,8 +341,10 @@ pub const Text = struct {
     };
 
     pub fn init(ally: std.mem.Allocator, info: TextInfo) !Text {
-        var face = try graphics.ft_lib.createFace(info.path, 0);
-        try face.setCharSize(@intFromFloat(info.size * 64), 0, 0, 0);
+        var face: freetype.FT_Face = undefined;
+        _ = freetype.FT_New_Face(graphics.ft_lib, info.path, 0, &face);
+        _ = freetype.FT_Set_Char_Size(face, @intFromFloat(info.size * 64), 0, 0, 0);
+
         return .{
             .width = 0,
             .height = 0,

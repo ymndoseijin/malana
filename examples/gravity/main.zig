@@ -118,10 +118,9 @@ pub fn main() !void {
     const ComputeUniform: graphics.DataDescription = .{
         .T = extern struct {
             delta: f32,
-            mouse_on: bool,
+            mouse_on: u32,
             mouse_pos: [2]f32 align(4 * 2),
             particle_count: u32,
-            switch_particles: bool,
         },
     };
 
@@ -156,7 +155,7 @@ pub fn main() !void {
     var compute = try graphics.Compute.init(ally, .{ .win = win, .pipeline = compute_pipeline });
     defer compute.deinit(ally);
 
-    const particle_count = 102400;
+    const particle_count = 256 * 1;
     compute.setCount(particle_count / 256, 1, 1);
 
     const compute_buffer = try graphics.BufferHandle.init(gpu, .{ .size = ParticleBuffer.getSize() * particle_count, .buffer_type = .storage });
@@ -172,16 +171,14 @@ pub fn main() !void {
     const random = xoshiro.random();
 
     for (particles) |*particle| {
-        const r = 0.25 * @sqrt(random.float(f32));
-        const theta = random.float(f32) * 2 * 3.14159265358979323846;
-        const x = r * @cos(theta);
-        const y = r * @sin(theta);
+        const x = random.float(f32);
+        const y = random.float(f32);
         const vec = math.Vec2.init(.{ x, y });
 
         const box_length = 20000.0;
 
-        particle.pos = .{ random.float(f32) * box_length - box_length / 2.0, random.float(f32) * box_length - box_length / 2.0 };
-        particle.vel = vec.norm().scale(0.1).val;
+        particle.pos = .{ random.float(f32) * box_length - box_length / 2.0, random.float(f32) * box_length - box_length / 2.0 + 20 };
+        particle.vel = vec.norm().scale(10).val;
     }
 
     try compute_buffer.setStorage(ParticleBuffer, gpu, win.pool, .{ .data = particles, .index = 0 });
@@ -292,10 +289,9 @@ pub fn main() !void {
 
         compute.descriptor.getUniformOr(0, 0, 0).?.setAsUniform(ComputeUniform, .{
             .delta = state.dt * toy.speed,
-            .mouse_on = pressed,
+            .mouse_on = if (pressed) 1 else 0,
             .mouse_pos = win.getCursorPos().div(win.getSize()).scale(2).sub(math.Vec2.init(.{ 1, 1 })).scale(zoom).add(toy.getOffset()).val,
             .particle_count = particle_count,
-            .switch_particles = switch_val,
         });
 
         points_drawing.descriptor.getUniformOr(0, 0, 0).?.setAsUniform(PointsUniform, .{

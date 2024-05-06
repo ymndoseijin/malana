@@ -8,7 +8,7 @@ struct Particle {
 
 layout (binding = 0) uniform ParameterUBO {
    float deltaTime;
-   bool mouse_on;
+   int mouse_on;
    vec2 mouse_pos;
    uint particle_count;
 } ubo;
@@ -31,10 +31,12 @@ void main()
 
    vec2 force = vec2(0);
 
-   if (ubo.mouse_on) {
+   if (ubo.mouse_on == 1) {
       vec2 r = particleIn.position - ubo.mouse_pos;
 
       float ra = length(r);
+
+      r = normalize(r);
 
       force += 5000 * ubo.particle_count/1000 / (ra*ra) * -r;
    }
@@ -45,8 +47,10 @@ void main()
       vec2 r = particleIn.position - particlesIn[i].position;
 
       float ra = length(r);
+      
+      r = normalize(r);
 
-      force += 10.2 / (ra*ra) * -r;
+      force += 6000.2 / (ra*ra) * -r;
    }
 
    const float damp = 0;

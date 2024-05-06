@@ -27,16 +27,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const freetype_dep = b.dependency("freetype", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const glfw_dep = b.dependency("glfw", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
     const gl = b.createModule(.{ .root_source_file = .{ .path = "src/graphics/gl.zig" } });
     const math = b.createModule(.{ .root_source_file = .{ .path = "src/math.zig" } });
     const common = b.createModule(.{ .root_source_file = .{ .path = "src/common.zig" } });
@@ -91,10 +81,10 @@ pub fn build(b: *std.Build) void {
             .{ .name = "parsing", .module = parsing },
             .{ .name = "geometry", .module = geometry },
             .{ .name = "img", .module = zigimg_dep.module("zigimg") },
-            .{ .name = "freetype", .module = freetype_dep.module("mach-freetype") },
             .{ .name = "elem_shaders", .module = elem_shaders.getModule() },
         },
     });
+    graphics.addIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
 
     const numericals = b.createModule(.{
         .root_source_file = .{ .path = "src/numericals.zig" },
@@ -108,7 +98,6 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "src/ui.zig" },
         .imports = &.{
             .{ .name = "img", .module = zigimg_dep.module("zigimg") },
-            .{ .name = "freetype", .module = freetype_dep.module("mach-freetype") },
             .{ .name = "zilliam", .module = zilliam_dep.module("zilliam") },
             .{ .name = "graphics", .module = graphics },
             .{ .name = "geometry", .module = geometry },
@@ -228,8 +217,9 @@ pub fn build(b: *std.Build) void {
         }
         exe.root_module.addImport("shaders", shaders.getModule());
 
-        exe.linkLibrary(glfw_dep.artifact("glfw"));
-
+        exe.linkSystemLibrary("glfw3");
+        exe.linkSystemLibrary("freetype2");
+        exe.addIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
         exe.linkLibC();
 
         const artifact = b.addInstallArtifact(exe, .{});
@@ -265,8 +255,8 @@ pub fn build(b: *std.Build) void {
     unit_tests.root_module.addImport("gl", gl);
     unit_tests.root_module.addImport("math", math);
 
-    unit_tests.linkLibrary(glfw_dep.artifact("glfw"));
-    //unit_tests.linkLibrary(freetype_dep.artifact("freetype"));
+    unit_tests.linkSystemLibrary("glfw3");
+    unit_tests.linkSystemLibrary("freetype2");
 
     unit_tests.linkLibC();
 

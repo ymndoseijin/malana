@@ -10,7 +10,11 @@ const common = @import("common");
 const std = @import("std");
 const builtin = @import("builtin");
 const math = @import("math");
-const freetype = @import("freetype");
+
+const freetype = @cImport({
+    @cInclude("ft2build.h");
+    @cInclude("freetype/freetype.h");
+});
 
 pub const tracy = @import("tracy.zig");
 
@@ -50,7 +54,7 @@ const elem_shaders = @import("elem_shaders");
 // global vars
 pub var global_object_map: std.AutoHashMap(u64, []const u8) = undefined;
 var windowMap: ?std.AutoHashMap(*glfw.GLFWwindow, MapType) = null;
-pub var ft_lib: freetype.Library = undefined;
+pub var ft_lib: freetype.FT_Library = undefined;
 
 pub const Gpu = @import("Gpu.zig");
 
@@ -1222,12 +1226,12 @@ pub fn initGraphics(ally: std.mem.Allocator) !void {
     windowMap = std.AutoHashMap(*glfw.GLFWwindow, MapType).init(ally);
     global_object_map = std.AutoHashMap(u64, []const u8).init(ally);
 
-    ft_lib = try freetype.Library.init();
+    _ = freetype.FT_Init_FreeType(&ft_lib);
 }
 
 pub fn deinitGraphics() void {
     windowMap.?.deinit();
-    ft_lib.deinit();
+    _ = freetype.FT_Done_FreeType(ft_lib);
 }
 
 const GlfwError = error{
@@ -1813,7 +1817,10 @@ pub const CommandBuilder = struct {
         gpu.vkd.cmdPushConstants(
             cmdbuf,
             pipeline.layout,
-            .{ .compute_bit = true },
+            switch (pipeline.type) {
+                .compute => .{ .compute_bit = true },
+                .render => .{ .vertex_bit = true, .fragment_bit = true },
+            },
             0,
             @intCast(self.getSize()),
             @alignCast(@ptrCast(constants)),
@@ -2640,6 +2647,7 @@ pub const ComputePipeline = struct {
                 .layouts = layouts,
                 .ally = ally,
                 .set_bindings = set_bindings,
+                .type = .compute,
                 .description = .{
                     .constants_size = info.description.constants_size,
                     .sets = info.description.sets,
@@ -2853,6 +2861,7 @@ pub const RenderPipeline = struct {
                 .layouts = layouts,
                 .ally = ally,
                 .set_bindings = set_bindings,
+                .type = .render,
                 .description = .{
                     .constants_size = info.description.constants_size,
                     .sets = info.description.sets,
@@ -2893,6 +2902,11 @@ pub const Pipeline = struct {
     layout: vk.PipelineLayout,
     layouts: []vk.DescriptorSetLayout,
     set_bindings: [][]vk.DescriptorSetLayoutBinding,
+
+    type: enum {
+        render,
+        compute,
+    },
 
     pub fn deinit(render: *Pipeline, gpu: *const Gpu) void {
         for (render.set_bindings) |bindings| render.ally.free(bindings);
