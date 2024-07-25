@@ -6,14 +6,20 @@ height: u32,
 // vulkan
 image: vk.Image,
 image_view: vk.ImageView,
-current_layout: vk.ImageLayout,
 
 window: *graphics.Window,
 sampler: vk.Sampler,
 memory: vk.DeviceMemory,
 format: vk.Format,
 
-pub fn getAttachment(texture: Texture) vk.RenderingAttachmentInfoKHR {
+pub fn getStage(texture: Texture) vk.PipelineStageFlags {
+    return switch (texture.info.preferred_format orelse return .{ .color_attachment_output_bit = true }) {
+        .depth => .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
+        else => .{ .color_attachment_output_bit = true },
+    };
+}
+
+pub fn getAttachment(texture: Texture, current_layout: vk.ImageLayout) vk.RenderingAttachmentInfoKHR {
     const clear_color = vk.ClearValue{
         .color = .{ .float_32 = .{ 0, 0, 0, 1 } },
     };
@@ -23,7 +29,7 @@ pub fn getAttachment(texture: Texture) vk.RenderingAttachmentInfoKHR {
 
     return .{
         .image_view = texture.image_view,
-        .image_layout = texture.current_layout,
+        .image_layout = current_layout,
         .load_op = .clear,
         .store_op = .store,
         .resolve_mode = .{},
@@ -130,7 +136,7 @@ pub fn init(win: *graphics.Window, width: u32, height: u32, info: TextureInfo) !
         .max_lod = 0,
     };
 
-    var tex: Texture = .{
+    const tex: Texture = .{
         .info = info,
         .image = image,
         .window = win,
@@ -142,11 +148,11 @@ pub fn init(win: *graphics.Window, width: u32, height: u32, info: TextureInfo) !
         .image_view = try win.gpu.vkd.createImageView(win.gpu.dev, &view_info, null),
         .memory = image_memory,
         .format = vk_format,
-        .current_layout = undefined,
     };
-    tex.current_layout = tex.getIdealLayout();
 
     if (builtin.mode == .Debug) {
+        //std.debug.dumpCurrentStackTrace(null);
+        std.debug.print("texture {any}\n", .{tex.image});
         try graphics.addDebugMark(win.gpu, .image, @intFromEnum(tex.image), "texture image");
         try graphics.addDebugMark(win.gpu, .image_view, @intFromEnum(tex.image_view), "texture image view");
     }
@@ -354,7 +360,7 @@ pub fn createImage(tex: Texture, input: anytype) !void {
     };
 
     const staging_buff = try tex.window.gpu.createStagingBuffer(size * input.data.len);
-    defer staging_buff.deinit(&tex.window.gpu);
+    defer staging_buff.deinit(tex.window.gpu);
 
     {
         const data = try tex.window.gpu.vkd.mapMemory(tex.window.gpu.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
@@ -414,6 +420,7 @@ pub fn createImage(tex: Texture, input: anytype) !void {
 }
 
 pub fn getIdealLayout(texture: Texture) vk.ImageLayout {
+    if (texture.info.preferred_format == .depth) return .depth_stencil_attachment_optimal;
     return switch (texture.info.type) {
         .storage => .general,
         .render_target, .regular, .multisampling => .shader_read_only_optimal,

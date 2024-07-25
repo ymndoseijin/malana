@@ -50,10 +50,8 @@ pub fn Vec(comptime T: type, comptime size: usize) type {
             return VecN.init(a.toSimd() - b.toSimd());
         }
 
-        pub fn interpolate(a: Vector, b: Vector, x: T) Vector {
-            const left: Vector = @splat(1 - x);
-            const right: Vector = @splat(x);
-            return left * a + b * right;
+        pub fn interpolate(a: VecN, b: VecN, x: T) VecN {
+            return a.scale(1 - x).add(b.scale(x));
         }
 
         pub fn dot(a: VecN, b: VecN) T {
@@ -66,6 +64,13 @@ pub fn Vec(comptime T: type, comptime size: usize) type {
 
         pub fn norm(a: VecN) VecN {
             return a.scale(1.0 / a.length());
+        }
+
+        pub fn eql(a: VecN, b: VecN) bool {
+            for (a.val, b.val) |av, bv| {
+                if (av != bv) return false;
+            }
+            return true;
         }
 
         pub fn proj(a: Vector, b: Vector) Vector {

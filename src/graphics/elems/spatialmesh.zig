@@ -53,6 +53,7 @@ pub fn CustomSpatialMesh(comptime InUniform: graphics.DataDescription) type {
         const SpatialInfo = struct {
             pos: math.Vec4 = math.Vec4.init(.{ 0, 0, 0, 0 }),
             pipeline: graphics.RenderPipeline,
+            target: graphics.RenderTarget,
         };
 
         const Self = @This();
@@ -61,6 +62,7 @@ pub fn CustomSpatialMesh(comptime InUniform: graphics.DataDescription) type {
             try drawing.init(window.ally, .{
                 .win = window,
                 .pipeline = info.pipeline,
+                .target = info.target,
             });
 
             (try drawing.getUniformOrCreate(0, 1, 0)).setAsUniformField(Uniform, .spatial_pos, info.pos.val);

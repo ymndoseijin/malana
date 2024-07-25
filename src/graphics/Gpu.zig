@@ -125,6 +125,8 @@ const DeviceDispatch = vk.DeviceWrapper(.{
 });
 
 pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.GLFWwindow) !Gpu {
+    //@breakpoint();
+    std.debug.print("Vulkan support: {}\n", .{glfw.glfwVulkanSupported()});
     var gpu: Gpu = undefined;
     gpu.vkb = try BaseDispatch.load(glfwGetInstanceProcAddress);
 
@@ -135,6 +137,7 @@ pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.
 
     var glfw_exts_count: u32 = 0;
     const glfw_exts_ptr = glfw.glfwGetRequiredInstanceExtensions(&glfw_exts_count);
+
     const glfw_exts = glfw_exts_ptr[0..glfw_exts_count];
     try extensions.appendSlice(glfw_exts);
 
@@ -506,7 +509,7 @@ fn debugCallback(
     }
 
     if (message_severity.error_bit_ext) {
-        @panic("error\n");
+        //@panic("error\n");
     }
     return vk.FALSE;
 }
@@ -526,7 +529,12 @@ pub fn createStagingBuffer(gpu: *Gpu, size: usize) !graphics.BufferMemory {
     const staging_memory = try gpu.allocate(staging_mem_reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
     try gpu.vkd.bindBufferMemory(gpu.dev, staging_buffer, staging_memory, 0);
 
-    return .{ .buffer = staging_buffer, .memory = staging_memory };
+    return .{
+        .buffer = staging_buffer,
+        .memory = staging_memory,
+        .offset = 0,
+        .size = size,
+    };
 }
 
 const Gpu = @This();

@@ -154,7 +154,11 @@ pub const Text = struct {
                     }
                 }
 
-                var new_tex = try graphics.Texture.init(parent.scene.window, image.width, image.height, .{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
+                var new_tex = try graphics.Texture.init(parent.scene.window, image.width, image.height, .{
+                    .mag_filter = .linear,
+                    .min_filter = .linear,
+                    .texture_type = .flat,
+                });
                 try new_tex.setFromRgba(image);
                 try parent.codepoint_table.put(info.char, .{ .tex = new_tex, .metrics = glyph.*.metrics });
                 break :blk .{ .tex = new_tex, .metrics = glyph.*.metrics };
@@ -162,7 +166,10 @@ pub const Text = struct {
 
             const metrics = query.metrics;
             const tex = query.tex;
-            var offset = math.Vec2.init(.{ @floatFromInt(metrics.horiBearingX), @floatFromInt(-metrics.height + metrics.horiBearingY) });
+            var offset = math.Vec2.init(.{
+                @floatFromInt(metrics.horiBearingX),
+                @floatFromInt(-metrics.height + metrics.horiBearingY),
+            });
             if (!parent.flip_y) offset.val[1] *= -1;
 
             const metrics_scale: f32 = 1.0 / 64.0;
@@ -319,14 +326,14 @@ pub const Text = struct {
         self.bounding_height = height;
     }
 
-    pub fn deinit(self: *Text) void {
+    pub fn deinit(self: *Text, ally: std.mem.Allocator, gpu: graphics.Gpu) void {
         self.characters.deinit();
         self.codepoints.deinit();
         for (self.codepoint_table.values()) |v| {
             v.tex.deinit();
         }
         self.codepoint_table.deinit();
-        self.batch.deinit();
+        self.batch.deinit(ally, gpu);
     }
 
     const TextInfo = struct {
@@ -338,6 +345,7 @@ pub const Text = struct {
         bounding_width: f32 = 0,
         pipeline: ?graphics.RenderPipeline = null,
         scene: *graphics.Scene,
+        target: graphics.RenderTarget,
     };
 
     pub fn init(ally: std.mem.Allocator, info: TextInfo) !Text {
@@ -359,6 +367,7 @@ pub const Text = struct {
             .codepoint_table = std.AutoArrayHashMap(u32, CodepointQuery).init(ally),
             .batch = try graphics.CustomSpriteBatch(CharacterUniform).init(info.scene, .{
                 .pipeline = if (info.pipeline) |p| p else info.scene.default_pipelines.textft,
+                .target = info.target,
             }),
             .scene = info.scene,
             .wrap = info.wrap,

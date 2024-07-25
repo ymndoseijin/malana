@@ -58,13 +58,33 @@ pub const MeshBuilder = struct {
         pos: Vec3 = .{ 0, 0, 0 },
     };
 
-    pub fn toSpatial(self: MeshBuilder, drawing: *Drawing(SpatialPipeline), comptime format: SpatialFormat) !graphics.SpatialMesh {
-        _ = self;
-        return try graphics.SpatialMesh.init(
-            drawing,
-            format.pos,
-            try graphics.Shader.setupShader(format.vert, format.frag),
-        );
+    pub fn toSpatial(mesh: MeshBuilder, scene: graphics.Scene, drawing: *Drawing, options: struct {
+        pipeline: graphics.RenderPipeline,
+        target: graphics.RenderTarget,
+    }) !graphics.SpatialMesh {
+        const gpu = &scene.window.gpu;
+
+        const obj = try graphics.SpatialMesh.init(drawing, scene.window, .{ .pipeline = options.pipeline, .target = options.target });
+
+        obj.drawing.vert_count = mesh.vertices.items.len;
+
+        const vertex = try graphics.SpatialMesh.Pipeline.vertex_description.createBuffer(gpu, mesh.vertices.items.len);
+
+        const vertex_buff = try gpu.createStagingBuffer(graphics.SpatialMesh.Pipeline.vertex_description.getVertexSize() * mesh.vertices.items.len);
+        defer vertex_buff.deinit(gpu.*);
+
+        try vertex.setVertex(graphics.SpatialMesh.Pipeline.vertex_description, gpu, scene.window.pool, mesh.vertices.items, vertex_buff, .immediate);
+        obj.drawing.vertex_buffer = vertex;
+
+        const index = try graphics.BufferHandle.init(gpu, .{ .size = @sizeOf(u32) * mesh.indices.items.len, .buffer_type = .index });
+
+        const index_buff = try gpu.createStagingBuffer(@sizeOf(u32) * mesh.indices.items.len);
+        defer index_buff.deinit(gpu.*);
+
+        try index.setIndices(gpu, scene.window.pool, mesh.indices.items, index_buff, .immediate);
+        obj.drawing.index_buffer = index;
+
+        return obj;
     }
 
     pub fn init(ally: std.mem.Allocator) !MeshBuilder {

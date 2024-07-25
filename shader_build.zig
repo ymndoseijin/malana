@@ -68,6 +68,7 @@ const Shader = struct {
 };
 
 step: Build.Step,
+builder: *Build,
 
 /// The command and optional arguments used to invoke the shader compiler.
 compile_command: []const []const u8,
@@ -89,6 +90,7 @@ generated_file: Build.GeneratedFile,
 pub fn create(builder: *Build, compile_command: []const []const u8, output_flag: []const u8) *ShaderCompileStep {
     const self = builder.allocator.create(ShaderCompileStep) catch unreachable;
     self.* = .{
+        .builder = builder,
         .step = Build.Step.init(.{
             .id = .custom,
             .name = "shaders",
@@ -113,7 +115,7 @@ pub fn getModule(self: *ShaderCompileStep) *Build.Module {
 
 /// Returns the file source for the generated shader resource code.
 pub fn getSource(self: *ShaderCompileStep) Build.LazyPath {
-    return .{ .generated = &self.generated_file };
+    return .{ .generated = .{ .file = &self.generated_file } };
 }
 
 /// Add a shader to be compiled. `src` is shader source path, relative to the project root.
@@ -173,7 +175,7 @@ fn digest(hasher: anytype) [64]u8 {
 }
 
 /// Internal build function.
-fn make(step: *Build.Step, progress: *std.Progress.Node) !void {
+fn make(step: *Build.Step, progress: std.Progress.Node) anyerror!void {
     _ = progress;
     const b = step.owner;
     const self: *ShaderCompileStep = @fieldParentPtr("step", step);
@@ -243,11 +245,11 @@ fn make(step: *Build.Step, progress: *std.Progress.Node) !void {
             std.fs.path.basename(shader.source_path),
         });
 
-        try cwd.writeFile(preambled_shader_path, preambled_source.items);
+        try cwd.writeFile(.{ .sub_path = preambled_shader_path, .data = preambled_source.items });
 
         try cmd.appendSlice(shader.options.args);
         try cmd.appendSlice(&.{ preambled_shader_path, self.output_flag, shader_out_path });
-        try step.evalChildProcess(cmd.items);
+        _ = try step.evalChildProcess(cmd.items);
     }
 
     // Generate a file name for the shaders zig source based on the contents of shaders_file_contents.
@@ -262,6 +264,6 @@ fn make(step: *Build.Step, progress: *std.Progress.Node) !void {
         &.{ shaders_dir, &digest(&hasher) },
     );
 
-    try cwd.writeFile(shaders_path, shaders_file_contents.items);
+    try cwd.writeFile(.{ .sub_path = shaders_path, .data = shaders_file_contents.items });
     self.generated_file.path = shaders_path;
 }

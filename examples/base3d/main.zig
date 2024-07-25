@@ -99,7 +99,7 @@ pub fn main() !void {
 
     const exp = 30;
 
-    var lights = [_]LightObject{
+    const lights = [_]LightObject{
         try LightObject.init(Vec3.init(.{ 2, 0, 2 }), .{ exp, 0, 0 }),
         try LightObject.init(Vec3.init(.{ -2, 2, 2 }), .{ 0, exp, 0 }),
         try LightObject.init(Vec3.init(.{ 2, 2, -2 }), .{ 0, 0, exp }),
@@ -145,7 +145,16 @@ pub fn main() !void {
     const screen_drawing = try ally.create(graphics.Drawing);
     defer ally.destroy(screen_drawing);
 
-    const screen = try graphics.SpatialMesh.init(screen_drawing, state.main_win, .{ .pipeline = screen_pipeline });
+    const color_target: graphics.RenderTarget = .{ .texture = .{
+        .color_textures = &.{&state.post_color_tex},
+        .depth_texture = &state.post_depth_tex,
+        .region = .{},
+    } };
+
+    const screen = try graphics.SpatialMesh.init(screen_drawing, state.main_win, .{
+        .pipeline = screen_pipeline,
+        .target = color_target,
+    });
     defer screen_drawing.deinit(ally);
 
     try screen.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 2, .textures = &.{lights[0].shadow_tex} }} });
@@ -223,10 +232,15 @@ pub fn main() !void {
     defer other.deinit();
 
     const camera_drawing = try state.scene.new();
-    const camera_obj = try graphics.SpatialMesh.init(camera_drawing, state.main_win, .{ .pipeline = pipeline });
+    const camera_obj = try graphics.SpatialMesh.init(camera_drawing, state.main_win, .{ .pipeline = pipeline, .target = color_target });
     try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .set = 1, .idx = 0, .textures = &.{ cubemap, other } }} });
     for (lights, 0..) |light, i| {
-        try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .set = 2, .idx = 0, .dst = @intCast(i), .textures = &.{light.shadow_tex} }} });
+        try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{
+            .set = 2,
+            .idx = 0,
+            .dst = @intCast(i),
+            .textures = &.{light.shadow_tex},
+        }} });
     }
 
     camera_obj.drawing.vert_count = object.vertices.items.len;
@@ -273,10 +287,10 @@ pub fn main() !void {
     });
     defer shadow_pipeline.deinit(&state.main_win.gpu);
 
-    const shadow_drawing = try ally.create(graphics.Drawing);
+    var shadow_drawing = try ally.create(graphics.Drawing);
     defer ally.destroy(shadow_drawing);
 
-    const shadow_mesh = try graphics.SpatialMesh.init(shadow_drawing, state.main_win, .{ .pipeline = shadow_pipeline });
+    const shadow_mesh = try graphics.SpatialMesh.init(shadow_drawing, state.main_win, .{ .pipeline = shadow_pipeline, .target = color_target });
     defer shadow_drawing.deinit(ally);
 
     shadow_mesh.drawing.vert_count = object.vertices.items.len;
@@ -296,6 +310,7 @@ pub fn main() !void {
         .bounding_width = 250,
         .flip_y = true,
         .scene = &state.scene,
+        .target = color_target,
     });
     defer fps.deinit();
     fps.transform.translation = math.Vec2.init(.{ 10, 10 });
@@ -328,7 +343,7 @@ pub fn main() !void {
         .flipped_z = true,
     });
     defer line_pipeline.deinit(&state.main_win.gpu);
-    var line = try graphics.Line.init(try state.scene.new(), state.main_win, .{ .pipeline = line_pipeline });
+    var line = try graphics.Line.init(try state.scene.new(), state.main_win, .{ .pipeline = line_pipeline, .target = color_target });
 
     while (state.main_win.alive) {
         const frame = graphics.tracy.namedFrame("Frame");
@@ -384,7 +399,6 @@ pub fn main() !void {
         const builder = &state.command_builder;
         const frame_id = builder.frame_id;
         const swapchain = &state.main_win.swapchain;
-        const extent = swapchain.extent;
 
         // render graphics
 
@@ -395,25 +409,7 @@ pub fn main() !void {
         state.image_index = try swapchain.acquireImage(gpu, frame_id);
         try builder.beginCommand(gpu);
 
-        // shadow pass
         for (&lights) |*light| {
-            builder.pipelineBarrier(gpu, .{
-                .src_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
-                .dst_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
-                .image_barriers = &.{
-                    .{
-                        .image = light.shadow_tex.image,
-                        .src_access = .{},
-                        .dst_access = .{ .depth_stencil_attachment_write_bit = true },
-                        .old_layout = .undefined,
-                        .new_layout = .depth_stencil_attachment_optimal,
-                    },
-                },
-            });
-            light.shadow_tex.current_layout = .depth_stencil_attachment_optimal;
-        }
-
-        for (lights) |light| {
             const spinned_pos = spin.dot(light.pos);
             const light_matrix = math.orthoMatrix(-5, 5, -5, 5, 1.0, 20.0).mul(
                 math.lookAtMatrix(spinned_pos, Vec3.init(.{ 0, 0, 0 }), Vec3.init(.{ 0, 1, 0 })),
@@ -425,36 +421,13 @@ pub fn main() !void {
             };
             builder.push(PushConstants, gpu, pipeline.pipeline, &data);
 
-            try builder.setViewport(gpu, .{ .flip_z = state.scene.flip_z, .width = shadow_res, .height = shadow_res });
-            builder.beginRendering(gpu, .{
-                .color_attachments = &.{},
-                .depth_attachment = light.shadow_tex.getAttachment(),
-                .region = .{
-                    .x = 0,
-                    .y = 0,
-                    .width = shadow_res,
-                    .height = shadow_res,
-                },
-            });
-            try shadow_drawing.draw(builder.getCurrent(), .{ .frame_id = builder.frame_id, .bind_pipeline = true });
-            builder.endRendering(gpu);
-        }
+            shadow_drawing.render_target = .{ .texture = .{
+                .color_textures = &.{},
+                .depth_texture = &light.shadow_tex,
+                .region = .{},
+            } };
 
-        for (&lights) |*light| {
-            builder.pipelineBarrier(gpu, .{
-                .src_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
-                .dst_stage = .{ .fragment_shader_bit = true },
-                .image_barriers = &.{
-                    .{
-                        .image = light.shadow_tex.image,
-                        .src_access = .{ .depth_stencil_attachment_write_bit = true },
-                        .dst_access = .{ .shader_read_bit = true },
-                        .old_layout = .depth_stencil_attachment_optimal,
-                        .new_layout = .shader_read_only_optimal,
-                    },
-                },
-            });
-            light.shadow_tex.current_layout = .shader_read_only_optimal;
+            try state.scene.draw(builder, shadow_drawing, state.image_index);
         }
 
         const data = .{
@@ -464,124 +437,13 @@ pub fn main() !void {
         };
         builder.push(PushConstants, gpu, pipeline.pipeline, &data);
 
-        // first
+        try state.scene.draw(builder, camera_drawing, state.image_index);
+        try state.scene.draw(builder, line.drawing, state.image_index);
+        try state.scene.draw(builder, state.post_drawing, state.image_index);
 
-        builder.pipelineBarrier(gpu, .{
-            .src_stage = .{ .color_attachment_output_bit = true },
-            .dst_stage = .{ .color_attachment_output_bit = true },
-            .image_barriers = &.{
-                .{
-                    .image = state.post_color_tex.image,
-                    .src_access = .{},
-                    .dst_access = .{ .color_attachment_write_bit = true },
-                    .old_layout = .undefined,
-                    .new_layout = .color_attachment_optimal,
-                },
-            },
-        });
-        state.post_color_tex.current_layout = .color_attachment_optimal;
+        state.scene.end();
 
-        builder.pipelineBarrier(gpu, .{
-            .src_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
-            .dst_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
-            .image_barriers = &.{
-                .{
-                    .image = state.post_depth_tex.image,
-                    .src_access = .{},
-                    .dst_access = .{ .depth_stencil_attachment_write_bit = true },
-                    .old_layout = .undefined,
-                    .new_layout = .depth_stencil_attachment_optimal,
-                },
-            },
-        });
-        state.post_depth_tex.current_layout = .depth_stencil_attachment_optimal;
-
-        builder.beginRendering(gpu, .{
-            .color_attachments = &.{state.post_color_tex.getAttachment()},
-            .depth_attachment = state.post_depth_tex.getAttachment(),
-            .region = .{
-                .x = 0,
-                .y = 0,
-                .width = extent.width,
-                .height = extent.height,
-            },
-        });
-        try builder.setViewport(gpu, .{ .flip_z = true, .width = extent.width, .height = extent.height });
-        try state.scene.draw(builder);
-        try screen_drawing.draw(builder.getCurrent(), .{ .frame_id = builder.frame_id, .bind_pipeline = true });
-        builder.endRendering(gpu);
-
-        builder.pipelineBarrier(gpu, .{
-            .src_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
-            .dst_stage = .{ .fragment_shader_bit = true },
-            .image_barriers = &.{
-                .{
-                    .image = state.post_depth_tex.image,
-                    .src_access = .{ .depth_stencil_attachment_write_bit = true },
-                    .dst_access = .{ .shader_read_bit = true },
-                    .old_layout = .depth_stencil_attachment_optimal,
-                    .new_layout = .shader_read_only_optimal,
-                },
-            },
-        });
-        state.post_depth_tex.current_layout = .shader_read_only_optimal;
-
-        builder.pipelineBarrier(gpu, .{
-            .src_stage = .{ .color_attachment_output_bit = true },
-            .dst_stage = .{ .fragment_shader_bit = true },
-            .image_barriers = &.{
-                .{
-                    .image = state.post_color_tex.image,
-                    .src_access = .{ .color_attachment_write_bit = true },
-                    .dst_access = .{ .shader_read_bit = true },
-                    .old_layout = .color_attachment_optimal,
-                    .new_layout = .shader_read_only_optimal,
-                },
-            },
-        });
-        state.post_color_tex.current_layout = .shader_read_only_optimal;
-
-        builder.pipelineBarrier(gpu, .{
-            .src_stage = .{ .color_attachment_output_bit = true },
-            .dst_stage = .{ .color_attachment_output_bit = true },
-            .image_barriers = &.{
-                .{
-                    .image = swapchain.getImage(state.image_index),
-                    .src_access = .{},
-                    .dst_access = .{ .color_attachment_write_bit = true },
-                    .old_layout = .undefined,
-                    .new_layout = .color_attachment_optimal,
-                },
-            },
-        });
-
-        // post
-        builder.beginRendering(gpu, .{
-            .color_attachments = &.{swapchain.getAttachment(state.image_index)},
-            .region = .{
-                .x = 0,
-                .y = 0,
-                .width = extent.width,
-                .height = extent.height,
-            },
-        });
-        try builder.setViewport(gpu, .{ .flip_z = false, .width = extent.width, .height = extent.height });
-        try state.post_scene.draw(builder);
-        builder.endRendering(gpu);
-
-        builder.pipelineBarrier(gpu, .{
-            .src_stage = .{ .color_attachment_output_bit = true },
-            .dst_stage = .{ .bottom_of_pipe_bit = true },
-            .image_barriers = &.{
-                .{
-                    .image = swapchain.getImage(state.image_index),
-                    .src_access = .{ .color_attachment_write_bit = true },
-                    .dst_access = .{},
-                    .old_layout = .color_attachment_optimal,
-                    .new_layout = .present_src_khr,
-                },
-            },
-        });
+        builder.transitionSwapimage(gpu, swapchain.getImage(state.image_index));
 
         try builder.endCommand(gpu);
 
@@ -589,5 +451,7 @@ pub fn main() !void {
             .{ .semaphore = swapchain.image_acquired[frame_id], .flag = .{ .color_attachment_output_bit = true } },
         } });
         try swapchain.present(gpu, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = state.image_index });
+
+        break;
     }
 }

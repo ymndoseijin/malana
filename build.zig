@@ -3,7 +3,7 @@ const ShaderCompileStep = @import("shader_build.zig");
 
 const Build = std.Build;
 
-const zilliam = @import("zilliam");
+//const zilliam = @import("zilliam");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -11,10 +11,10 @@ pub fn build(b: *std.Build) void {
 
     const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
 
-    const zilliam_dep = b.dependency("zilliam", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    //const zilliam_dep = b.dependency("zilliam", .{
+    //    .target = target,
+    //    .optimize = optimize,
+    //});
 
     //const Algebra = zilliam.geo.Algebra(f32, 3, 0, 1);
     //const Blades = zilliam.blades.Blades(Algebra, .{});
@@ -27,11 +27,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const gl = b.createModule(.{ .root_source_file = .{ .path = "src/graphics/gl.zig" } });
-    const math = b.createModule(.{ .root_source_file = .{ .path = "src/math.zig" } });
-    const common = b.createModule(.{ .root_source_file = .{ .path = "src/common.zig" } });
+    const gl = b.createModule(.{ .root_source_file = b.path("src/graphics/gl.zig") });
+    const math = b.createModule(.{ .root_source_file = b.path("src/math.zig") });
+    const common = b.createModule(.{ .root_source_file = b.path("src/common.zig") });
     const parsing = b.createModule(.{
-        .root_source_file = .{ .path = "src/parsing/parsing.zig" },
+        .root_source_file = b.path("src/parsing/parsing.zig"),
         .imports = &.{
             .{ .name = "math", .module = math },
             .{ .name = "common", .module = common },
@@ -39,10 +39,10 @@ pub fn build(b: *std.Build) void {
     });
 
     const geometry = b.createModule(.{
-        .root_source_file = .{ .path = "src/geometry.zig" },
+        .root_source_file = b.path("src/geometry.zig"),
         .imports = &.{
             .{ .name = "math", .module = math },
-            .{ .name = "zilliam", .module = zilliam_dep.module("zilliam") },
+            //.{ .name = "zilliam", .module = zilliam_dep.module("zilliam") },
             .{ .name = "common", .module = common },
             .{ .name = "parsing", .module = parsing },
         },
@@ -67,13 +67,15 @@ pub fn build(b: *std.Build) void {
         .{ "textft_vert", "src/graphics/elems/shaders/textft/shader.vert" },
         .{ "post_frag", "src/ui/shaders/post.frag" },
         .{ "post_vert", "src/ui/shaders/post.vert" },
+        .{ "line_frag", "src/graphics/elems/shaders/line/shader.frag" },
+        .{ "line_vert", "src/graphics/elems/shaders/line/shader.vert" },
     };
     inline for (shader_list) |shader| {
         elem_shaders.add(shader[0], shader[1], .{});
     }
 
     const graphics = b.createModule(.{
-        .root_source_file = .{ .path = "src/graphics/graphics.zig" },
+        .root_source_file = b.path("src/graphics/graphics.zig"),
         .imports = &.{
             .{ .name = "math", .module = math },
             .{ .name = "common", .module = common },
@@ -87,7 +89,7 @@ pub fn build(b: *std.Build) void {
     graphics.addIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
 
     const numericals = b.createModule(.{
-        .root_source_file = .{ .path = "src/numericals.zig" },
+        .root_source_file = b.path("src/numericals.zig"),
         .imports = &.{
             .{ .name = "math", .module = math },
             .{ .name = "common", .module = common },
@@ -95,10 +97,10 @@ pub fn build(b: *std.Build) void {
     });
 
     const ui_info: std.Build.Module.CreateOptions = .{
-        .root_source_file = .{ .path = "src/ui.zig" },
+        .root_source_file = b.path("src/ui.zig"),
         .imports = &.{
             .{ .name = "img", .module = zigimg_dep.module("zigimg") },
-            .{ .name = "zilliam", .module = zilliam_dep.module("zilliam") },
+            //.{ .name = "zilliam", .module = zilliam_dep.module("zilliam") },
             .{ .name = "graphics", .module = graphics },
             .{ .name = "geometry", .module = geometry },
             .{ .name = "numericals", .module = numericals },
@@ -162,6 +164,13 @@ pub fn build(b: *std.Build) void {
             },
         },
         .{
+            .name = "astro",
+            .shaders = &.{
+                .{ "vert", "shaders/shader.vert", .{} },
+                .{ "frag", "shaders/shader.frag", .{} },
+            },
+        },
+        .{
             .name = "box-test",
             .shaders = &.{},
         },
@@ -178,7 +187,7 @@ pub fn build(b: *std.Build) void {
             .name = app.name,
             // In this case the main source file is merely a path, however, in more
             // complicated build scripts, this could be a generated file.
-            .root_source_file = .{ .path = "examples/" ++ app.name ++ "/main.zig" },
+            .root_source_file = b.path("examples/" ++ app.name ++ "/main.zig"),
             .target = target,
             .optimize = optimize,
         });
@@ -240,7 +249,7 @@ pub fn build(b: *std.Build) void {
     }
 
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/ui/box.zig" },
+        .root_source_file = b.path("src/ui/box.zig"),
         .target = target,
         .optimize = optimize,
     });

@@ -29,6 +29,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
     return struct {
         pub const Info = struct {
             pipeline: ?graphics.RenderPipeline = null,
+            target: graphics.RenderTarget,
         };
 
         pub const description: graphics.PipelineDescription = .{
@@ -67,6 +68,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
                 .win = scene.window,
                 .pipeline = if (info.pipeline) |p| p else scene.default_pipelines.sprite_batch,
                 .queue = &scene.queue,
+                .target = info.target,
             });
 
             try description.vertex_description.bindVertex(drawing, &.{
@@ -74,7 +76,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
                 .{ .{ 1, 0, 1 }, .{ 1, 0 } },
                 .{ .{ 1, 1, 1 }, .{ 1, 1 } },
                 .{ .{ 0, 1, 1 }, .{ 0, 1 } },
-            }, &.{ 0, 1, 2, 2, 3, 0 });
+            }, &.{ 0, 1, 2, 2, 3, 0 }, .immediate);
 
             return .{
                 .drawing = drawing,
@@ -83,7 +85,14 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             };
         }
 
-        pub fn deinit(batch: *ThisBatch) void {
+        pub fn deinit(batch: *ThisBatch, ally: std.mem.Allocator, gpu: graphics.Gpu) void {
+            batch.drawing.vertex_buffer.?.deinit(gpu);
+            batch.drawing.index_buffer.?.deinit(gpu);
+
+            batch.drawing.descriptor.deinitAllUniforms();
+            batch.drawing.deinit(ally);
+            ally.destroy(batch.drawing);
+
             batch.sprite_indices.deinit();
             batch.textures.deinit();
         }

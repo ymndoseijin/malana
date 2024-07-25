@@ -261,7 +261,7 @@ pub const KeplerPlanet = struct {
         venus_pos -= state.other_pos;
 
         const pos_m = Mat4.translation(venus_pos);
-        var model = pos_m;
+        const model = pos_m;
 
         self.subdivided.drawing.setUniformMat4("model", model);
         self.subdivided.pos = venus_pos;
@@ -340,7 +340,7 @@ pub const VsopPlanet = struct {
     }
 
     pub fn update(self: *VsopPlanet, state: *Planetarium) void {
-        var og_pos: @Vector(3, f64) = self.vsop.at((state.time - 2451545.0) / 365250.0);
+        const og_pos: @Vector(3, f64) = self.vsop.at((state.time - 2451545.0) / 365250.0);
 
         var venus_pos = @Vector(3, f64){ og_pos[1], og_pos[2], og_pos[0] };
 
@@ -358,7 +358,7 @@ pub const VsopPlanet = struct {
         pos = Vec3{ @floatCast(venus_pos[0]), @floatCast(venus_pos[1]), @floatCast(venus_pos[2]) };
 
         const pos_m = Mat4.translation(pos);
-        var model = pos_m;
+        const model = pos_m;
 
         self.subdivided.drawing.setUniformMat4("model", model);
         self.subdivided.pos = pos;

@@ -3,6 +3,8 @@ const std = @import("std");
 
 const zilliam = @import("zilliam");
 
+pub const parsing = @import("parsing");
+
 const testing = std.testing;
 
 pub const Pga = zilliam.PGA(f32, 3);
@@ -10,14 +12,11 @@ pub const Pga = zilliam.PGA(f32, 3);
 const Vec3 = math.Vec3;
 const Vec2 = math.Vec2;
 
-const Vec3Utils = math.Vec3Utils;
-const Vec2Utils = math.Vec2Utils;
-
 pub const Vertex = struct {
     pos: Vec3,
     norm: Vec3,
     uv: Vec2,
-    pub const Zero = Vertex{ .pos = .{ 0, 0, 0 }, .norm = .{ 0, 0, 0 }, .uv = .{ 0, 0 } };
+    pub const Zero = Vertex{ .pos = Vec3.init(.{ 0, 0, 0 }), .norm = Vec3.init(.{ 0, 0, 0 }), .uv = Vec2.init(.{ 0, 0 }) };
 };
 
 // potential footgun, face holds a pointer to vertices, so if you change it you might change it to other faces as well
@@ -68,9 +67,9 @@ pub const HalfEdge = struct {
         if (self.next) |next_edge| {
             const a = self.vertex;
             const b = next_edge.vertex;
-            const pos = Vec3Utils.interpolate(a.pos, b.pos, 0.5);
-            const norm = Vec3Utils.interpolate(a.norm, b.norm, 0.5);
-            const uv = Vec2Utils.interpolate(a.uv, b.uv, 0.5);
+            const pos = a.pos.interpolate(b.pos, 0.5);
+            const norm = a.norm.interpolate(b.norm, 0.5);
+            const uv = a.uv.interpolate(b.uv, 0.5);
             return Vertex{ .pos = pos, .uv = uv, .norm = norm };
         }
         return Vertex.Zero;
@@ -189,40 +188,12 @@ pub const Mesh = struct {
         length: usize,
     };
 
-    pub fn makeFrom(self: *Mesh, vertices: []const f32, in_indices: []const u32, comptime format: Format, comptime n: comptime_int) !void {
+    pub fn makeFrom(self: *Mesh, vertices: []const Vertex, in_indices: []const u32, comptime n: comptime_int) !void {
         const allocator = self.arena.allocator();
 
         const indices = try allocator.dupe(u32, in_indices);
 
-        var converted = std.ArrayList(Vertex).init(self.arena.allocator());
-        defer converted.deinit();
-
-        for (0..@divExact(vertices.len, format.length)) |i| {
-            const pos: Vec3 = .{
-                vertices[i * format.length + format.pos_offset],
-                vertices[i * format.length + format.pos_offset + 1],
-                vertices[i * format.length + format.pos_offset + 2],
-            };
-
-            const norm: Vec3 = .{
-                vertices[i * format.length + format.norm_offset],
-                vertices[i * format.length + format.norm_offset + 1],
-                vertices[i * format.length + format.norm_offset + 2],
-            };
-
-            const uv: Vec2 = .{
-                vertices[i * format.length + format.uv_offset],
-                vertices[i * format.length + format.uv_offset + 1],
-            };
-
-            try converted.append(.{
-                .pos = pos,
-                .norm = norm,
-                .uv = uv,
-            });
-        }
-
-        const res = try self.makeNgon(converted.items, indices, n);
+        const res = try self.makeNgon(vertices, indices, n);
         self.first_half = res;
     }
 
@@ -295,7 +266,7 @@ pub const Mesh = struct {
                 var not_found = true;
                 for (seen.items) |candidate| {
                     const b = candidate[0];
-                    if (@reduce(.And, a[0] == b[1]) and @reduce(.And, a[1] == b[0])) {
+                    if (a[0].eql(b[1]) and a[1].eql(b[0])) {
                         var half_twin = candidate[1];
 
                         if (half_twin.twin != null) {
@@ -339,7 +310,7 @@ pub const Mesh = struct {
 
                 const position = &edge.vertex.pos;
 
-                position.* /= @splat(@sqrt(@reduce(.Add, position.* * position.*)));
+                position.* = position.scale(1.0 / position.length());
 
                 if (edge.next) |_| {
                     if (edge.twin) |twin| {
