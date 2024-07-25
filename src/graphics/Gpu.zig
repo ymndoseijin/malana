@@ -13,6 +13,8 @@ graphics_queue: Queue,
 compute_queue: Queue,
 present_queue: Queue,
 
+graphics_pool: vk.CommandPool,
+
 depth_format: vk.Format,
 debug_messenger: vk.DebugUtilsMessengerEXT,
 
@@ -185,6 +187,11 @@ pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.
 
     gpu.mem_props = gpu.vki.getPhysicalDeviceMemoryProperties(gpu.pdev);
     gpu.depth_format = try gpu.findDepthFormat();
+
+    gpu.graphics_pool = try gpu.vkd.createCommandPool(gpu.dev, &.{
+        .queue_family_index = gpu.graphics_queue.family,
+        .flags = .{ .reset_command_buffer_bit = true },
+    }, null);
 
     return gpu;
 }

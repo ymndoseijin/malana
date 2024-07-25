@@ -5,7 +5,7 @@ const shaders = @import("shaders");
 
 const astro_util = @import("astro_util.zig");
 
-const Ui = ui.Ui;
+const State = ui.State;
 const graphics = ui.graphics;
 const Vec3 = ui.Vec3;
 const Vertex = ui.Vertex;
@@ -116,7 +116,7 @@ pub const Material = struct {
     frag: graphics.Shader,
     render_pipeline: graphics.RenderPipeline,
 
-    pub fn init(state: *Ui, ally: std.mem.Allocator, options: struct {
+    pub fn init(state: *State, ally: std.mem.Allocator, options: struct {
         vert: []align(@alignOf(u32)) const u8,
         frag: []align(@alignOf(u32)) const u8,
         pipeline: graphics.PipelineDescription,
@@ -176,7 +176,7 @@ pub const Astro = struct {
         cam_transform: math.Mat4 align(4 * 4),
     } };
 
-    state: *Ui,
+    state: *State,
     material: Material,
     object: graphics.SpatialMesh,
     fps: graphics.TextFt,
@@ -185,7 +185,7 @@ pub const Astro = struct {
     line: graphics.Line,
 
     pub fn init(ally: std.mem.Allocator) !Astro {
-        const state = try Ui.init(ally, .{
+        const state = try State.init(ally, .{
             .window = .{ .name = "Astro", .width = 500, .height = 500, .resizable = true, .preferred_format = .srgb },
             .scene = .{ .flip_z = true },
         });
@@ -243,13 +243,13 @@ pub const Astro = struct {
     }
 
     pub fn deinit(astro: *Astro, ally: std.mem.Allocator) void {
-        const gpu = astro.state.main_win.gpu;
+        const gpu = &astro.state.main_win.gpu;
 
-        astro.object.drawing.deinitAllBuffers(ally);
+        astro.object.drawing.deinitAllBuffers(ally, gpu.*);
         ally.destroy(astro.object.drawing);
 
-        astro.fps.deinit(ally, gpu);
-        astro.material.deinit(gpu);
+        astro.fps.deinit(ally, gpu.*);
+        astro.material.deinit(gpu.*);
 
         for (&astro.planet_array) |*planet| {
             planet.deinit(ally);
@@ -257,7 +257,7 @@ pub const Astro = struct {
 
         astro.sphere.deinit();
 
-        astro.line.drawing.deinitAllBuffers(ally);
+        astro.line.drawing.deinitAllBuffers(ally, gpu.*);
         ally.destroy(astro.line.drawing);
 
         //astro.sphere.deinit();
@@ -282,7 +282,7 @@ pub const Astro = struct {
             const pos = planet.pos.val;
             const pos_low: [4]f32 = .{ @floatCast(pos[0]), @floatCast(pos[1]), @floatCast(pos[2]), 0 };
 
-            (try astro.object.drawing.getUniformOrCreate(0, 1, @intCast(i))).setAsUniformField(PlanetUniform, .pos, pos_low);
+            (try astro.object.drawing.descriptor.getUniformOrCreate(gpu, 0, 1, @intCast(i))).setAsUniformField(PlanetUniform, .pos, pos_low);
         }
 
         astro.object.drawing.instances = astro.planet_array.len;
@@ -292,7 +292,7 @@ pub const Astro = struct {
 
         try swapchain.wait(gpu, frame_id);
 
-        try astro.line.drawing.destroyVertex();
+        try astro.line.drawing.destroyVertex(gpu);
 
         try state.scene.begin();
 
@@ -339,6 +339,8 @@ pub fn main() !void {
 
     const state = astro.state;
 
+    const gpu = &state.main_win.gpu;
+
     while (state.main_win.alive) {
         const frame = graphics.tracy.namedFrame("Frame");
         defer frame.end();
@@ -349,10 +351,10 @@ pub fn main() !void {
             .spatial_pos = .{ 0, 0, 0, 0 },
         };
 
-        (try astro.object.drawing.getUniformOrCreate(0, 1, 0)).setAsUniform(graphics.SpatialMesh.Uniform, uniform);
+        (try astro.object.drawing.descriptor.getUniformOrCreate(gpu, 0, 1, 0)).setAsUniform(graphics.SpatialMesh.Uniform, uniform);
 
         try astro.fps.clear();
-        try astro.fps.printFmt(ally, "FPS: {}", .{@as(u32, @intFromFloat(1 / state.dt))});
+        try astro.fps.printFmt(ally, gpu, "FPS: {}", .{@as(u32, @intFromFloat(1 / state.dt))});
 
         try astro.render();
     }

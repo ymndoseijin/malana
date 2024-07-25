@@ -357,7 +357,8 @@ pub fn draw(scene: *Scene, builder: *graphics.CommandBuilder, elem: *graphics.Dr
         scene.current_rendering = elem.render_target;
     }
 
-    try elem.draw(builder.getCurrent(), .{
+    try elem.draw(gpu, builder.getCurrent(), .{
+        .swapchain = swapchain,
         .frame_id = builder.frame_id,
         .bind_pipeline = if (scene.last_pipeline) |pipeline| pipeline != @intFromEnum(elem.descriptor.pipeline.vk_pipeline) else true,
     });
@@ -389,7 +390,7 @@ pub fn bindVertex(
     defer trace.end();
 
     drawing.vert_count = indices.len;
-    const gpu = &drawing.window.gpu;
+    const gpu = &scene.window.gpu;
 
     if (indices.len == 0) return;
 
@@ -398,12 +399,12 @@ pub fn bindVertex(
     const vertex_buff = try scene.createBuffer(description.getVertexSize() * vertices.len);
 
     drawing.vertex_buffer = try description.createBuffer(gpu, vertices.len);
-    try drawing.vertex_buffer.?.setVertex(description, gpu, drawing.window.pool, vertices, vertex_buff, .{ .queue = builder });
+    try drawing.vertex_buffer.?.setVertex(description, gpu, gpu.graphics_pool, vertices, vertex_buff, .{ .queue = builder });
 
     const index_buff = try scene.createBuffer(@sizeOf(u32) * indices.len);
 
     drawing.index_buffer = try graphics.BufferHandle.init(gpu, .{ .size = @sizeOf(u32) * indices.len, .buffer_type = .index });
-    try drawing.index_buffer.?.setIndices(gpu, drawing.window.pool, indices, index_buff, .{ .queue = builder });
+    try drawing.index_buffer.?.setIndices(gpu, gpu.graphics_pool, indices, index_buff, .{ .queue = builder });
 }
 
 const Scene = @This();

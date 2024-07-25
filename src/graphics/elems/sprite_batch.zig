@@ -64,14 +64,15 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
         pub fn init(scene: *graphics.Scene, info: Info) !ThisBatch {
             var drawing = try scene.new();
 
-            try drawing.init(scene.window.ally, .{
-                .win = scene.window,
+            const gpu = &scene.window.gpu;
+
+            try drawing.init(scene.window.ally, gpu, .{
                 .pipeline = if (info.pipeline) |p| p else scene.default_pipelines.sprite_batch,
                 .queue = &scene.queue,
                 .target = info.target,
             });
 
-            try description.vertex_description.bindVertex(drawing, &.{
+            try description.vertex_description.bindVertex(drawing, gpu, &.{
                 .{ .{ 0, 0, 1 }, .{ 0, 0 } },
                 .{ .{ 1, 0, 1 }, .{ 1, 0 } },
                 .{ .{ 1, 1, 1 }, .{ 1, 1 } },
@@ -89,8 +90,8 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             batch.drawing.vertex_buffer.?.deinit(gpu);
             batch.drawing.index_buffer.?.deinit(gpu);
 
-            batch.drawing.descriptor.deinitAllUniforms();
-            batch.drawing.deinit(ally);
+            batch.drawing.descriptor.deinitAllUniforms(gpu);
+            batch.drawing.deinit(ally, gpu);
             ally.destroy(batch.drawing);
 
             batch.sprite_indices.deinit();
@@ -136,7 +137,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             }
 
             pub fn getUniformOr(sprite: Sprite, binding: u32) ?graphics.BufferHandle {
-                return sprite.batch.drawing.getUniformOr(0, binding, sprite.batch.sprite_indices.items[sprite.idx]);
+                return sprite.batch.drawing.descriptor.getUniformOr(0, binding, sprite.batch.sprite_indices.items[sprite.idx]);
             }
 
             pub fn updateTransform(sprite: Sprite) void {
@@ -158,11 +159,13 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             }
         };
 
-        pub fn newSprite(batch: *ThisBatch, options: struct { tex: graphics.Texture, uniform: SpriteUniform.T }) !Sprite {
+        pub fn newSprite(batch: *ThisBatch, gpu: *graphics.Gpu, options: struct {
+            tex: graphics.Texture,
+            uniform: SpriteUniform.T,
+        }) !Sprite {
             const tracy = trace(@src());
             defer tracy.end();
 
-            const ally = batch.drawing.window.ally;
             const w: f32 = @floatFromInt(options.tex.width);
             const h: f32 = @floatFromInt(options.tex.height);
 
@@ -176,14 +179,14 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             try batch.sprite_indices.append(current_idx);
             batch.drawing.instances = @intCast(batch.sprite_indices.items.len);
 
-            const uniform = try batch.drawing.getUniformOrCreate(0, 1, current_idx);
+            const uniform = try batch.drawing.descriptor.getUniformOrCreate(gpu, 0, 1, current_idx);
 
             //uniform.setAsUniformField(SpriteUniform, .transform, default_transform.getMat().cast(4, 4).columns);
             //uniform.setAsUniformField(SpriteUniform, .opacity, 1.0);
 
             uniform.setAsUniform(SpriteUniform, options.uniform);
 
-            try batch.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{
+            try batch.drawing.descriptor.updateDescriptorSets(gpu, .{ .samplers = &.{.{
                 .set = 1,
                 .idx = 0,
                 .dst = current_idx,

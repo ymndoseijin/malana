@@ -112,13 +112,17 @@ pub const Line = struct {
     }
 
     pub fn init(drawing: *graphics.Drawing, window: *graphics.Window, info: LineInfo) !Line {
-        try drawing.init(window.ally, .{
-            .win = window,
+        const gpu = &window.gpu;
+
+        try drawing.init(window.ally, gpu, .{
             .pipeline = info.pipeline,
             .target = info.target,
         });
 
-        (try drawing.getUniformOrCreate(0, 0, 0)).setAsUniform(graphics.GlobalUniform, .{ .time = 0, .in_resolution = .{ 1, 1 } });
+        (try drawing.descriptor.getUniformOrCreate(gpu, 0, 0, 0)).setAsUniform(graphics.GlobalUniform, .{
+            .time = 0,
+            .in_resolution = .{ 1, 1 },
+        });
 
         return .{
             .drawing = drawing,

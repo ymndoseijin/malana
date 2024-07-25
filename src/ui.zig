@@ -7,10 +7,10 @@ pub const geometry = @import("geometry");
 pub const graphics = @import("graphics");
 pub const common = @import("common");
 pub const parsing = @import("parsing");
-pub const Ui = @import("ui/ui.zig").Ui;
-pub const Callback = @import("ui/ui.zig").Callback;
-pub const Region = @import("ui/ui.zig").Region;
-pub const KeyState = @import("ui/ui.zig").KeyState;
+pub const State = @import("State.zig");
+pub const Callback = State.Callback;
+pub const Region = State.Region;
+pub const KeyState = State.KeyState;
 
 pub const Box = @import("ui/box.zig").Box;
 pub const MarginBox = @import("ui/box.zig").MarginBox;
@@ -355,7 +355,7 @@ pub const Button = struct {
         }
     }
 
-    pub fn makeBox(button: *Button, current_ui: *Ui, ally: std.mem.Allocator) !*Box {
+    pub fn makeBox(button: *Button, current_ui: *State, ally: std.mem.Allocator) !*Box {
         try current_ui.callback.elements.append(.{
             @ptrCast(button), .{
                 .mouse_func = Button.mouseButton,
@@ -431,7 +431,7 @@ pub const InputBox = struct {
         input.scene.delete(input.ally, input.background.drawing);
     }
 
-    pub fn makeBox(input: *InputBox, current_ui: *Ui, ally: std.mem.Allocator) !*Box {
+    pub fn makeBox(input: *InputBox, current_ui: *State, ally: std.mem.Allocator) !*Box {
         try current_ui.callback.elements.append(.{ @ptrCast(input), .{
             .key_func = keyInput,
             .char_func = textInput,

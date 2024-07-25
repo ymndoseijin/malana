@@ -264,19 +264,19 @@ pub const Swapchain = struct {
         };
     }
 
-    pub fn submit(swapchain: *Swapchain, gpu: *Gpu, builder: CommandBuilder, info: struct { wait: []const struct {
+    pub fn submit(swapchain: *Swapchain, gpu: *Gpu, builder: CommandBuilder, options: struct { wait: []const struct {
         semaphore: vk.Semaphore,
         flag: vk.PipelineStageFlags,
     } }) !void {
-        const wait_stage = try swapchain.ally.alloc(vk.PipelineStageFlags, info.wait.len);
+        const wait_stage = try swapchain.ally.alloc(vk.PipelineStageFlags, options.wait.len);
         defer swapchain.ally.free(wait_stage);
 
-        const semaphores = try swapchain.ally.alloc(vk.Semaphore, info.wait.len);
+        const semaphores = try swapchain.ally.alloc(vk.Semaphore, options.wait.len);
         defer swapchain.ally.free(semaphores);
 
-        for (semaphores, info.wait) |*dst, src| dst.* = src.semaphore;
+        for (semaphores, options.wait) |*dst, src| dst.* = src.semaphore;
 
-        for (wait_stage, info.wait) |*stage, semaphore| {
+        for (wait_stage, options.wait) |*stage, semaphore| {
             stage.* = semaphore.flag;
         }
 
@@ -293,16 +293,16 @@ pub const Swapchain = struct {
         }}, swapchain.frame_fence[builder.frame_id]);
     }
 
-    pub fn present(swapchain: *Swapchain, gpu: *Gpu, info: struct {
+    pub fn present(swapchain: *Swapchain, gpu: *Gpu, options: struct {
         wait: []const vk.Semaphore,
         image_index: ImageIndex,
     }) !void {
         _ = try gpu.vkd.queuePresentKHR(gpu.present_queue.handle, &.{
-            .wait_semaphore_count = @intCast(info.wait.len),
-            .p_wait_semaphores = if (info.wait.len == 0) null else info.wait.ptr,
+            .wait_semaphore_count = @intCast(options.wait.len),
+            .p_wait_semaphores = if (options.wait.len == 0) null else options.wait.ptr,
             .swapchain_count = 1,
             .p_swapchains = @as([*]const vk.SwapchainKHR, @ptrCast(&swapchain.handle)),
-            .p_image_indices = @as([*]const u32, @ptrCast(&info.image_index)),
+            .p_image_indices = @as([*]const u32, @ptrCast(&options.image_index)),
         });
     }
 };
@@ -687,7 +687,7 @@ pub const OpQueue = struct {
 
     pub fn execute(queue: *OpQueue) !void {
         for (queue.set_update.items) |update| {
-            try update.descriptor.updateSets(update.options);
+            try update.descriptor.updateSets(queue.gpu, update.options);
         }
 
         while (queue.set_update.popOrNull()) |update| {
@@ -723,7 +723,6 @@ pub const Descriptor = struct {
     pipeline: Pipeline,
     queue: ?*OpQueue,
 
-    gpu: *Gpu,
     ally: std.mem.Allocator,
     dependencies: Dependencies,
 
@@ -784,15 +783,13 @@ pub const Descriptor = struct {
     };
 
     pub const Info = struct {
-        gpu: *Gpu,
         pipeline: Pipeline,
         queue: ?*OpQueue,
     };
 
-    pub fn init(ally: std.mem.Allocator, info: Info) !Descriptor {
-        const pipeline = info.pipeline;
-        const description = info.pipeline.description;
-        const gpu = info.gpu;
+    pub fn init(ally: std.mem.Allocator, gpu: *Gpu, options: Info) !Descriptor {
+        const pipeline = options.pipeline;
+        const description = options.pipeline.description;
 
         const pools = try ally.alloc(vk.DescriptorPool, description.sets.len);
 
@@ -820,11 +817,10 @@ pub const Descriptor = struct {
         }
 
         var descriptor: Descriptor = .{
-            .pipeline = info.pipeline,
+            .pipeline = options.pipeline,
             .uniform_buffers = undefined,
             .descriptor_pools = pools,
             .descriptor_sets = try ally.alloc(vk.DescriptorSet, pipeline.description.sets.len),
-            .gpu = gpu,
             .ally = ally,
             .queue = null,
             .dependencies = .{
@@ -832,10 +828,10 @@ pub const Descriptor = struct {
             },
         };
 
-        try descriptor.createDescriptorSets(ally);
-        try descriptor.createUniformBuffers(ally);
+        try descriptor.createDescriptorSets(ally, gpu);
+        try descriptor.createUniformBuffers(ally, gpu);
 
-        descriptor.queue = info.queue;
+        descriptor.queue = options.queue;
 
         return descriptor;
     }
@@ -847,26 +843,30 @@ pub const Descriptor = struct {
         return null;
     }
 
-    pub fn getUniformOrCreate(descriptor: *Descriptor, set: u32, binding: u32, dst: u32) !BufferHandle {
+    pub fn getUniformOrCreate(descriptor: *Descriptor, gpu: *Gpu, set: u32, binding: u32, dst: u32) !BufferHandle {
         const pipeline_description = descriptor.pipeline.description;
         for (descriptor.uniform_buffers[set][binding].items) |uniform| {
             if (uniform.idx == dst) return uniform.buffer;
         }
         try descriptor.uniform_buffers[set][binding].append(.{
             .idx = dst,
-            .buffer = try BufferHandle.init(descriptor.gpu, .{
+            .buffer = try BufferHandle.init(gpu, .{
                 .size = pipeline_description.sets[set].bindings[binding].uniform.size,
                 .buffer_type = .uniform,
             }),
         });
         const buffer = descriptor.uniform_buffers[set][binding].items[descriptor.uniform_buffers[set][binding].items.len - 1];
 
-        try descriptor.updateDescriptorSets(descriptor.ally, .{ .uniforms = &.{.{ .dst = dst, .idx = binding, .buffer = buffer.buffer }} });
+        try descriptor.updateDescriptorSets(gpu, .{ .uniforms = &.{.{
+            .dst = dst,
+            .idx = binding,
+            .buffer = buffer.buffer,
+        }} });
 
         return buffer.buffer;
     }
 
-    pub fn createUniformBuffers(descriptor: *Descriptor, ally: std.mem.Allocator) !void {
+    pub fn createUniformBuffers(descriptor: *Descriptor, ally: std.mem.Allocator, gpu: *Gpu) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
 
@@ -887,11 +887,11 @@ pub const Descriptor = struct {
                     uniform_i += 1;
 
                     if (!description.boundless) {
-                        try array.append(.{ .idx = 0, .buffer = try BufferHandle.init(descriptor.gpu, .{
+                        try array.append(.{ .idx = 0, .buffer = try BufferHandle.init(gpu, .{
                             .size = description.size,
                             .buffer_type = .uniform,
                         }) });
-                        try descriptor.updateDescriptorSets(ally, .{ .uniforms = &.{.{ .idx = @intCast(i), .buffer = array.items[0].buffer }} });
+                        try descriptor.updateDescriptorSets(gpu, .{ .uniforms = &.{.{ .idx = @intCast(i), .buffer = array.items[0].buffer }} });
                     }
                 }
             }
@@ -899,45 +899,39 @@ pub const Descriptor = struct {
     }
 
     // automatically deinit all buffers, but keep descriptor
-    pub fn deinitAllUniforms(self: *Descriptor) void {
-        const gpu = self.gpu;
-
-        for (self.uniform_buffers) |set_array| {
+    pub fn deinitAllUniforms(descriptor: *Descriptor, gpu: Gpu) void {
+        for (descriptor.uniform_buffers) |set_array| {
             for (set_array) |*array| {
-                for (array.items) |uni| uni.buffer.deinit(gpu.*);
+                for (array.items) |uni| uni.buffer.deinit(gpu);
                 array.clearRetainingCapacity();
             }
         }
     }
 
-    pub fn deinit(self: *Descriptor, ally: std.mem.Allocator) void {
-        const gpu = self.gpu;
-
+    pub fn deinit(descriptor: *Descriptor, ally: std.mem.Allocator, gpu: Gpu) void {
         gpu.vkd.deviceWaitIdle(gpu.dev) catch {};
 
-        for (self.uniform_buffers) |set_array| {
+        for (descriptor.uniform_buffers) |set_array| {
             for (set_array) |*array| {
                 array.deinit();
             }
             ally.free(set_array);
         }
 
-        ally.free(self.uniform_buffers);
+        ally.free(descriptor.uniform_buffers);
 
-        for (self.descriptor_pools) |pool| gpu.vkd.destroyDescriptorPool(gpu.dev, pool, null);
+        for (descriptor.descriptor_pools) |pool| gpu.vkd.destroyDescriptorPool(gpu.dev, pool, null);
 
-        self.dependencies.deinit(ally);
+        descriptor.dependencies.deinit(ally);
 
-        ally.free(self.descriptor_pools);
-        ally.free(self.descriptor_sets);
+        ally.free(descriptor.descriptor_pools);
+        ally.free(descriptor.descriptor_sets);
     }
 
-    pub fn createDescriptorSets(self: *Descriptor, ally: std.mem.Allocator) !void {
-        const gpu = self.gpu;
+    pub fn createDescriptorSets(descriptor: *Descriptor, ally: std.mem.Allocator, gpu: *Gpu) !void {
+        const pipeline = descriptor.pipeline.description;
 
-        const pipeline = self.pipeline.description;
-
-        for (self.descriptor_sets, self.descriptor_pools, self.pipeline.layouts) |*set, pool, *layout| {
+        for (descriptor.descriptor_sets, descriptor.descriptor_pools, descriptor.pipeline.layouts) |*set, pool, *layout| {
             const counts = try ally.create(u32);
             defer ally.destroy(counts);
 
@@ -959,13 +953,11 @@ pub const Descriptor = struct {
         }
     }
 
-    pub fn updateSets(self: *Descriptor, options: WriteOptions) !void {
+    pub fn updateSets(descriptor: *Descriptor, gpu: *Gpu, options: WriteOptions) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
 
-        const gpu = self.gpu;
-
-        const ally = self.ally;
+        const ally = descriptor.ally;
         var arena = std.heap.ArenaAllocator.init(ally);
         defer arena.deinit();
         const arena_ally = arena.allocator();
@@ -983,7 +975,7 @@ pub const Descriptor = struct {
             };
 
             try descriptor_writes.append(.{
-                .dst_set = self.descriptor_sets[uniform.set],
+                .dst_set = descriptor.descriptor_sets[uniform.set],
                 .dst_binding = uniform.idx,
                 .dst_array_element = uniform.dst,
                 .descriptor_type = .uniform_buffer,
@@ -1004,7 +996,7 @@ pub const Descriptor = struct {
             };
 
             try descriptor_writes.append(.{
-                .dst_set = self.descriptor_sets[storage.set],
+                .dst_set = descriptor.descriptor_sets[storage.set],
                 .dst_binding = storage.idx,
                 .dst_array_element = storage.dst,
                 .descriptor_type = .storage_buffer,
@@ -1019,7 +1011,7 @@ pub const Descriptor = struct {
             const image_infos = try arena_ally.alloc(vk.DescriptorImageInfo, write.textures.len);
 
             for (image_infos, 0..) |*info, texture_i| {
-                try self.dependencies.textures.put(.{
+                try descriptor.dependencies.textures.put(.{
                     .dst = write.dst,
                     .idx = write.idx,
                     .set = write.set,
@@ -1036,7 +1028,7 @@ pub const Descriptor = struct {
             }
 
             try descriptor_writes.append(.{
-                .dst_set = self.descriptor_sets[write.set],
+                .dst_set = descriptor.descriptor_sets[write.set],
                 .dst_binding = write.idx,
                 .dst_array_element = write.dst,
                 .descriptor_type = switch (write.type) {
@@ -1054,13 +1046,12 @@ pub const Descriptor = struct {
         gpu.vkd.updateDescriptorSets(gpu.dev, @intCast(descriptor_writes.items.len), descriptor_writes.items.ptr, 0, null);
     }
 
-    pub fn updateDescriptorSets(self: *Descriptor, _: std.mem.Allocator, options: WriteOptions) !void {
-        const gpu = self.gpu;
-        if (self.queue) |queue| {
-            try queue.appendSet(options, self);
+    pub fn updateDescriptorSets(descriptor: *Descriptor, gpu: *Gpu, options: WriteOptions) !void {
+        if (descriptor.queue) |queue| {
+            try queue.appendSet(options, descriptor);
         } else {
             try gpu.vkd.deviceWaitIdle(gpu.dev);
-            try self.updateSets(options);
+            try descriptor.updateSets(gpu, options);
         }
     }
 };
@@ -1078,20 +1069,18 @@ pub const Compute = struct {
     count_y: u32,
     count_z: u32,
 
-    pub const Info = struct {
-        win: *Window,
-        pipeline: ComputePipeline,
-        queue: ?*OpQueue = null,
-    };
-
     pub fn setCount(compute: *Compute, x: u32, y: u32, z: u32) void {
         compute.count_x = x;
         compute.count_y = y;
         compute.count_z = z;
     }
 
-    pub fn init(ally: std.mem.Allocator, info: Info) !Compute {
-        const gpu = &info.win.gpu;
+    pub fn init(ally: std.mem.Allocator, options: struct {
+        win: *Window,
+        compute: ComputePipeline,
+        queue: ?*OpQueue = null,
+    }) !Compute {
+        const gpu = &options.win.gpu;
 
         const compute_semaphores = try ally.alloc(vk.Semaphore, frames_in_flight);
         for (compute_semaphores) |*f| {
@@ -1110,8 +1099,8 @@ pub const Compute = struct {
         }
 
         return .{
-            .global_ubo = info.pipeline.description.global_ubo,
-            .descriptor = try Descriptor.init(ally, .{ .gpu = gpu, .pipeline = info.pipeline.pipeline, .queue = null }),
+            .global_ubo = options.compute.description.global_ubo,
+            .descriptor = try Descriptor.init(ally, .{ .gpu = gpu, .pipeline = options.compute.pipeline, .queue = null }),
             .compute_semaphores = compute_semaphores,
             .compute_fences = compute_fences,
             .gpu = gpu,
@@ -1142,7 +1131,7 @@ pub const Compute = struct {
         try gpu.vkd.resetFences(gpu.dev, 1, @ptrCast(&compute.compute_fences[frame_id]));
     }
 
-    pub fn submit(compute: *Compute, ally: std.mem.Allocator, builder: CommandBuilder, info: struct {
+    pub fn submit(compute: *Compute, ally: std.mem.Allocator, builder: CommandBuilder, options: struct {
         wait: []const struct {
             semaphore: vk.Semaphore,
             type: enum {
@@ -1153,15 +1142,15 @@ pub const Compute = struct {
     }) !void {
         const gpu = compute.gpu;
 
-        const wait_stage = try ally.alloc(vk.PipelineStageFlags, info.wait.len);
+        const wait_stage = try ally.alloc(vk.PipelineStageFlags, options.wait.len);
         defer ally.free(wait_stage);
 
-        const semaphores = try ally.alloc(vk.Semaphore, info.wait.len);
+        const semaphores = try ally.alloc(vk.Semaphore, options.wait.len);
         defer ally.free(wait_stage);
 
-        for (semaphores, info.wait) |*dst, src| dst.* = src.semaphore;
+        for (semaphores, options.wait) |*dst, src| dst.* = src.semaphore;
 
-        for (wait_stage, info.wait) |*stage, semaphore| {
+        for (wait_stage, options.wait) |*stage, semaphore| {
             switch (semaphore.type) {
                 .color => stage.* = .{ .color_attachment_output_bit = true },
                 .vertex => stage.* = .{ .vertex_input_bit = true },
@@ -1241,7 +1230,6 @@ pub const Drawing = struct {
     global_ubo: bool,
 
     descriptor: Descriptor,
-    window: *Window,
     vertex_buffer: ?BufferHandle,
     index_buffer: ?BufferHandle,
 
@@ -1255,100 +1243,84 @@ pub const Drawing = struct {
     };
 
     pub const Info = struct {
-        win: *Window,
         pipeline: RenderPipeline,
         queue: ?*OpQueue = null,
         target: RenderTarget,
         flip_z: Flip = .auto,
     };
 
-    pub fn init(drawing: *Drawing, ally: std.mem.Allocator, info: Info) !void {
-        const gpu = &info.win.gpu;
-
+    pub fn init(drawing: *Drawing, ally: std.mem.Allocator, gpu: *Gpu, options: Info) !void {
         drawing.* = .{
             .vert_count = 0,
-            .global_ubo = info.pipeline.pipeline.description.global_ubo,
-            .descriptor = try Descriptor.init(ally, .{ .gpu = gpu, .pipeline = info.pipeline.pipeline, .queue = info.queue }),
-            .window = info.win,
+            .global_ubo = options.pipeline.pipeline.description.global_ubo,
+            .descriptor = try Descriptor.init(ally, gpu, .{ .pipeline = options.pipeline.pipeline, .queue = options.queue }),
             .vertex_buffer = null,
             .index_buffer = null,
-            .render_target = info.target,
-            .flip_z = info.flip_z,
+            .render_target = options.target,
+            .flip_z = options.flip_z,
         };
 
-        if (drawing.global_ubo) (try drawing.getUniformOrCreate(0, 0, 0)).setAsUniform(GlobalUniform, .{ .time = 0, .in_resolution = .{ 0, 0 } });
+        if (drawing.global_ubo) {
+            (try drawing.descriptor.getUniformOrCreate(gpu, 0, 0, 0)).setAsUniform(GlobalUniform, .{
+                .time = 0,
+                .in_resolution = .{ 0, 0 },
+            });
+        }
     }
 
-    pub fn deinit(self: *Drawing, ally: std.mem.Allocator) void {
-        self.descriptor.deinit(ally);
+    pub fn deinit(self: *Drawing, ally: std.mem.Allocator, gpu: Gpu) void {
+        self.descriptor.deinit(ally, gpu);
 
         //if (self.index_buffer) |ib| ib.deinit(&win.gpu);
         //if (self.vertex_buffer) |vb| vb.deinit(&win.gpu);
     }
 
-    pub fn deinitAllBuffers(drawing: *Drawing, ally: std.mem.Allocator) void {
-        const gpu = drawing.window.gpu;
-
+    pub fn deinitAllBuffers(drawing: *Drawing, ally: std.mem.Allocator, gpu: Gpu) void {
         drawing.vertex_buffer.?.deinit(gpu);
         drawing.index_buffer.?.deinit(gpu);
-        drawing.descriptor.deinitAllUniforms();
-        drawing.deinit(ally);
+        drawing.descriptor.deinitAllUniforms(gpu);
+        drawing.deinit(ally, gpu);
     }
 
-    pub fn getUniformOr(drawing: *Drawing, set: u32, binding: u32, dst: u32) ?BufferHandle {
-        return drawing.descriptor.getUniformOr(set, binding, dst);
-    }
-
-    pub fn getUniformOrCreate(drawing: *Drawing, set: u32, binding: u32, dst: u32) !BufferHandle {
-        return drawing.descriptor.getUniformOrCreate(set, binding, dst);
-    }
-
-    pub fn updateDescriptorSets(self: *Drawing, ally: std.mem.Allocator, options: Descriptor.WriteOptions) !void {
-        try self.descriptor.updateDescriptorSets(ally, options);
-    }
-
-    pub fn draw(self: *Drawing, command_buffer: vk.CommandBuffer, options: struct {
+    pub fn draw(drawing: *Drawing, gpu: *Gpu, command_buffer: vk.CommandBuffer, options: struct {
+        swapchain: Swapchain,
         frame_id: usize,
         bind_pipeline: bool,
     }) !void {
-        const gpu = &self.window.gpu;
-
-        const extent = self.window.swapchain.extent;
+        const extent = options.swapchain.extent;
         const resolution: [2]f32 = .{ @floatFromInt(extent.width), @floatFromInt(extent.height) };
         const now: f32 = @floatCast(glfw.glfwGetTime());
 
-        if (self.global_ubo) (try self.getUniformOrCreate(0, 0, 0)).setAsUniform(GlobalUniform, .{ .time = now, .in_resolution = resolution });
+        if (drawing.global_ubo) (try drawing.descriptor.getUniformOrCreate(gpu, 0, 0, 0)).setAsUniform(GlobalUniform, .{ .time = now, .in_resolution = resolution });
 
-        if (options.bind_pipeline) gpu.vkd.cmdBindPipeline(command_buffer, .graphics, self.descriptor.pipeline.vk_pipeline);
+        if (options.bind_pipeline) gpu.vkd.cmdBindPipeline(command_buffer, .graphics, drawing.descriptor.pipeline.vk_pipeline);
 
-        if (self.instances == 0 or self.vert_count == 0) return;
+        if (drawing.instances == 0 or drawing.vert_count == 0) return;
 
         const offset = [_]vk.DeviceSize{0};
-        if (self.vertex_buffer) |vb| gpu.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&vb.buff_mem.buffer), &offset);
+        if (drawing.vertex_buffer) |vb| gpu.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&vb.buff_mem.buffer), &offset);
         gpu.vkd.cmdBindDescriptorSets(
             command_buffer,
             .graphics,
-            self.descriptor.pipeline.layout,
+            drawing.descriptor.pipeline.layout,
             0,
-            @intCast(self.descriptor.descriptor_sets.len),
-            self.descriptor.descriptor_sets.ptr,
+            @intCast(drawing.descriptor.descriptor_sets.len),
+            drawing.descriptor.descriptor_sets.ptr,
             0,
             null,
         );
-        if (self.index_buffer) |ib| {
+        if (drawing.index_buffer) |ib| {
             gpu.vkd.cmdBindIndexBuffer(command_buffer, ib.buff_mem.buffer, 0, .uint32);
-            gpu.vkd.cmdDrawIndexed(command_buffer, @intCast(self.vert_count), self.instances, 0, 0, 0);
-        } else gpu.vkd.cmdDraw(command_buffer, @intCast(self.vert_count), self.instances, 0, 0);
+            gpu.vkd.cmdDrawIndexed(command_buffer, @intCast(drawing.vert_count), drawing.instances, 0, 0, 0);
+        } else gpu.vkd.cmdDraw(command_buffer, @intCast(drawing.vert_count), drawing.instances, 0, 0);
     }
 
-    pub fn destroyVertex(drawing: *Drawing) !void {
-        const gpu = &drawing.window.gpu;
-
+    pub fn destroyVertex(drawing: *Drawing, gpu: *Gpu) !void {
         if (drawing.vertex_buffer) |vb| {
             if (drawing.descriptor.queue) |queue| {
                 try queue.appendBufferDeletion(vb);
             } else {
-                try gpu.vkd.deviceWaitIdle(drawing.window.gpu.dev);
+                try gpu.vkd.deviceWaitIdle(gpu.dev);
                 vb.deinit(gpu.*);
             }
         }
@@ -1357,7 +1329,7 @@ pub const Drawing = struct {
             if (drawing.descriptor.queue) |queue| {
                 try queue.appendBufferDeletion(vb);
             } else {
-                try gpu.vkd.deviceWaitIdle(drawing.window.gpu.dev);
+                try gpu.vkd.deviceWaitIdle(gpu.dev);
                 vb.deinit(gpu.*);
             }
         }
@@ -1583,14 +1555,14 @@ pub const Framebuffer = struct {
     pub fn deinit(fb: Framebuffer, gpu: Gpu) void {
         gpu.vkd.destroyFramebuffer(gpu.dev, fb.buffer, null);
     }
-    pub fn init(gpu: *const Gpu, info: FramebufferInfo) !Framebuffer {
+    pub fn init(gpu: *const Gpu, options: FramebufferInfo) !Framebuffer {
         const buffer = try gpu.vkd.createFramebuffer(gpu.dev, &.{
-            .render_pass = info.render_pass,
-            .attachment_count = @intCast(info.attachments.len),
-            .p_attachments = info.attachments.ptr,
-            .width = info.width,
-            .height = info.height,
-            .layers = info.layers,
+            .render_pass = options.render_pass,
+            .attachment_count = @intCast(options.attachments.len),
+            .p_attachments = options.attachments.ptr,
+            .width = options.width,
+            .height = options.height,
+            .layers = options.layers,
         }, null);
         if (builtin.mode == .Debug) {
             try addDebugMark(gpu.*, .framebuffer, @intFromEnum(buffer), "framebuffer");
@@ -2382,10 +2354,7 @@ pub const Window = struct {
 
         const render_pass = try RenderPass.init(&gpu, .{ .format = swapchain.surface_format.format });
 
-        const pool = try gpu.vkd.createCommandPool(gpu.dev, &.{
-            .queue_family_index = gpu.graphics_queue.family,
-            .flags = .{ .reset_command_buffer_bit = true },
-        }, null);
+        const pool = gpu.graphics_pool;
 
         if (builtin.mode == .Debug) {
             try addDebugMark(gpu, .command_pool, @intFromEnum(pool), "command pool");
@@ -2407,7 +2376,7 @@ pub const Window = struct {
         const color_formats = try ally.alloc(vk.Format, 1);
         color_formats[0] = swapchain.surface_format.format;
 
-        return Window{
+        return .{
             .glfw_win = glfw_win,
             .events = events,
             .alive = true,
@@ -2611,30 +2580,36 @@ pub const VertexDescription = struct {
         return BufferHandle.init(gpu, .{ .size = vert_count * description.getVertexSize(), .buffer_type = .vertex });
     }
 
-    pub fn bindVertex(comptime description: VertexDescription, draw: *Drawing, vertices: []const description.getAttributeType(), indices: []const u32, mode: CommandMode) !void {
+    pub fn bindVertex(
+        comptime description: VertexDescription,
+        draw: *Drawing,
+        gpu: *Gpu,
+        vertices: []const description.getAttributeType(),
+        indices: []const u32,
+        mode: CommandMode,
+    ) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
 
         draw.vert_count = indices.len;
-        const gpu = &draw.window.gpu;
 
         if (indices.len == 0) return;
 
         if (mode == .immediate) {
-            try draw.destroyVertex();
+            try draw.destroyVertex(gpu);
         }
 
         const vertex_buff = try gpu.createStagingBuffer(description.getVertexSize() * vertices.len);
         defer vertex_buff.deinit(gpu.*);
 
         draw.vertex_buffer = try description.createBuffer(gpu, vertices.len);
-        try draw.vertex_buffer.?.setVertex(description, gpu, draw.window.pool, vertices, vertex_buff, mode);
+        try draw.vertex_buffer.?.setVertex(description, gpu, gpu.graphics_pool, vertices, vertex_buff, mode);
 
         const index_buff = try gpu.createStagingBuffer(@sizeOf(u32) * indices.len);
         defer index_buff.deinit(gpu.*);
 
         draw.index_buffer = try BufferHandle.init(gpu, .{ .size = @sizeOf(u32) * indices.len, .buffer_type = .index });
-        try draw.index_buffer.?.setIndices(gpu, draw.window.pool, indices, index_buff, mode);
+        try draw.index_buffer.?.setIndices(gpu, gpu.graphics_pool, indices, index_buff, mode);
     }
 };
 

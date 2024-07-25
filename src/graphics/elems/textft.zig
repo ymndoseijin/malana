@@ -126,7 +126,7 @@ pub const Text = struct {
             self.sprite.setOpacity(opacity);
         }
 
-        pub fn init(ally: std.mem.Allocator, parent: *Text, info: CharacterInfo) !Character {
+        pub fn init(ally: std.mem.Allocator, gpu: *graphics.Gpu, parent: *Text, info: CharacterInfo) !Character {
             const tracy = trace(@src());
             defer tracy.end();
 
@@ -179,7 +179,7 @@ pub const Text = struct {
 
             const default_transform: graphics.Transform2D = .{};
 
-            const sprite = try parent.batch.newSprite(.{ .tex = tex, .uniform = .{
+            const sprite = try parent.batch.newSprite(gpu, .{ .tex = tex, .uniform = .{
                 .transform = default_transform.getMat().cast(4, 4).columns,
                 .opacity = 1.0,
                 .index = @intCast(info.index),
@@ -207,10 +207,10 @@ pub const Text = struct {
         color: [3]f32 = .{ 1.0, 1.0, 1.0 },
     };
 
-    pub fn printFmt(self: *Text, ally: std.mem.Allocator, comptime fmt: []const u8, fmt_args: anytype) !void {
+    pub fn printFmt(self: *Text, ally: std.mem.Allocator, gpu: *graphics.Gpu, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
         const str = try std.fmt.bufPrint(&buf, fmt, fmt_args);
-        try self.print(ally, .{ .text = str });
+        try self.print(ally, gpu, .{ .text = str });
     }
 
     pub fn setOpacity(self: *Text, opacity: f32) void {
@@ -238,16 +238,16 @@ pub const Text = struct {
         return res;
     }
 
-    pub fn print(self: *Text, ally: std.mem.Allocator, info: PrintInfo) !void {
+    pub fn print(text: *Text, ally: std.mem.Allocator, gpu: *graphics.Gpu, info: PrintInfo) !void {
         if (info.text.len == 0) return;
 
         var unicode = (try std.unicode.Utf8View.init(info.text)).iterator();
 
         while (unicode.nextCodepoint()) |c| {
-            try self.codepoints.append(c);
+            try text.codepoints.append(c);
         }
 
-        var index: usize = self.codepoints.items.len - 1;
+        var index: usize = text.codepoints.items.len - 1;
 
         unicode = (try std.unicode.Utf8View.init(info.text)).iterator();
 
@@ -256,19 +256,19 @@ pub const Text = struct {
             if (c == '\n' or c == 32) {
                 continue;
             }
-            const char = try Character.init(ally, self, .{
+            const char = try Character.init(ally, gpu, text, .{
                 .char = c,
-                .count = self.codepoints.items.len,
+                .count = text.codepoints.items.len,
                 .index = index,
             });
             char.sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .color, .{ info.color[0], info.color[1], info.color[2], 0.0 });
-            try self.characters.append(char);
+            try text.characters.append(char);
         }
 
-        try self.update();
+        try text.update();
 
-        for (self.characters.items) |c| {
-            c.sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(self.codepoints.items.len)));
+        for (text.characters.items) |char| {
+            char.sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(text.codepoints.items.len)));
         }
     }
 

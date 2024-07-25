@@ -5,7 +5,7 @@ const graphics = ui.graphics;
 const Vec3 = ui.Vec3;
 const Vertex = ui.Vertex;
 const common = ui.common;
-const Ui = ui.Ui;
+const Ui = ui.State;
 const math = ui.math;
 const Box = ui.Box;
 
