@@ -282,7 +282,8 @@ pub const Astro = struct {
             const pos = planet.pos.val;
             const pos_low: [4]f32 = .{ @floatCast(pos[0]), @floatCast(pos[1]), @floatCast(pos[2]), 0 };
 
-            (try astro.object.drawing.descriptor.getUniformOrCreate(gpu, 0, 1, @intCast(i))).setAsUniformField(PlanetUniform, .pos, pos_low);
+            const planet_uniform = try astro.object.drawing.descriptor.getUniformOrCreate(gpu, 0, 1, @intCast(i));
+            planet_uniform.setAsUniformField(PlanetUniform, .pos, pos_low);
         }
 
         astro.object.drawing.instances = astro.planet_array.len;
@@ -347,11 +348,9 @@ pub fn main() !void {
 
         try state.updateEvents();
 
-        const uniform: graphics.SpatialMesh.Uniform.T = .{
+        try astro.object.drawing.descriptor.setUniformOrCreate(graphics.SpatialMesh.Uniform, gpu, 0, 1, 0, .{
             .spatial_pos = .{ 0, 0, 0, 0 },
-        };
-
-        (try astro.object.drawing.descriptor.getUniformOrCreate(gpu, 0, 1, 0)).setAsUniform(graphics.SpatialMesh.Uniform, uniform);
+        });
 
         try astro.fps.clear();
         try astro.fps.printFmt(ally, gpu, "FPS: {}", .{@as(u32, @intFromFloat(1 / state.dt))});

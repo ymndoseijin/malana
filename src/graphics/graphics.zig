@@ -866,6 +866,18 @@ pub const Descriptor = struct {
         return buffer.buffer;
     }
 
+    pub fn setUniformOrCreate(
+        descriptor: *Descriptor,
+        comptime Data: DataDescription,
+        gpu: *Gpu,
+        set: u32,
+        binding: u32,
+        dst: u32,
+        value: Data.T,
+    ) !void {
+        (try descriptor.getUniformOrCreate(gpu, set, binding, dst)).setAsUniform(Data, value);
+    }
+
     pub fn createUniformBuffers(descriptor: *Descriptor, ally: std.mem.Allocator, gpu: *Gpu) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
@@ -1261,7 +1273,7 @@ pub const Drawing = struct {
         };
 
         if (drawing.global_ubo) {
-            (try drawing.descriptor.getUniformOrCreate(gpu, 0, 0, 0)).setAsUniform(GlobalUniform, .{
+            try drawing.descriptor.setUniformOrCreate(GlobalUniform, gpu, 0, 0, 0, .{
                 .time = 0,
                 .in_resolution = .{ 0, 0 },
             });
@@ -1291,7 +1303,9 @@ pub const Drawing = struct {
         const resolution: [2]f32 = .{ @floatFromInt(extent.width), @floatFromInt(extent.height) };
         const now: f32 = @floatCast(glfw.glfwGetTime());
 
-        if (drawing.global_ubo) (try drawing.descriptor.getUniformOrCreate(gpu, 0, 0, 0)).setAsUniform(GlobalUniform, .{ .time = now, .in_resolution = resolution });
+        if (drawing.global_ubo) {
+            try drawing.descriptor.setUniformOrCreate(GlobalUniform, gpu, 0, 0, 0, .{ .time = now, .in_resolution = resolution });
+        }
 
         if (options.bind_pipeline) gpu.vkd.cmdBindPipeline(command_buffer, .graphics, drawing.descriptor.pipeline.vk_pipeline);
 

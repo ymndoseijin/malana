@@ -119,7 +119,7 @@ pub const Line = struct {
             .target = info.target,
         });
 
-        (try drawing.descriptor.getUniformOrCreate(gpu, 0, 0, 0)).setAsUniform(graphics.GlobalUniform, .{
+        try drawing.descriptor.setUniformOrCreate(graphics.GlobalUniform, gpu, 0, 0, 0, .{
             .time = 0,
             .in_resolution = .{ 1, 1 },
         });
