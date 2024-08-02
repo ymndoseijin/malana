@@ -25,17 +25,24 @@ pub const Region = struct {
 const DefaultRegion: Region = .{};
 
 const Focusable = struct {
+    // triggered with each key press
     key_func: *const fn (*anyopaque, *Callback, i32, i32, graphics.Action, i32) anyerror!void = defaultKey,
+    // triggered with each character inputted
     char_func: *const fn (*anyopaque, *Callback, u32) anyerror!void = defaultChar,
+    // triggered with each window resize
     frame_func: *const fn (*anyopaque, *Callback, i32, i32) anyerror!void = defaultFrame,
+    // triggered with the scroll of the mouse
     scroll_func: *const fn (*anyopaque, *Callback, f64, f64) anyerror!void = defaultScroll,
+    // triggered with mouse clicks
     mouse_func: *const fn (*anyopaque, *Callback, i32, graphics.Action, i32) anyerror!void = defaultMouse,
+    // triggered with mouse movement
     cursor_func: *const fn (*anyopaque, *Callback, f64, f64) anyerror!void = defaultCursor,
 
     focus_enter_func: *const fn (*anyopaque, *Callback) anyerror!bool = defaultFocus,
     focus_exit_func: *const fn (*anyopaque, *Callback) anyerror!void = defaultExit,
 
     region: *const Region = &DefaultRegion,
+    ptr: *anyopaque,
 
     pub fn defaultKey(_: *anyopaque, _: *Callback, _: i32, _: i32, _: graphics.Action, _: i32) !void {
         return;

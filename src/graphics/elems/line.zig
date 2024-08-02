@@ -35,10 +35,10 @@ pub const Line = struct {
         thickness: f32 = 0.1,
     }) !void {
         var vertices = std.ArrayList(description.vertex_description.getAttributeType()).init(ally);
-        //defer vertices.deinit();
+        defer vertices.deinit();
 
         var indices = std.ArrayList(u32).init(ally);
-        //defer indices.deinit();
+        defer indices.deinit();
 
         for (0..info.vertices.len) |i_in| {
             const i: u32 = @intCast(i_in);

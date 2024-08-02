@@ -26,13 +26,71 @@ dt: f32,
 
 callback: Callback,
 
-key_down: *const fn (KeyState, i32, f32) anyerror!void = defaultKeyDown,
-char_func: *const fn (codepoint: u32) anyerror!void = defaultChar,
-scroll_func: *const fn (xoffset: f64, yoffset: f64) anyerror!void = defaultScroll,
-mouse_func: *const fn (button: i32, action: graphics.Action, mods: i32) anyerror!void = defaultMouse,
-cursor_func: *const fn (xoffset: f64, yoffset: f64) anyerror!void = defaultCursor,
-frame_func: *const fn (width: i32, height: i32) anyerror!void = defaultFrame,
-key_func: *const fn (key: i32, scancode: i32, action: graphics.Action, mods: i32) anyerror!void = defaultKey,
+key_down_manager: SubscriptionManager(KeyDownFunction) = .{},
+char_func_manager: SubscriptionManager(CharFunction) = .{},
+scroll_func_manager: SubscriptionManager(ScrollFunction) = .{},
+mouse_func_manager: SubscriptionManager(MouseFunction) = .{},
+cursor_func_manager: SubscriptionManager(CursorFunction) = .{},
+frame_func_manager: SubscriptionManager(FrameFunction) = .{},
+key_func_manager: SubscriptionManager(KeyFunction) = .{},
+
+pub const Context = struct {
+    state: *State,
+    ptr: *anyopaque,
+    id: usize,
+};
+
+pub const KeyDownFunction = *const fn (Context, KeyState, i32, f32) anyerror!void;
+pub const CharFunction = *const fn (Context, codepoint: u32) anyerror!void;
+pub const ScrollFunction = *const fn (Context, xoffset: f64, yoffset: f64) anyerror!void;
+pub const MouseFunction = *const fn (Context, button: i32, action: graphics.Action, mods: i32) anyerror!void;
+pub const CursorFunction = *const fn (Context, xoffset: f64, yoffset: f64) anyerror!void;
+pub const FrameFunction = *const fn (Context, width: i32, height: i32) anyerror!void;
+pub const KeyFunction = *const fn (Context, key: i32, scancode: i32, action: graphics.Action, mods: i32) anyerror!void;
+
+fn SubscriptionManager(comptime Function: type) type {
+    return struct {
+        last_id: usize = 0,
+        list: std.ArrayListUnmanaged(Subscriber) = .{},
+
+        const Manager = @This();
+        pub const Subscriber = struct {
+            func: Function,
+            ptr: *anyopaque,
+            id: usize,
+        };
+
+        // returns id of subscription
+        pub fn subscribe(manager: *Manager, ally: std.mem.Allocator, options: struct {
+            func: Function,
+            ptr: *anyopaque = undefined,
+        }) !usize {
+            try manager.list.append(ally, .{
+                .func = options.func,
+                .ptr = options.ptr,
+                .id = manager.last_id,
+            });
+            manager.last_id += 1;
+            return manager.last_id - 1;
+        }
+
+        pub fn unsubscribe(manager: *Manager, id: usize) !void {
+            var search_result: ?usize = null;
+            for (manager.list.items, 0..) |item, idx| {
+                if (item.id == id) {
+                    search_result = idx;
+                    break;
+                }
+            }
+
+            if (search_result) |result_idx| {
+                _ = try manager.list.swapRemove(result_idx);
+            } else {
+                return error.SubscriptionNotFound;
+            }
+        }
+    };
+}
 
 const State = @This();
 
@@ -227,25 +285,50 @@ pub fn init(ally: std.mem.Allocator, info: struct {
 pub fn charFunc(ptr: *anyopaque, codepoint: u32) !void {
     var state: *State = @ptrCast(@alignCast(ptr));
     try state.callback.getChar(codepoint);
-    try state.char_func(codepoint);
+
+    for (state.char_func_manager.list.items) |sub| {
+        try sub.func(.{
+            .state = state,
+            .ptr = sub.ptr,
+            .id = sub.id,
+        }, codepoint);
+    }
 }
 
 pub fn scrollFunc(ptr: *anyopaque, xoffset: f64, yoffset: f64) !void {
     var state: *State = @ptrCast(@alignCast(ptr));
     try state.callback.getScroll(xoffset, yoffset);
-    try state.scroll_func(xoffset, yoffset);
+    for (state.scroll_func_manager.list.items) |sub| {
+        try sub.func(.{
+            .state = state,
+            .ptr = sub.ptr,
+            .id = sub.id,
+        }, xoffset, yoffset);
+    }
 }
 
 pub fn mouseFunc(ptr: *anyopaque, button: i32, action: graphics.Action, mods: i32) !void {
     var state: *State = @ptrCast(@alignCast(ptr));
     try state.callback.getMouse(button, action, mods);
-    try state.mouse_func(button, action, mods);
+    for (state.mouse_func_manager.list.items) |sub| {
+        try sub.func(.{
+            .state = state,
+            .ptr = sub.ptr,
+            .id = sub.id,
+        }, button, action, mods);
+    }
 }
 
 pub fn cursorFunc(ptr: *anyopaque, xoffset: f64, yoffset: f64) !void {
     var state: *State = @ptrCast(@alignCast(ptr));
     try state.callback.getCursor(xoffset, yoffset);
-    try state.cursor_func(xoffset, yoffset);
+    for (state.cursor_func_manager.list.items) |sub| {
+        try sub.func(.{
+            .state = state,
+            .ptr = sub.ptr,
+            .id = sub.id,
+        }, xoffset, yoffset);
+    }
 }
 
 pub fn updateEvents(state: *State) !void {
@@ -259,7 +342,13 @@ pub fn updateEvents(state: *State) !void {
     state.time = time;
 
     if (state.down_num > 0) {
-        try state.key_down(.{ .pressed_table = &state.current_keys, .last_interact_table = &state.last_interact_keys }, state.last_mods, state.dt);
+        for (state.key_down_manager.list.items) |sub| {
+            try sub.func(.{
+                .state = state,
+                .ptr = sub.ptr,
+                .id = sub.id,
+            }, .{ .pressed_table = &state.current_keys, .last_interact_table = &state.last_interact_keys }, state.last_mods, state.dt);
+        }
     }
 
     state.last_time = time;
@@ -304,6 +393,14 @@ pub fn deinit(state: *State, ally: std.mem.Allocator) void {
     state.compute_builder.deinit(&state.main_win.gpu, state.main_win.pool, state.main_win.ally);
     state.main_win.deinit();
     graphics.deinitGraphics();
+
+    state.key_down_manager.list.deinit(ally);
+    state.char_func_manager.list.deinit(ally);
+    state.scroll_func_manager.list.deinit(ally);
+    state.mouse_func_manager.list.deinit(ally);
+    state.cursor_func_manager.list.deinit(ally);
+    state.frame_func_manager.list.deinit(ally);
+    state.key_func_manager.list.deinit(ally);
 }
 
 fn frameFunc(ptr: *anyopaque, width: i32, height: i32) !void {
@@ -337,7 +434,14 @@ fn frameFunc(ptr: *anyopaque, width: i32, height: i32) !void {
     }} });
 
     try state.callback.getFrame(width, height);
-    try state.frame_func(width, height);
+
+    for (state.frame_func_manager.list.items) |sub| {
+        try sub.func(.{
+            .state = state,
+            .ptr = sub.ptr,
+            .id = sub.id,
+        }, width, height);
+    }
 }
 
 fn keyFunc(ptr: *anyopaque, key: i32, scancode: i32, action: graphics.Action, mods: i32) !void {
@@ -346,7 +450,14 @@ fn keyFunc(ptr: *anyopaque, key: i32, scancode: i32, action: graphics.Action, mo
     var state: *State = @ptrCast(@alignCast(ptr));
 
     try state.callback.getKey(key, scancode, action, mods);
-    try state.key_func(key, scancode, action, mods);
+
+    for (state.key_func_manager.list.items) |sub| {
+        try sub.func(.{
+            .state = state,
+            .ptr = sub.ptr,
+            .id = sub.id,
+        }, key, scancode, action, mods);
+    }
 
     if (action == .press) {
         state.current_keys[@intCast(key)] = true;

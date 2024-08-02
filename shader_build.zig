@@ -175,8 +175,8 @@ fn digest(hasher: anytype) [64]u8 {
 }
 
 /// Internal build function.
-fn make(step: *Build.Step, progress: std.Progress.Node) anyerror!void {
-    _ = progress;
+fn make(step: *Build.Step, options: Build.Step.MakeOptions) anyerror!void {
+    _ = options;
     const b = step.owner;
     const self: *ShaderCompileStep = @fieldParentPtr("step", step);
     const cwd = std.fs.cwd();

@@ -16,7 +16,7 @@ const gl = ui.gl;
 
 var astro_global: *Astro = undefined;
 
-fn keyDown(keys: ui.KeyState, mods: i32, dt: f32) !void {
+fn keyDown(_: State.Context, keys: ui.KeyState, mods: i32, dt: f32) !void {
     if (keys.pressed_table[graphics.glfw.GLFW_KEY_Q]) {
         astro_global.state.main_win.alive = false;
     }
@@ -200,7 +200,7 @@ pub const Astro = struct {
 
         const material = try Material.init(state, ally, .{ .pipeline = triangle_pipeline, .vert = &shaders.vert, .frag = &shaders.frag });
 
-        state.key_down = keyDown;
+        _ = try state.key_down_manager.subscribe(ally, .{ .func = keyDown });
 
         const color_target: graphics.RenderTarget = .{
             .texture = .{
@@ -332,6 +332,7 @@ pub const Astro = struct {
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 32 }){};
     defer _ = gpa.deinit();
+
     const ally = gpa.allocator();
 
     var astro = try Astro.init(ally);

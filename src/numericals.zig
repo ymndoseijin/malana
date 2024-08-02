@@ -9,13 +9,13 @@ const Vec3 = math.Vec3;
 const Mat3 = math.Mat3;
 
 pub const KeplerElements = struct {
-    a: f64,
-    e: f64,
-    arg: f64,
-    long: f64,
-    i: f64,
-    m0: f64,
-    t0: f64 = 0,
+    a: f64, // semi-major axis
+    e: f64, // eccentricity
+    arg: f64, // argument of periapsis
+    long: f64, // longitude of ascending node
+    i: f64, // inclination
+    m0: f64, // mean anomaly
+    t0: f64 = 0, // starting time
 };
 
 pub const sun_mu = 1.32712440018e20;
