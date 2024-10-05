@@ -54,7 +54,6 @@ pub const Text = struct {
     bounding_height: f32,
 
     wrap: bool,
-    flip_y: bool,
 
     // 2D structure
     transform: graphics.Transform2D,
@@ -146,10 +145,9 @@ pub const Text = struct {
                 };
                 defer ally.free(image.data);
 
-                for (0..bitmap.rows) |i_in| {
+                for (0..bitmap.rows) |i| {
                     for (0..bitmap.width) |j| {
-                        const i = if (parent.flip_y) image.height - i_in - 1 else i_in;
-                        const s: u8 = bitmap.buffer[i_in * bitmap.width + j];
+                        const s: u8 = bitmap.buffer[i * bitmap.width + j];
                         image.data[i * image.width + j] = .{ .r = 255, .g = 255, .b = 255, .a = s };
                     }
                 }
@@ -159,7 +157,7 @@ pub const Text = struct {
                     .min_filter = .linear,
                     .texture_type = .flat,
                 });
-                try new_tex.setFromRgba(image);
+                try new_tex.setFromRgba(image, parent.scene.flip_z);
                 try parent.codepoint_table.put(info.char, .{ .tex = new_tex, .metrics = glyph.*.metrics });
                 break :blk .{ .tex = new_tex, .metrics = glyph.*.metrics };
             };
@@ -170,7 +168,7 @@ pub const Text = struct {
                 @floatFromInt(metrics.horiBearingX),
                 @floatFromInt(-metrics.height + metrics.horiBearingY),
             });
-            if (!parent.flip_y) offset.val[1] *= -1;
+            if (parent.scene.flip_z) offset.val[1] *= -1;
 
             const metrics_scale: f32 = 1.0 / 64.0;
             offset = offset.scale(metrics_scale);
@@ -292,13 +290,21 @@ pub const Text = struct {
 
         while (it.next()) |word| {
             if (self.wrap and try self.getExtent(word) + start.val[0] > self.bounding_width + self.transform.translation.val[0] and self.codepoints.items.len != 0) {
-                start.val = .{ self.transform.translation.val[0], start.val[1] + self.line_spacing };
+                if (self.scene.flip_z) {
+                    start.val = .{ self.transform.translation.val[0], start.val[1] - self.line_spacing };
+                } else {
+                    start.val = .{ self.transform.translation.val[0], start.val[1] + self.line_spacing };
+                }
                 height += self.line_spacing;
             }
 
             for (word) |c| {
                 if (c == '\n') {
-                    start.val = .{ self.transform.translation.val[0], start.val[1] + self.line_spacing };
+                    if (self.scene.flip_z) {
+                        start.val = .{ self.transform.translation.val[0], start.val[1] - self.line_spacing };
+                    } else {
+                        start.val = .{ self.transform.translation.val[0], start.val[1] + self.line_spacing };
+                    }
                     height += self.line_spacing;
                     continue;
                 }
@@ -306,11 +312,22 @@ pub const Text = struct {
                 var char = &self.characters.items[character_index];
 
                 if (self.wrap and char.advance + start.val[0] > self.bounding_width + self.transform.translation.val[0]) {
-                    start.val = .{ self.transform.translation.val[0], start.val[1] + self.line_spacing };
+                    if (self.scene.flip_z) {
+                        start.val = .{ self.transform.translation.val[0], start.val[1] - self.line_spacing };
+                    } else {
+                        start.val = .{ self.transform.translation.val[0], start.val[1] + self.line_spacing };
+                    }
                     height += self.line_spacing;
                 }
 
-                char.sprite.transform.translation = start.add(char.offset).sub(math.Vec2.init(.{ 0, @floatFromInt(char.tex.height) }));
+                if (self.scene.flip_z) {
+                    char.sprite.transform.translation = start.add(char.offset);
+                } else {
+                    char.sprite.transform.translation = start.add(char.offset).sub(.init(.{
+                        0,
+                        @floatFromInt(char.tex.height),
+                    }));
+                }
                 char.sprite.transform.scale = math.Vec2.init(.{ @floatFromInt(char.tex.width), @floatFromInt(char.tex.height) });
                 char.sprite.updateTransform();
 
@@ -341,7 +358,6 @@ pub const Text = struct {
         size: f32,
         line_spacing: f32,
         wrap: bool = true,
-        flip_y: bool = false,
         bounding_width: f32 = 0,
         pipeline: ?graphics.RenderPipeline = null,
         scene: *graphics.Scene,
@@ -371,7 +387,6 @@ pub const Text = struct {
             }),
             .scene = info.scene,
             .wrap = info.wrap,
-            .flip_y = info.flip_y,
             .transform = .{
                 .scale = math.Vec2.init(.{ 1, 1 }),
                 .rotation = .{ .angle = 0, .center = math.Vec2.init(.{ 0.5, 0.5 }) },

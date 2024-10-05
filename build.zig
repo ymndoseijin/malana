@@ -115,6 +115,8 @@ pub fn build(b: *std.Build) void {
 
     _ = b.addModule("ui", ui_info);
 
+    const box2c = b.dependency("box2c", .{});
+
     const App = struct {
         name: []const u8,
         shaders: []const struct { []const u8, []const u8, ShaderCompileStep.ShaderOptions },
@@ -212,6 +214,53 @@ pub fn build(b: *std.Build) void {
                 exe.linkSystemLibrary("dbghelp");
                 exe.linkSystemLibrary("ws2_32");
             }
+        }
+
+        exe.addIncludePath(box2c.path("src"));
+        exe.addIncludePath(box2c.path("include"));
+        exe.addIncludePath(box2c.path("extern/simde"));
+
+        inline for (&.{
+            "src/aabb.c",
+            "src/allocate.c",
+            "src/array.c",
+            "src/bitset.c",
+            "src/block_array.c",
+            "src/body.c",
+            "src/broad_phase.c",
+            "src/constraint_graph.c",
+            "src/contact.c",
+            "src/contact_solver.c",
+            "src/core.c",
+            "src/distance.c",
+            "src/distance_joint.c",
+            "src/dynamic_tree.c",
+            "src/geometry.c",
+            "src/hull.c",
+            "src/id_pool.c",
+            "src/island.c",
+            "src/joint.c",
+            "src/manifold.c",
+            "src/math_functions.c",
+            "src/motor_joint.c",
+            "src/mouse_joint.c",
+            "src/prismatic_joint.c",
+            "src/revolute_joint.c",
+            "src/shape.c",
+            "src/solver.c",
+            "src/solver_set.c",
+            "src/stack_allocator.c",
+            "src/table.c",
+            "src/timer.c",
+            "src/types.c",
+            "src/weld_joint.c",
+            "src/wheel_joint.c",
+            "src/world.c",
+        }) |path| {
+            exe.addCSourceFile(.{
+                .file = box2c.path(path),
+                .flags = &.{},
+            });
         }
 
         exe.root_module.addImport("ui", ui);

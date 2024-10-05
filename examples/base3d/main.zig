@@ -3,7 +3,7 @@ const std = @import("std");
 const ui = @import("ui");
 const shaders = @import("shaders");
 
-const Ui = ui.Ui;
+const State = ui.State;
 const graphics = ui.graphics;
 const Vec3 = ui.Vec3;
 const Vertex = ui.Vertex;
@@ -12,9 +12,9 @@ const common = ui.common;
 const math = ui.math;
 const gl = ui.gl;
 
-var state: *Ui = undefined;
+var state: *State = undefined;
 
-fn key_down(keys: ui.KeyState, mods: i32, dt: f32) !void {
+fn keyDown(_: State.Context, keys: ui.KeyState, mods: i32, dt: f32) !void {
     if (keys.pressed_table[graphics.glfw.GLFW_KEY_Q]) {
         state.main_win.alive = false;
     }
@@ -38,7 +38,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const ally = gpa.allocator();
 
-    state = try Ui.init(ally, .{
+    state = try State.init(ally, .{
         .window = .{ .name = "box test", .width = 500, .height = 500, .resizable = true, .preferred_format = .srgb },
         .scene = .{ .flip_z = true },
     });
@@ -58,11 +58,11 @@ pub fn main() !void {
 
     const shadow_res = 1024;
 
-    const shadow_pass = try graphics.RenderPass.init(&state.main_win.gpu, .{
+    const shadow_pass = try graphics.RenderPass.init(gpu, .{
         .format = state.main_win.swapchain.surface_format.format,
         .target = true,
     });
-    defer shadow_pass.deinit(&state.main_win.gpu);
+    defer shadow_pass.deinit(gpu);
 
     const LightObject = struct {
         pub fn init(pos: math.Vec3, intensity: [3]f32) !@This() {
@@ -127,20 +127,20 @@ pub fn main() !void {
         .global_ubo = true,
     };
 
-    const screen_vert = try graphics.Shader.init(state.main_win.gpu, &shaders.shadow_vert, .vertex);
-    defer screen_vert.deinit(state.main_win.gpu);
+    const screen_vert = try graphics.Shader.init(gpu.*, &shaders.shadow_vert, .vertex);
+    defer screen_vert.deinit(gpu.*);
 
-    const screen_frag = try graphics.Shader.init(state.main_win.gpu, &shaders.shadow_frag, .fragment);
-    defer screen_frag.deinit(state.main_win.gpu);
+    const screen_frag = try graphics.Shader.init(gpu.*, &shaders.shadow_frag, .fragment);
+    defer screen_frag.deinit(gpu.*);
 
     var screen_pipeline = try graphics.RenderPipeline.init(ally, .{
         .description = ScreenPipeline,
         .shaders = &.{ screen_vert, screen_frag },
         .rendering = state.main_win.rendering_options,
-        .gpu = &state.main_win.gpu,
+        .gpu = gpu,
         .flipped_z = true,
     });
-    defer screen_pipeline.deinit(&state.main_win.gpu);
+    defer screen_pipeline.deinit(gpu);
 
     const screen_drawing = try ally.create(graphics.Drawing);
     defer ally.destroy(screen_drawing);
@@ -155,19 +155,19 @@ pub fn main() !void {
         .pipeline = screen_pipeline,
         .target = color_target,
     });
-    defer screen_drawing.deinit(ally);
+    defer screen_drawing.deinit(ally, gpu.*);
 
-    try screen.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 2, .textures = &.{lights[0].shadow_tex} }} });
+    try screen.drawing.descriptor.updateDescriptorSets(gpu, .{ .samplers = &.{.{ .idx = 2, .textures = &.{lights[0].shadow_tex} }} });
 
     // get obj model
 
     var object = try obj_parser.parse(obj_file);
     defer object.deinit();
 
-    const triangle_vert = try graphics.Shader.init(state.main_win.gpu, &shaders.vert, .vertex);
-    defer triangle_vert.deinit(state.main_win.gpu);
-    const triangle_frag = try graphics.Shader.init(state.main_win.gpu, &shaders.frag, .fragment);
-    defer triangle_frag.deinit(state.main_win.gpu);
+    const triangle_vert = try graphics.Shader.init(gpu.*, &shaders.vert, .vertex);
+    defer triangle_vert.deinit(gpu.*);
+    const triangle_frag = try graphics.Shader.init(gpu.*, &shaders.frag, .fragment);
+    defer triangle_frag.deinit(gpu.*);
 
     const TrianglePipeline: graphics.PipelineDescription = .{
         .vertex_description = .{
@@ -204,10 +204,10 @@ pub fn main() !void {
         .description = TrianglePipeline,
         .shaders = &.{ triangle_vert, triangle_frag },
         .rendering = state.main_win.rendering_options,
-        .gpu = &state.main_win.gpu,
+        .gpu = gpu,
         .flipped_z = true,
     });
-    defer pipeline.deinit(&state.main_win.gpu);
+    defer pipeline.deinit(gpu);
 
     var cubemap = try graphics.Texture.init(state.main_win, 1000, 1000, .{ .cubemap = true });
     try cubemap.setCube(ally, .{
@@ -233,9 +233,9 @@ pub fn main() !void {
 
     const camera_drawing = try state.scene.new();
     const camera_obj = try graphics.SpatialMesh.init(camera_drawing, state.main_win, .{ .pipeline = pipeline, .target = color_target });
-    try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{ .set = 1, .idx = 0, .textures = &.{ cubemap, other } }} });
+    try camera_obj.drawing.descriptor.updateDescriptorSets(gpu, .{ .samplers = &.{.{ .set = 1, .idx = 0, .textures = &.{ cubemap, other } }} });
     for (lights, 0..) |light, i| {
-        try camera_obj.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{
+        try camera_obj.drawing.descriptor.updateDescriptorSets(gpu, .{ .samplers = &.{.{
             .set = 2,
             .idx = 0,
             .dst = @intCast(i),
@@ -245,19 +245,7 @@ pub fn main() !void {
 
     camera_obj.drawing.vert_count = object.vertices.items.len;
 
-    const camera_vertex = try graphics.SpatialMesh.Pipeline.vertex_description.createBuffer(gpu, object.vertices.items.len);
-    defer camera_vertex.deinit(gpu);
-
-    try camera_vertex.setVertex(graphics.SpatialMesh.Pipeline.vertex_description, gpu, state.main_win.pool, object.vertices.items);
-    camera_obj.drawing.vertex_buffer = camera_vertex;
-    defer camera_obj.drawing.vertex_buffer = null;
-
-    const camera_index = try graphics.BufferHandle.init(gpu, .{ .size = @sizeOf(u32) * object.indices.items.len, .buffer_type = .index });
-    defer camera_index.deinit(gpu);
-
-    try camera_index.setIndices(gpu, state.main_win.pool, object.indices.items);
-    camera_obj.drawing.index_buffer = camera_index;
-    defer camera_obj.drawing.index_buffer = null;
+    try graphics.SpatialMesh.Pipeline.vertex_description.bindVertex(camera_obj.drawing, gpu, object.vertices.items, object.indices.items, .immediate);
 
     // shadow drawing
     const ShadowPipeline: graphics.PipelineDescription = .{
@@ -282,24 +270,24 @@ pub fn main() !void {
             .depth_format = try gpu.findDepthFormat(),
             .color_formats = &.{},
         },
-        .gpu = &state.main_win.gpu,
+        .gpu = gpu,
         .flipped_z = true,
     });
-    defer shadow_pipeline.deinit(&state.main_win.gpu);
+    defer shadow_pipeline.deinit(gpu);
 
     var shadow_drawing = try ally.create(graphics.Drawing);
     defer ally.destroy(shadow_drawing);
 
     const shadow_mesh = try graphics.SpatialMesh.init(shadow_drawing, state.main_win, .{ .pipeline = shadow_pipeline, .target = color_target });
-    defer shadow_drawing.deinit(ally);
+    defer shadow_drawing.deinit(ally, gpu.*);
 
     shadow_mesh.drawing.vert_count = object.vertices.items.len;
-    shadow_mesh.drawing.vertex_buffer = camera_vertex;
+    shadow_mesh.drawing.vertex_buffer = camera_obj.drawing.vertex_buffer;
     defer shadow_mesh.drawing.vertex_buffer = null;
-    shadow_mesh.drawing.index_buffer = camera_index;
+    shadow_mesh.drawing.index_buffer = camera_obj.drawing.index_buffer;
     defer shadow_mesh.drawing.index_buffer = null;
 
-    state.key_down = key_down;
+    _ = try state.key_down_manager.subscribe(ally, .{ .func = keyDown });
 
     // fps counter
 
@@ -308,19 +296,19 @@ pub fn main() !void {
         .size = 50,
         .line_spacing = 1,
         .bounding_width = 250,
-        .flip_y = true,
+        //.flip_y = true,
         .scene = &state.scene,
         .target = color_target,
     });
-    defer fps.deinit();
+    defer fps.deinit(ally, gpu.*);
     fps.transform.translation = math.Vec2.init(.{ 10, 10 });
 
     std.debug.print("{any}\n", .{screen_obj.vertices.items});
-    try graphics.SpatialMesh.Pipeline.vertex_description.bindVertex(screen.drawing, screen_obj.vertices.items, screen_obj.indices.items);
+    try graphics.SpatialMesh.Pipeline.vertex_description.bindVertex(screen.drawing, gpu, screen_obj.vertices.items, screen_obj.indices.items, .immediate);
 
-    const line_vert = try graphics.Shader.init(state.main_win.gpu, &shaders.line_vert, .vertex);
+    const line_vert = try graphics.Shader.init(gpu.*, &shaders.line_vert, .vertex);
     defer line_vert.deinit(gpu.*);
-    const line_frag = try graphics.Shader.init(state.main_win.gpu, &shaders.line_frag, .fragment);
+    const line_frag = try graphics.Shader.init(gpu.*, &shaders.line_frag, .fragment);
     defer line_frag.deinit(gpu.*);
 
     var line_pipeline = try graphics.RenderPipeline.init(ally, .{
@@ -339,11 +327,11 @@ pub fn main() !void {
         },
         .shaders = &.{ line_vert, line_frag },
         .rendering = state.main_win.rendering_options,
-        .gpu = &state.main_win.gpu,
+        .gpu = gpu,
         .flipped_z = true,
     });
-    defer line_pipeline.deinit(&state.main_win.gpu);
-    var line = try graphics.Line.init(try state.scene.new(), state.main_win, .{ .pipeline = line_pipeline, .target = color_target });
+    defer line_pipeline.deinit(gpu);
+    const line = try graphics.Line.init(try state.scene.new(), state.main_win, .{ .pipeline = line_pipeline, .target = color_target });
 
     while (state.main_win.alive) {
         const frame = graphics.tracy.namedFrame("Frame");
@@ -351,7 +339,7 @@ pub fn main() !void {
 
         try state.updateEvents();
 
-        var spring_verts = std.ArrayList(math.Vec3).init(ally);
+        var spring_verts = std.ArrayList([3]f32).init(ally);
         defer spring_verts.deinit();
         const spring_count = 1024;
 
@@ -363,10 +351,10 @@ pub fn main() !void {
 
             const scale: f32 = @abs(@sin(@as(f32, @floatCast(state.time))));
 
-            try spring_verts.append(math.Vec3.init(.{ @cos(i), i / rot * scale * 4, @sin(i) }));
+            try spring_verts.append(.{ @cos(i), i / rot * scale * 4, @sin(i) });
         }
 
-        try line.set(ally, .{ .vertices = spring_verts.items });
+        //try line.set(ally, .{ .vertices = spring_verts.items });
 
         const uniform: graphics.SpatialMesh.Uniform.T = .{
             .spatial_pos = .{ 0, 0, 0, 0 },
@@ -374,7 +362,7 @@ pub fn main() !void {
 
         var spin = math.rotationY(f32, @floatCast(state.time * 5.0));
 
-        (try camera_obj.drawing.getUniformOrCreate(0, 1, 0)).setAsUniform(graphics.SpatialMesh.Uniform, uniform);
+        (try camera_obj.drawing.descriptor.getUniformOrCreate(gpu, 0, 1, 0)).setAsUniform(graphics.SpatialMesh.Uniform, uniform);
 
         //const first_pos = spin.dot(Vec3.init(.{ 2, 2, 2 }));
 
@@ -384,7 +372,7 @@ pub fn main() !void {
                 math.lookAtMatrix(spinned_pos, Vec3.init(.{ 0, 0, 0 }), Vec3.init(.{ 0, 1, 0 })),
             );
 
-            (try camera_obj.drawing.getUniformOrCreate(0, 2, @intCast(i))).setAsUniform(LightArray, .{
+            (try camera_obj.drawing.descriptor.getUniformOrCreate(gpu, 0, 2, @intCast(i))).setAsUniform(LightArray, .{
                 .pos = spinned_pos.val,
                 .intensity = light.intensity,
                 .matrix = light_matrix,
@@ -392,7 +380,7 @@ pub fn main() !void {
         }
 
         try fps.clear();
-        try fps.printFmt(ally, "FPS: {}", .{@as(u32, @intFromFloat(1 / state.dt))});
+        try fps.printFmt(ally, gpu, "FPS: {}", .{@as(u32, @intFromFloat(1 / state.dt))});
 
         // begin frame
 
@@ -441,7 +429,7 @@ pub fn main() !void {
         try state.scene.draw(builder, line.drawing, state.image_index);
         try state.scene.draw(builder, state.post_drawing, state.image_index);
 
-        state.scene.end();
+        state.scene.end(builder);
 
         builder.transitionSwapimage(gpu, swapchain.getImage(state.image_index));
 
@@ -451,7 +439,5 @@ pub fn main() !void {
             .{ .semaphore = swapchain.image_acquired[frame_id], .flag = .{ .color_attachment_output_bit = true } },
         } });
         try swapchain.present(gpu, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = state.image_index });
-
-        break;
     }
 }

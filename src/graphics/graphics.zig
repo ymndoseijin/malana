@@ -2443,11 +2443,13 @@ pub const Window = struct {
 
 pub const Transform2D = struct {
     scale: Vec2 = Vec2.init(.{ 1, 1 }),
-    rotation: struct { angle: f32, center: Vec2 } = .{ .angle = 0, .center = Vec2.init(.{ 0.5, 0.5 }) },
+    rotation: struct { angle: f32 = 0, center: Vec2 = Vec2.init(.{ 0, 0 }) } = .{},
     translation: Vec2 = Vec2.init(.{ 0, 0 }),
+
     pub fn getMat(self: Transform2D) math.Mat3 {
         return math.transform2D(f32, self.scale, .{ .angle = self.rotation.angle, .center = self.rotation.center }, self.translation);
     }
+
     pub fn getInverseMat(self: Transform2D) math.Mat3 {
         return math.transform2D(
             f32,
@@ -2456,6 +2458,7 @@ pub const Transform2D = struct {
             Vec2.init(.{ -1, -1 }).div(self.scale).mul(self.translation),
         );
     }
+
     pub fn apply(self: Transform2D, v: Vec2) Vec2 {
         var res: [3]f32 = self.getMat().dot(Vec3.init(.{ v.val[0], v.val[1], 1 })).val;
         return Vec2.init(res[0..2].*);
@@ -2573,7 +2576,7 @@ pub const VertexDescription = struct {
         }
 
         return @Type(.{
-            .Struct = .{
+            .@"struct" = .{
                 .is_tuple = true,
                 .layout = .auto,
                 .decls = &.{},

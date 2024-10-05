@@ -19,112 +19,120 @@ depth_format: vk.Format,
 debug_messenger: vk.DebugUtilsMessengerEXT,
 
 const required_device_extensions = [_][*:0]const u8{
-    vk.extension_info.khr_swapchain.name,
-    vk.extension_info.khr_dynamic_rendering.name,
+    vk.extensions.khr_swapchain.name,
+    vk.extensions.khr_dynamic_rendering.name,
 };
 
-const BaseDispatch = vk.BaseWrapper(.{
-    .createInstance = true,
-    .enumerateInstanceLayerProperties = true,
-    .getInstanceProcAddr = true,
-});
+const apis: []const vk.ApiInfo = &.{
+    .{ .base_commands = .{
+        .createInstance = true,
+        .enumerateInstanceLayerProperties = true,
+        .getInstanceProcAddr = true,
+    }, .instance_commands = .{
+        .destroyInstance = true,
+        .createDevice = true,
+        .destroySurfaceKHR = true,
+        .enumeratePhysicalDevices = true,
+        .getPhysicalDeviceProperties = true,
+        .enumerateDeviceExtensionProperties = true,
+        .getPhysicalDeviceSurfaceFormatsKHR = true,
+        .getPhysicalDeviceSurfacePresentModesKHR = true,
+        .getPhysicalDeviceSurfaceCapabilitiesKHR = true,
+        .getPhysicalDeviceQueueFamilyProperties = true,
+        .getPhysicalDeviceSurfaceSupportKHR = true,
+        .getPhysicalDeviceMemoryProperties = true,
+        .getPhysicalDeviceFormatProperties = true,
+        .getDeviceProcAddr = true,
+        .createDebugUtilsMessengerEXT = true,
+        .destroyDebugUtilsMessengerEXT = true,
+    }, .device_commands = .{
+        .destroyDevice = true,
+        .getDeviceQueue = true,
+        .createSemaphore = true,
+        .createFence = true,
+        .createImageView = true,
+        .destroyImageView = true,
+        .destroySemaphore = true,
+        .destroyFence = true,
+        .getSwapchainImagesKHR = true,
+        .createSwapchainKHR = true,
+        .destroySwapchainKHR = true,
+        .acquireNextImageKHR = true,
+        .deviceWaitIdle = true,
+        .setDebugUtilsObjectNameEXT = true,
+        .setDebugUtilsObjectTagEXT = true,
+        .waitForFences = true,
+        .resetFences = true,
+        .queueSubmit = true,
+        .queuePresentKHR = true,
+        .createCommandPool = true,
+        .destroyCommandPool = true,
+        .allocateCommandBuffers = true,
+        .freeCommandBuffers = true,
+        .queueWaitIdle = true,
+        .createShaderModule = true,
+        .destroyShaderModule = true,
+        .createPipelineLayout = true,
+        .destroyPipelineLayout = true,
+        .createRenderPass = true,
+        .destroyRenderPass = true,
+        .createGraphicsPipelines = true,
+        .createComputePipelines = true,
+        .destroyPipeline = true,
+        .createFramebuffer = true,
+        .destroyFramebuffer = true,
+        .beginCommandBuffer = true,
+        .endCommandBuffer = true,
+        .allocateMemory = true,
+        .freeMemory = true,
+        .createBuffer = true,
+        .destroyBuffer = true,
+        .getBufferMemoryRequirements = true,
+        .mapMemory = true,
+        .unmapMemory = true,
+        .bindBufferMemory = true,
+        .cmdBeginRenderPass = true,
+        .cmdEndRenderPass = true,
+        .cmdBindPipeline = true,
+        .cmdDraw = true,
+        .cmdDrawIndexed = true,
+        .cmdDispatch = true,
+        .cmdBeginRendering = true,
+        .cmdEndRendering = true,
+        .cmdSetViewport = true,
+        .cmdPushConstants = true,
+        .cmdSetScissor = true,
+        .cmdBindVertexBuffers = true,
+        .cmdBindIndexBuffer = true,
+        .cmdCopyBuffer = true,
+        .cmdPipelineBarrier = true,
+        .cmdCopyBufferToImage = true,
+        .createImage = true,
+        .getImageMemoryRequirements = true,
+        .bindImageMemory = true,
+        .createDescriptorPool = true,
+        .allocateDescriptorSets = true,
+        .updateDescriptorSets = true,
+        .cmdBindDescriptorSets = true,
+        .createDescriptorSetLayout = true,
+        .resetCommandBuffer = true,
+        .createSampler = true,
+        .destroyDescriptorSetLayout = true,
+        .destroyDescriptorPool = true,
+        .destroySampler = true,
+        .destroyImage = true,
+    } },
+    // Or you can add entire feature sets or extensions
+    vk.features.version_1_0,
+    vk.extensions.khr_surface,
+    vk.extensions.khr_swapchain,
+};
 
-const InstanceDispatch = vk.InstanceWrapper(.{
-    .destroyInstance = true,
-    .createDevice = true,
-    .destroySurfaceKHR = true,
-    .enumeratePhysicalDevices = true,
-    .getPhysicalDeviceProperties = true,
-    .enumerateDeviceExtensionProperties = true,
-    .getPhysicalDeviceSurfaceFormatsKHR = true,
-    .getPhysicalDeviceSurfacePresentModesKHR = true,
-    .getPhysicalDeviceSurfaceCapabilitiesKHR = true,
-    .getPhysicalDeviceQueueFamilyProperties = true,
-    .getPhysicalDeviceSurfaceSupportKHR = true,
-    .getPhysicalDeviceMemoryProperties = true,
-    .getPhysicalDeviceFormatProperties = true,
-    .getDeviceProcAddr = true,
-    .createDebugUtilsMessengerEXT = true,
-    .destroyDebugUtilsMessengerEXT = true,
-});
+const BaseDispatch = vk.BaseWrapper(apis);
 
-const DeviceDispatch = vk.DeviceWrapper(.{
-    .destroyDevice = true,
-    .getDeviceQueue = true,
-    .createSemaphore = true,
-    .createFence = true,
-    .createImageView = true,
-    .destroyImageView = true,
-    .destroySemaphore = true,
-    .destroyFence = true,
-    .getSwapchainImagesKHR = true,
-    .createSwapchainKHR = true,
-    .destroySwapchainKHR = true,
-    .acquireNextImageKHR = true,
-    .deviceWaitIdle = true,
-    .setDebugUtilsObjectNameEXT = true,
-    .setDebugUtilsObjectTagEXT = true,
-    .waitForFences = true,
-    .resetFences = true,
-    .queueSubmit = true,
-    .queuePresentKHR = true,
-    .createCommandPool = true,
-    .destroyCommandPool = true,
-    .allocateCommandBuffers = true,
-    .freeCommandBuffers = true,
-    .queueWaitIdle = true,
-    .createShaderModule = true,
-    .destroyShaderModule = true,
-    .createPipelineLayout = true,
-    .destroyPipelineLayout = true,
-    .createRenderPass = true,
-    .destroyRenderPass = true,
-    .createGraphicsPipelines = true,
-    .createComputePipelines = true,
-    .destroyPipeline = true,
-    .createFramebuffer = true,
-    .destroyFramebuffer = true,
-    .beginCommandBuffer = true,
-    .endCommandBuffer = true,
-    .allocateMemory = true,
-    .freeMemory = true,
-    .createBuffer = true,
-    .destroyBuffer = true,
-    .getBufferMemoryRequirements = true,
-    .mapMemory = true,
-    .unmapMemory = true,
-    .bindBufferMemory = true,
-    .cmdBeginRenderPass = true,
-    .cmdEndRenderPass = true,
-    .cmdBindPipeline = true,
-    .cmdDraw = true,
-    .cmdDrawIndexed = true,
-    .cmdDispatch = true,
-    .cmdBeginRendering = true,
-    .cmdEndRendering = true,
-    .cmdSetViewport = true,
-    .cmdPushConstants = true,
-    .cmdSetScissor = true,
-    .cmdBindVertexBuffers = true,
-    .cmdBindIndexBuffer = true,
-    .cmdCopyBuffer = true,
-    .cmdPipelineBarrier = true,
-    .cmdCopyBufferToImage = true,
-    .createImage = true,
-    .getImageMemoryRequirements = true,
-    .bindImageMemory = true,
-    .createDescriptorPool = true,
-    .allocateDescriptorSets = true,
-    .updateDescriptorSets = true,
-    .cmdBindDescriptorSets = true,
-    .createDescriptorSetLayout = true,
-    .resetCommandBuffer = true,
-    .createSampler = true,
-    .destroyDescriptorSetLayout = true,
-    .destroyDescriptorPool = true,
-    .destroySampler = true,
-    .destroyImage = true,
-});
+const InstanceDispatch = vk.InstanceWrapper(apis);
+
+const DeviceDispatch = vk.DeviceWrapper(apis);
 
 pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.GLFWwindow) !Gpu {
     //@breakpoint();
@@ -143,7 +151,7 @@ pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.
     const glfw_exts = glfw_exts_ptr[0..glfw_exts_count];
     try extensions.appendSlice(glfw_exts);
 
-    try extensions.append(vk.extension_info.ext_debug_utils.name);
+    try extensions.append(vk.extensions.ext_debug_utils.name);
 
     const app_info: vk.ApplicationInfo = .{
         .p_application_name = app_name,
@@ -328,7 +336,10 @@ fn checkValidationLayerSupport(ally: std.mem.Allocator, vkb: BaseDispatch) !bool
                 break;
             }
         }
-        if (!layer_found) return false;
+        if (!layer_found) {
+            std.debug.print("{s} not found\n", .{layer_name});
+            return false;
+        }
     }
 
     return true;
@@ -498,7 +509,7 @@ fn debugCallback(
 
     const callback_data = p_callback_data.?;
 
-    std.debug.print("validation {}: {s}\n", .{ message_severity, p_callback_data.?.p_message });
+    std.debug.print("validation {}: {s}\n", .{ message_severity, p_callback_data.?.p_message.? });
 
     if (callback_data.p_objects) |obj_ptr| {
         const objects = obj_ptr[0..callback_data.object_count];

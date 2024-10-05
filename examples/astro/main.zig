@@ -216,7 +216,6 @@ pub const Astro = struct {
             .size = 50,
             .line_spacing = 1,
             .bounding_width = 250,
-            .flip_y = true,
             .scene = &state.scene,
             .target = color_target,
         });
@@ -291,13 +290,12 @@ pub const Astro = struct {
         const move = state.cam.move.val;
         //const pos = astro.planet.pos.val;
 
-        try swapchain.wait(gpu, frame_id);
-
         try astro.line.drawing.destroyVertex(gpu);
 
         try state.scene.begin();
 
         state.image_index = try swapchain.acquireImage(gpu, frame_id);
+
         try builder.beginCommand(gpu);
 
         try astro.line.set2D(state.main_win.ally, &state.scene, builder.*, .{
@@ -312,7 +310,6 @@ pub const Astro = struct {
 
         try state.scene.draw(builder, astro.object.drawing, state.image_index);
         try state.scene.draw(builder, astro.fps.batch.drawing, state.image_index);
-        //std.debug.print("{any}\n", .{astro.line.drawing});
         try state.scene.draw(builder, astro.line.drawing, state.image_index);
         try state.scene.draw(builder, state.post_drawing, state.image_index);
 
@@ -343,11 +340,17 @@ pub fn main() !void {
 
     const gpu = &state.main_win.gpu;
 
+    const swapchain = &state.main_win.swapchain;
+    const builder = &state.command_builder;
+    const frame_id = builder.frame_id;
+
     while (state.main_win.alive) {
         const frame = graphics.tracy.namedFrame("Frame");
         defer frame.end();
 
         try state.updateEvents();
+
+        try swapchain.wait(gpu, frame_id);
 
         try astro.object.drawing.descriptor.setUniformOrCreate(graphics.SpatialMesh.Uniform, gpu, 0, 1, 0, .{
             .spatial_pos = .{ 0, 0, 0, 0 },

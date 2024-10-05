@@ -11,6 +11,8 @@ multisampling_tex: graphics.Texture,
 post_color_tex: graphics.Texture,
 post_depth_tex: graphics.Texture,
 
+color_depth_target: graphics.RenderTarget,
+
 image_index: graphics.Swapchain.ImageIndex = @enumFromInt(0),
 
 cam: Camera,
@@ -33,6 +35,8 @@ mouse_func_manager: SubscriptionManager(MouseFunction) = .{},
 cursor_func_manager: SubscriptionManager(CursorFunction) = .{},
 frame_func_manager: SubscriptionManager(FrameFunction) = .{},
 key_func_manager: SubscriptionManager(KeyFunction) = .{},
+
+ally: std.mem.Allocator,
 
 pub const Context = struct {
     state: *State,
@@ -269,14 +273,26 @@ pub fn init(ally: std.mem.Allocator, info: struct {
         .command_builder = try graphics.CommandBuilder.init(&main_win.gpu, main_win.pool, ally),
         .compute_builder = try graphics.CommandBuilder.init(&main_win.gpu, main_win.pool, ally),
         .multisampling_tex = multisampling_tex,
+
         .post_color_tex = post_tex,
         .post_depth_tex = depth_tex,
+
+        .color_depth_target = .{
+            .texture = .{
+                // kind of an issue, also kind of not really, just throw an arena
+                .color_textures = try ally.dupe(*graphics.Texture, &.{&state.post_color_tex}),
+                .depth_texture = &state.post_depth_tex,
+                .region = .{},
+            },
+        },
+
         .scene = scene,
         .first_pass = first_pass,
         .post_drawing = post_drawing,
         .post_pipeline = post_pipeline,
         .last_time = @as(f32, @floatCast(graphics.glfw.glfwGetTime())),
         .callback = try Callback.init(ally, main_win),
+        .ally = ally,
     };
 
     return state;

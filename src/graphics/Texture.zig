@@ -197,7 +197,7 @@ pub fn initFromPath(ally: std.mem.Allocator, win: *graphics.Window, path: []cons
                 .width = read_image.width,
                 .height = read_image.height,
                 .data = data,
-            });
+            }, info.flip);
             return tex;
         },
         else => return error.InvalidImage,
@@ -285,7 +285,7 @@ fn copyBufferToImage(tex: Texture, buffer: vk.Buffer) !void {
 pub fn setCube(tex: Texture, ally: std.mem.Allocator, paths: [6][]const u8) !void {
     const size = tex.width * tex.height;
     const staging_buff = try tex.window.gpu.createStagingBuffer(size * 4 * 6);
-    defer staging_buff.deinit(&tex.window.gpu);
+    defer staging_buff.deinit(tex.window.gpu);
 
     const Rgba = struct {
         b: u8,
@@ -337,10 +337,10 @@ const Bgra = struct {
     a: u8,
 };
 
-pub fn createImage(tex: Texture, input: anytype) !void {
-    const T = @typeInfo(@TypeOf(input.data)).Pointer.child;
+pub fn createImage(tex: Texture, input: anytype, flip: bool) !void {
+    const T = @typeInfo(@TypeOf(input.data)).pointer.child;
     const input_type = blk: {
-        if (@typeInfo(T) == .Struct) {
+        if (@typeInfo(T) == .@"struct") {
             if (@hasField(T, "r") and @hasField(T, "g") and @hasField(T, "b")) {
                 if (@hasField(T, "a")) {
                     break :blk .rgba;
@@ -372,20 +372,35 @@ pub fn createImage(tex: Texture, input: anytype) !void {
                     .rgb, .rgba => {
                         const Format = Bgra;
                         const PixT = std.meta.fields(T)[0].type;
+
+                        var slice = @as([*]Format, @ptrCast(data))[0..input.data.len];
+
                         if (PixT != u8) {
                             const factor = std.math.maxInt(PixT) / 256;
-                            for (@as([*]Format, @ptrCast(data))[0..input.data.len], 0..) |*p, i| {
-                                p.r = @intCast(@min(255, input.data[i].r / factor));
-                                p.g = @intCast(@min(255, input.data[i].g / factor));
-                                p.b = @intCast(@min(255, input.data[i].b / factor));
-                                p.a = if (input_type == .rgb) 255 else @intCast(@min(255, input.data[i].a / factor));
+                            for (0..tex.width) |i| {
+                                for (0..tex.height) |j_in| {
+                                    const j = if (flip) tex.height - j_in - 1 else j_in;
+                                    const p = &slice[j * tex.width + i];
+                                    const source = j_in * tex.width + i;
+
+                                    p.r = @intCast(@min(255, input.data[source].r / factor));
+                                    p.g = @intCast(@min(255, input.data[source].g / factor));
+                                    p.b = @intCast(@min(255, input.data[source].b / factor));
+                                    p.a = if (input_type == .rgb) 255 else @intCast(@min(255, input.data[source].a / factor));
+                                }
                             }
                         } else {
-                            for (@as([*]Format, @ptrCast(data))[0..input.data.len], 0..) |*p, i| {
-                                p.r = input.data[i].r;
-                                p.g = input.data[i].g;
-                                p.b = input.data[i].b;
-                                p.a = if (input_type == .rgb) 255 else input.data[i].a;
+                            for (0..tex.width) |i| {
+                                for (0..tex.height) |j_in| {
+                                    const j = if (flip) tex.height - j_in - 1 else j_in;
+                                    const p = &slice[j * tex.width + i];
+                                    const source = j_in * tex.width + i;
+
+                                    p.r = input.data[source].r;
+                                    p.g = input.data[source].g;
+                                    p.b = input.data[source].b;
+                                    p.a = if (input_type == .rgb) 255 else input.data[source].a;
+                                }
                             }
                         }
                     },
@@ -427,8 +442,8 @@ pub fn getIdealLayout(texture: Texture) vk.ImageLayout {
     };
 }
 
-pub fn setFromRgba(self: *Texture, input: anytype) !void {
-    try self.createImage(input);
+pub fn setFromRgba(self: *Texture, input: anytype, flip: bool) !void {
+    try self.createImage(input, flip);
     try self.createImageView();
     try self.createTextureSampler();
 }
@@ -470,6 +485,7 @@ pub const TextureInfo = struct {
     cubemap: bool = false,
     compare_less: bool = false,
     preferred_format: ?graphics.PreferredFormat = null,
+    flip: bool = false,
 };
 
 const Texture = @This();
