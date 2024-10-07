@@ -168,7 +168,7 @@ pub const Text = struct {
                 @floatFromInt(metrics.horiBearingX),
                 @floatFromInt(-metrics.height + metrics.horiBearingY),
             });
-            if (parent.scene.flip_z) offset.val[1] *= -1;
+            if (!parent.scene.flip_z) offset.val[1] *= -1;
 
             const metrics_scale: f32 = 1.0 / 64.0;
             offset = offset.scale(metrics_scale);
