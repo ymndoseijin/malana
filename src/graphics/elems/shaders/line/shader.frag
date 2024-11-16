@@ -1,16 +1,17 @@
 #version 450
 
-#define PI 3.14159265359
-
-layout (location = 0) out vec4 out_color;
-
-layout (location = 0) in vec4 in_color;
-
-layout (set = 0, binding = 0) uniform GlobalUBO {
+layout (binding = 0) uniform SpatialUBO {
    float time;
    vec2 in_resolution;
-} global_ubo;
+} spatial_ubo;
+
+layout (binding = 1) uniform LineUBO {
+   vec4 color;
+} line_ubo;
+
+layout (location = 0) in vec2 uv;
+layout (location = 0) out vec4 frag_color;
 
 void main() {
-   out_color = vec4(1.0);
+   frag_color = vec4(1.0);
 }

@@ -38,7 +38,7 @@ pub const CustomSprite = @import("elems/sprite.zig").CustomSprite;
 pub const SpriteBatch = @import("elems/sprite_batch.zig").SpriteBatch;
 pub const CustomSpriteBatch = @import("elems/sprite_batch.zig").CustomSpriteBatch;
 
-pub const ColoredRect = @import("elems/color_rect.zig").ColoredRect;
+pub const ColorRect = @import("elems/color_rect.zig").ColorRect;
 
 pub const MeshBuilder = @import("meshbuilder.zig").MeshBuilder;
 pub const SpatialMesh = @import("elems/spatialmesh.zig").SpatialMesh;

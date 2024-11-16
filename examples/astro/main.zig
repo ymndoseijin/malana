@@ -237,7 +237,7 @@ pub const Astro = struct {
                 try astro_util.VsopPlanet.init("ura", ally),
                 try astro_util.VsopPlanet.init("nep", ally),
             },
-            .line = try graphics.Line.init(try state.scene.new(), state.main_win, .{ .pipeline = state.scene.default_pipelines.line, .target = color_target }),
+            .line = try graphics.Line.init(&state.scene, .{ .pipeline = state.scene.default_pipelines.line, .target = color_target }),
         };
     }
 
@@ -274,6 +274,8 @@ pub const Astro = struct {
         const frame_id = builder.frame_id;
         const swapchain = &state.main_win.swapchain;
 
+        const ally = state.ally;
+
         // render graphics
 
         for (&astro.planet_array, 0..) |*planet, i| {
@@ -290,7 +292,22 @@ pub const Astro = struct {
         const move = state.cam.move.val;
         //const pos = astro.planet.pos.val;
 
-        try astro.line.drawing.destroyVertex(gpu);
+        //try astro.line.drawing.destroyVertex(gpu);
+
+        const circle_count = 360;
+        const circle = try ally.alloc(math.Vec3, circle_count + 1);
+        defer ally.free(circle);
+
+        for (circle, 0..) |*point, i| {
+            const i_f: f32 = @floatFromInt(i);
+            const count_float: f32 = @floatFromInt(circle_count);
+            const ang = math.tau / count_float * i_f;
+
+            const t_f: f32 = @floatCast(state.time);
+            const r = (@cos(t_f * 0.7) + 1.0) / 2.0;
+
+            point.* = .init(.{ r * @cos(ang * 3.0 + t_f * 1.6) + 1, r * @sin(ang * 2.0 + t_f * 1.6) + 1, 1.0 });
+        }
 
         try state.scene.begin();
 
@@ -298,9 +315,9 @@ pub const Astro = struct {
 
         try builder.beginCommand(gpu);
 
-        try astro.line.set2D(state.main_win.ally, &state.scene, builder.*, .{
-            .thickness = 0.05,
-            .vertices = &.{ .{ 0.0, 0.0 }, .{ 1.0, 1.0 } },
+        try astro.line.setVertex(state.main_win.ally, gpu, .{
+            .thickness = 0.005,
+            .vertices = circle,
         });
 
         builder.push(Astro.PushConstants, gpu, astro.material.render_pipeline.pipeline, &.{

@@ -9,6 +9,8 @@ const cos = std.math.cos;
 pub const Mat4 = Mat(f32, 4, 4);
 pub const Mat3 = Mat(f32, 3, 3);
 
+pub const tau = 6.28318530718;
+
 pub fn Vec(comptime T: type, comptime size: usize) type {
     return struct {
         const Vector = @Vector(size, T);

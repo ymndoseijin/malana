@@ -1,81 +1,78 @@
 const std = @import("std");
 const math = @import("math");
-const gl = @import("gl");
-const img = @import("img");
 const geometry = @import("geometry");
 const graphics = @import("../graphics.zig");
-const common = @import("common");
-
-const BdfParse = @import("parsing").BdfParse;
-
-const Mesh = geometry.Mesh;
-const Vertex = geometry.Vertex;
-const HalfEdge = geometry.HalfEdge;
+const trace = @import("../tracy.zig").trace;
 
 const Drawing = graphics.Drawing;
-const glfw = graphics.glfw;
-const Mat3 = math.Mat3;
-const Mat4 = math.Mat4;
 
-const ColoredRectUniform: graphics.DataDescription = .{ .T = extern struct { transform: math.Mat4, color: [4]f32 } };
+const elem_shaders = @import("elem_shaders");
 
-pub const ColoredRect = struct {
+pub const ColorRect = struct {
+    pub const Info = struct {
+        pipeline: ?graphics.RenderPipeline = null,
+        target: graphics.RenderTarget,
+    };
+
+    pub const Uniform: graphics.DataDescription = .{ .T = extern struct {
+        size: [2]f32,
+        position: [2]f32,
+        color: [4]f32,
+        roundness: f32,
+    } };
+
     pub const description: graphics.PipelineDescription = .{
         .vertex_description = .{
             .vertex_attribs = &.{ .{ .size = 3 }, .{ .size = 2 } },
         },
         .render_type = .triangle,
         .depth_test = false,
-        .cull_type = .none,
-        .sets = &.{.{ .bindings = &.{
-            .{ .uniform = .{
-                .size = graphics.GlobalUniform.getSize(),
-            } },
-            .{ .uniform = .{
-                .size = ColoredRectUniform.getSize(),
-            } },
-        } }},
+        .sets = &.{
+            .{
+                .bindings = &.{
+                    .{ .uniform = .{
+                        .size = graphics.GlobalUniform.getSize(),
+                    } },
+                    .{ .uniform = .{
+                        .size = Uniform.getSize(),
+                    } },
+                },
+            },
+        },
         .global_ubo = true,
     };
 
-    pub fn init(scene: *graphics.Scene, color: [4]f32) !ColoredRect {
+    pub fn init(scene: *graphics.Scene, info: Info) !ColorRect {
         var drawing = try scene.new();
 
-        try drawing.init(scene.window.ally, .{
-            .win = scene.window,
+        const gpu = &scene.window.gpu;
+
+        try drawing.init(scene.window.ally, gpu, .{
             .pipeline = scene.default_pipelines.color,
+            .queue = &scene.queue,
+            .target = info.target,
         });
 
-        const default_transform: graphics.Transform2D = .{
-            .scale = math.Vec2.init(.{ 1, 1 }),
-            .rotation = .{ .angle = 0, .center = math.Vec2.init(.{ 0.5, 0.5 }) },
-            .translation = math.Vec2.init(.{ 0, 0 }),
-        };
-
-        try description.vertex_description.bindVertex(drawing, &.{
+        try description.vertex_description.bindVertex(drawing, gpu, &.{
             .{ .{ 0, 0, 1 }, .{ 0, 0 } },
             .{ .{ 1, 0, 1 }, .{ 1, 0 } },
             .{ .{ 1, 1, 1 }, .{ 1, 1 } },
             .{ .{ 0, 1, 1 }, .{ 0, 1 } },
-        }, &.{ 0, 1, 2, 2, 3, 0 });
+        }, &.{ 0, 1, 2, 2, 3, 0 }, .immediate);
 
-        drawing.getUniformOr(0, 1, 0).?.setAsUniform(ColoredRectUniform, .{
-            .transform = default_transform.getMat().cast(4, 4),
-            .color = color,
-        });
-
-        drawing.getUniformOr(0, 1, 0).?.setAsUniform(graphics.GlobalUniform, .{ .time = 0, .in_resolution = .{ 1, 1 } });
-
-        return ColoredRect{
+        return .{
             .drawing = drawing,
-            .transform = default_transform,
         };
     }
 
-    pub fn updateTransform(self: ColoredRect) void {
-        self.drawing.getUniformOr(0, 1, 0).?.setAsUniformField(ColoredRectUniform, .transform, self.transform.getMat().cast(4, 4));
+    pub fn deinit(rect: *ColorRect, ally: std.mem.Allocator, gpu: graphics.Gpu) void {
+        rect.drawing.vertex_buffer.?.deinit(gpu);
+        rect.drawing.index_buffer.?.deinit(gpu);
+
+        rect.drawing.descriptor.deinitAllUniforms(gpu);
+        rect.drawing.deinit(ally, gpu);
+        ally.destroy(rect.drawing);
     }
 
-    transform: graphics.Transform2D,
     drawing: *Drawing,
 };

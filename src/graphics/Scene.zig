@@ -24,7 +24,7 @@ const DefaultPipelines = struct {
 
         return .{
             .color = try graphics.RenderPipeline.init(win.ally, .{
-                .description = graphics.ColoredRect.description,
+                .description = graphics.ColorRect.description,
                 .shaders = &shaders.color_shaders,
                 .rendering = win.rendering_options,
                 .gpu = &win.gpu,

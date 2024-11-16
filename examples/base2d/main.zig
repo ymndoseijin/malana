@@ -105,7 +105,7 @@ pub fn main() !void {
     char_test.transform.translation = math.Vec2.init(.{ 0, 200 });
     try char_test.print(ally, gpu, .{ .text = "hello world! " });
     try char_test.clear();
-    try char_test.print(ally, gpu, .{ .text = "I'm here!" });
+    //try char_test.print(ally, gpu, .{ .text = "I'm here!" });
     defer char_test.deinit(ally, gpu.*);
 
     _ = try state.key_down_manager.subscribe(ally, .{ .func = keyDown });
@@ -135,7 +135,7 @@ pub fn main() !void {
     //const dynamic_box = b2.b2MakeBox(1.0, 1.0);
     var shape_def = b2.b2DefaultShapeDef();
 
-    shape_def.density = 100.0;
+    shape_def.density = 10.0;
     shape_def.friction = 300.0;
 
     //_ = b2.b2CreatePolygonShape(body_id, &shape_def, &dynamic_box);
