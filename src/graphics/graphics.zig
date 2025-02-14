@@ -1112,7 +1112,7 @@ pub const Compute = struct {
 
         return .{
             .global_ubo = options.compute.description.global_ubo,
-            .descriptor = try Descriptor.init(ally, .{ .gpu = gpu, .pipeline = options.compute.pipeline, .queue = null }),
+            .descriptor = try Descriptor.init(ally, gpu, .{ .pipeline = options.compute.pipeline, .queue = null }),
             .compute_semaphores = compute_semaphores,
             .compute_fences = compute_fences,
             .gpu = gpu,
@@ -1133,7 +1133,7 @@ pub const Compute = struct {
         for (compute.compute_fences) |f| gpu.vkd.destroyFence(gpu.dev, f, null);
         ally.free(compute.compute_fences);
 
-        compute.descriptor.deinit(ally);
+        compute.descriptor.deinit(ally, gpu.*);
     }
 
     pub fn wait(compute: *Compute, frame_id: usize) !void {
@@ -1550,6 +1550,7 @@ pub const WindowInfo = struct {
     width: i32 = 256,
     height: i32 = 256,
     resizable: bool = true,
+    flip_z: bool = false,
     preferred_format: PreferredFormat = .srgb,
     name: [:0]const u8 = "default name",
 };
@@ -1810,6 +1811,7 @@ pub const CommandBuilder = struct {
         },
     ) void {
         if (debug_command_builder) {
+            std.debug.dumpCurrentStackTrace(null);
             std.debug.print(
                 \\pipelineBarrier {{
                 \\    src_stage: {any}
@@ -2126,6 +2128,7 @@ pub const Window = struct {
     default_shaders: DefaultShaders,
 
     rendering_options: RenderingOptions,
+    flip_z: bool,
 
     const DepthBuffer = struct {
         image: vk.Image,
@@ -2203,8 +2206,9 @@ pub const Window = struct {
     pub fn getCursorPos(win: Window) math.Vec2 {
         var x: f64 = 0;
         var y: f64 = 0;
+        const height: f64 = @floatFromInt(win.frame_height);
         glfw.glfwGetCursorPos(win.glfw_win, &x, &y);
-        return math.Vec2.init(.{ @floatCast(x), @floatCast(y) });
+        return math.Vec2.init(.{ @floatCast(x), if (win.flip_z) @floatCast(height - y) else @floatCast(y) });
     }
 
     pub fn getMouseButton(win: Window, button: i32) Action {
@@ -2417,6 +2421,9 @@ pub const Window = struct {
                 .color_formats = color_formats,
                 .depth_format = try gpu.findDepthFormat(),
             },
+
+            // temporary
+            .flip_z = info.flip_z,
         };
     }
 

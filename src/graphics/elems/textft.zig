@@ -59,11 +59,13 @@ pub const Text = struct {
     transform: graphics.Transform2D,
     opacity: f32,
 
-    codepoints: std.ArrayList(u32),
+    codepoints: std.ArrayListUnmanaged(u32),
     codepoint_table: std.AutoArrayHashMap(u32, CodepointQuery),
 
     batch: graphics.CustomSpriteBatch(CharacterUniform),
     scene: *graphics.Scene,
+
+    clear_dirty: bool,
 
     const CodepointQuery = struct {
         metrics: freetype.FT_Glyph_Metrics,
@@ -205,10 +207,10 @@ pub const Text = struct {
         color: [3]f32 = .{ 1.0, 1.0, 1.0 },
     };
 
-    pub fn printFmt(self: *Text, ally: std.mem.Allocator, gpu: *graphics.Gpu, comptime fmt: []const u8, fmt_args: anytype) !void {
+    pub fn printFmt(self: *Text, ally: std.mem.Allocator, comptime fmt: []const u8, fmt_args: anytype) !void {
         var buf: [4098]u8 = undefined;
         const str = try std.fmt.bufPrint(&buf, fmt, fmt_args);
-        try self.print(ally, gpu, .{ .text = str });
+        try self.print(ally, .{ .text = str });
     }
 
     pub fn setOpacity(self: *Text, opacity: f32) void {
@@ -219,8 +221,7 @@ pub const Text = struct {
     }
 
     pub fn clear(self: *Text) !void {
-        self.batch.clear();
-        self.characters.clearRetainingCapacity();
+        self.clear_dirty = true;
         self.codepoints.clearRetainingCapacity();
     }
 
@@ -236,91 +237,97 @@ pub const Text = struct {
         return res;
     }
 
-    pub fn print(text: *Text, ally: std.mem.Allocator, gpu: *graphics.Gpu, info: PrintInfo) !void {
+    pub fn print(text: *Text, ally: std.mem.Allocator, info: PrintInfo) !void {
         if (info.text.len == 0) return;
 
         var unicode = (try std.unicode.Utf8View.init(info.text)).iterator();
 
         while (unicode.nextCodepoint()) |c| {
-            try text.codepoints.append(c);
-        }
-
-        var index: usize = text.codepoints.items.len - 1;
-
-        unicode = (try std.unicode.Utf8View.init(info.text)).iterator();
-
-        while (unicode.nextCodepoint()) |c| {
-            defer index += 1;
-            if (c == '\n' or c == 32) {
-                continue;
-            }
-            const char = try Character.init(ally, gpu, text, .{
-                .char = c,
-                .count = text.codepoints.items.len,
-                .index = index,
-            });
-            char.sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .color, .{ info.color[0], info.color[1], info.color[2], 0.0 });
-            try text.characters.append(char);
-        }
-
-        try text.update();
-
-        for (text.characters.items) |char| {
-            char.sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(text.codepoints.items.len)));
+            try text.codepoints.append(ally, c);
         }
     }
 
-    pub fn update(self: *Text) !void {
+    pub fn update(text: *Text, ally: std.mem.Allocator, gpu: *graphics.Gpu) !void {
         const tracy = trace(@src());
         defer tracy.end();
 
-        if (self.characters.items.len == 0) return;
-        var start: math.Vec2 = self.transform.translation;
-        start.val[1] += self.line_spacing;
+        if (text.clear_dirty) {
+            text.batch.clear();
+            text.characters.clearRetainingCapacity();
+            text.clear_dirty = false;
+        }
+
+        {
+            var index: usize = text.codepoints.items.len - 1;
+
+            for (text.codepoints.items) |c| {
+                defer index += 1;
+                if (c == '\n' or c == 32) {
+                    continue;
+                }
+                const char = try Character.init(ally, gpu, text, .{
+                    .char = c,
+                    .count = text.codepoints.items.len,
+                    .index = index,
+                });
+                const color = .{ 1.0, 1.0, 1.0 };
+                char.sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .color, .{ color[0], color[1], color[2], 0.0 });
+                try text.characters.append(char);
+            }
+            for (text.characters.items) |char| {
+                char.sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(text.codepoints.items.len)));
+            }
+        }
+
+        // character layouting
+
+        if (text.characters.items.len == 0) return;
+        var start: math.Vec2 = text.transform.translation;
+        start.val[1] += text.line_spacing;
 
         const space_width: f32 = 10;
 
-        var it = std.mem.splitScalar(u32, self.codepoints.items, ' ');
+        var it = std.mem.splitScalar(u32, text.codepoints.items, ' ');
 
         var character_index: usize = 0;
 
-        var height = self.line_spacing;
+        var height = text.line_spacing;
 
-        self.width = 0;
+        text.width = 0;
 
         while (it.next()) |word| {
-            if (self.wrap and try self.getExtent(word) + start.val[0] > self.bounding_width + self.transform.translation.val[0] and self.codepoints.items.len != 0) {
-                if (self.scene.flip_z) {
-                    start.val = .{ self.transform.translation.val[0], start.val[1] - self.line_spacing };
+            if (text.wrap and try text.getExtent(word) + start.val[0] > text.bounding_width + text.transform.translation.val[0] and text.codepoints.items.len != 0) {
+                if (text.scene.flip_z) {
+                    start.val = .{ text.transform.translation.val[0], start.val[1] - text.line_spacing };
                 } else {
-                    start.val = .{ self.transform.translation.val[0], start.val[1] + self.line_spacing };
+                    start.val = .{ text.transform.translation.val[0], start.val[1] + text.line_spacing };
                 }
-                height += self.line_spacing;
+                height += text.line_spacing;
             }
 
             for (word) |c| {
                 if (c == '\n') {
-                    if (self.scene.flip_z) {
-                        start.val = .{ self.transform.translation.val[0], start.val[1] - self.line_spacing };
+                    if (text.scene.flip_z) {
+                        start.val = .{ text.transform.translation.val[0], start.val[1] - text.line_spacing };
                     } else {
-                        start.val = .{ self.transform.translation.val[0], start.val[1] + self.line_spacing };
+                        start.val = .{ text.transform.translation.val[0], start.val[1] + text.line_spacing };
                     }
-                    height += self.line_spacing;
+                    height += text.line_spacing;
                     continue;
                 }
 
-                var char = &self.characters.items[character_index];
+                var char = &text.characters.items[character_index];
 
-                if (self.wrap and char.advance + start.val[0] > self.bounding_width + self.transform.translation.val[0]) {
-                    if (self.scene.flip_z) {
-                        start.val = .{ self.transform.translation.val[0], start.val[1] - self.line_spacing };
+                if (text.wrap and char.advance + start.val[0] > text.bounding_width + text.transform.translation.val[0]) {
+                    if (text.scene.flip_z) {
+                        start.val = .{ text.transform.translation.val[0], start.val[1] - text.line_spacing };
                     } else {
-                        start.val = .{ self.transform.translation.val[0], start.val[1] + self.line_spacing };
+                        start.val = .{ text.transform.translation.val[0], start.val[1] + text.line_spacing };
                     }
-                    height += self.line_spacing;
+                    height += text.line_spacing;
                 }
 
-                if (self.scene.flip_z) {
+                if (text.scene.flip_z) {
                     char.sprite.transform.translation = start.add(char.offset);
                 } else {
                     char.sprite.transform.translation = start.add(char.offset).sub(.init(.{
@@ -331,7 +338,7 @@ pub const Text = struct {
                 char.sprite.transform.scale = math.Vec2.init(.{ @floatFromInt(char.tex.width), @floatFromInt(char.tex.height) });
                 char.sprite.updateTransform();
 
-                self.width = @max(self.width + char.advance, self.width);
+                text.width = @max(text.width + char.advance, text.width);
                 start.val[0] += char.advance;
                 character_index += 1;
             }
@@ -340,12 +347,12 @@ pub const Text = struct {
             }
         }
 
-        self.bounding_height = height;
+        text.bounding_height = height;
     }
 
     pub fn deinit(self: *Text, ally: std.mem.Allocator, gpu: graphics.Gpu) void {
         self.characters.deinit();
-        self.codepoints.deinit();
+        self.codepoints.deinit(ally);
         for (self.codepoint_table.values()) |v| {
             v.tex.deinit();
         }
@@ -379,7 +386,7 @@ pub const Text = struct {
             .size = info.size,
             .line_spacing = info.size * info.line_spacing,
             .characters = std.ArrayList(Character).init(ally),
-            .codepoints = std.ArrayList(u32).init(ally),
+            .codepoints = .empty,
             .codepoint_table = std.AutoArrayHashMap(u32, CodepointQuery).init(ally),
             .batch = try graphics.CustomSpriteBatch(CharacterUniform).init(info.scene, .{
                 .pipeline = if (info.pipeline) |p| p else info.scene.default_pipelines.textft,
@@ -392,6 +399,7 @@ pub const Text = struct {
                 .rotation = .{ .angle = 0, .center = math.Vec2.init(.{ 0.5, 0.5 }) },
                 .translation = math.Vec2.init(.{ 0, 0 }),
             },
+            .clear_dirty = false,
         };
     }
 };

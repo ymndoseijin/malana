@@ -151,23 +151,34 @@ pub fn textureBarriers(scene: *Scene, builder: *graphics.CommandBuilder, descrip
 
         const layout = if (tex_or) |t| t.layout else tex_dep.getIdealLayout();
 
-        //std.debug.print("texture barrier: {any} {any}\n", .{ tex_or, layout });
+        const target_layout: vk.ImageLayout = switch (tex_dep.info.type) {
+            .multisampling, .render_target, .regular => .shader_read_only_optimal,
+            .storage => .general,
+        };
+        const dst_access: vk.AccessFlags = switch (target_layout) {
+            .shader_read_only_optimal => .{ .shader_read_bit = true },
+            else => .{},
+        };
 
-        if (tex_or != null and layout == .shader_read_only_optimal) continue;
+        if (tex_or != null and layout == target_layout) continue;
         builder.pipelineBarrier(gpu, .{
             .src_stage = tex_dep.getStage(),
-            .dst_stage = .{ .fragment_shader_bit = true },
+            .dst_stage = switch (target_layout) {
+                .shader_read_only_optimal => .{ .fragment_shader_bit = true },
+                .general => .{ .compute_shader_bit = true },
+                else => .{},
+            },
             .image_barriers = &.{
                 .{
                     .image = tex_dep.image,
                     .src_access = if (tex_or) |t| t.last_dst else .{},
-                    .dst_access = .{ .shader_read_bit = true },
+                    .dst_access = dst_access,
                     .old_layout = layout,
-                    .new_layout = .shader_read_only_optimal,
+                    .new_layout = target_layout,
                 },
             },
         });
-        try scene.putTextureInfo(tex_dep.*, .{ .layout = .shader_read_only_optimal, .last_dst = .{ .shader_read_bit = true } });
+        try scene.putTextureInfo(tex_dep.*, .{ .layout = target_layout, .last_dst = dst_access });
     }
 }
 
@@ -275,21 +286,21 @@ pub fn end(scene: *Scene, builder: *graphics.CommandBuilder) void {
     scene.current_rendering = null;
 }
 
+pub fn dispatch(scene: *Scene, builder: *graphics.CommandBuilder, elem: *graphics.Compute) !void {
+    try scene.textureBarriers(builder, elem.descriptor);
+    try elem.dispatch(builder.getCurrent(), .{ .bind_pipeline = true, .frame_id = 0 });
+}
+
 pub fn draw(scene: *Scene, builder: *graphics.CommandBuilder, elem: *graphics.Drawing, image_index: graphics.Swapchain.ImageIndex) !void {
     var swapchain = scene.window.swapchain;
     const gpu = &scene.window.gpu;
 
-    //std.debug.print("\nPrinting new, is_current: {} {}\n", .{ elem.render_target, scene.isCurrentRendering(elem.render_target) });
-    if (!scene.isCurrentRendering(elem.render_target) and scene.current_rendering != null) builder.endRendering(gpu);
-
     if (!scene.isCurrentRendering(elem.render_target)) {
-        //std.debug.print("settings texture barriers\n", .{});
-        for (scene.drawing_array.items) |other| {
-            if (other.render_target.eql(elem.render_target)) {
-                try scene.textureBarriers(builder, elem.descriptor);
-            }
-        }
-        //std.debug.print("end\n", .{});
+        // end rendering if drawing render target isn't the current one
+        if (scene.current_rendering != null) builder.endRendering(gpu);
+
+        // set dependencies barriers to the shader read only optimal layout
+        try scene.textureBarriers(builder, elem.descriptor);
 
         switch (elem.render_target) {
             .texture => |target| {

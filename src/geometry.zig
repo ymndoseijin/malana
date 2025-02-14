@@ -1,364 +1,123 @@
 const math = @import("math");
 const std = @import("std");
 
-const zilliam = @import("zilliam");
-
 pub const parsing = @import("parsing");
 
-const testing = std.testing;
-
-pub const Pga = zilliam.PGA(f32, 3);
-
-const Vec3 = math.Vec3;
-const Vec2 = math.Vec2;
-
 pub const Vertex = struct {
-    pos: Vec3,
-    norm: Vec3,
-    uv: Vec2,
-    pub const Zero = Vertex{ .pos = Vec3.init(.{ 0, 0, 0 }), .norm = Vec3.init(.{ 0, 0, 0 }), .uv = Vec2.init(.{ 0, 0 }) };
-};
-
-// potential footgun, face holds a pointer to vertices, so if you change it you might change it to other faces as well
-pub const Face = struct {
-    vertices: []*Vertex,
-
-    pub fn init(alloc: std.mem.Allocator, vertices: []const *Vertex) !*Face {
-        var face = try alloc.create(Face);
-        face.vertices = try alloc.dupe(*Vertex, vertices);
-
-        return face;
-    }
+    pos: math.Vec3,
+    norm: math.Vec3,
+    uv: math.Vec2,
+    pub const Zero: Vertex = .{ .pos = .init(.{ 0, 0, 0 }), .norm = .init(.{ 0, 0, 0 }), .uv = .init(.{ 0, 0 }) };
 };
 
 pub const HalfEdge = struct {
     next: ?*HalfEdge,
     twin: ?*HalfEdge,
 
-    vertex: *Vertex,
-    face: *Face,
+    // vertex idx
+    idx: u32,
+    // half-edge of incident face
+    // face: ?*HalfEdge,
 
-    pub fn makeTri(mut: *HalfEdge, allocator: std.mem.Allocator, tri: []const *Vertex) !void {
-        const b = try allocator.create(HalfEdge);
-        const c = try allocator.create(HalfEdge);
+    pub fn initOn(other: *HalfEdge, ally: std.mem.Allocator, vert: u32) !*HalfEdge {
+        if (other.twin != null) return error.NotYet;
 
-        mut.* = HalfEdge{
-            .vertex = tri[0],
-            .next = b,
-            .twin = mut.twin, // temp
-            .face = try Face.init(allocator, tri),
+        const new = try ally.create(HalfEdge);
+        new.* = .{
+            .next = null,
+            .twin = other,
+            .idx = vert,
         };
 
-        b.* = HalfEdge{
-            .vertex = tri[1],
-            .next = c,
-            .twin = null,
-            .face = try Face.init(allocator, tri),
-        };
-        c.* = HalfEdge{
-            .vertex = tri[2],
-            .next = mut,
-            .twin = null,
-            .face = try Face.init(allocator, tri),
-        };
-    }
+        other.twin = new;
 
-    pub fn halfVert(self: HalfEdge) Vertex {
-        if (self.next) |next_edge| {
-            const a = self.vertex;
-            const b = next_edge.vertex;
-            const pos = a.pos.interpolate(b.pos, 0.5);
-            const norm = a.norm.interpolate(b.norm, 0.5);
-            const uv = a.uv.interpolate(b.uv, 0.5);
-            return Vertex{ .pos = pos, .uv = uv, .norm = norm };
-        }
-        return Vertex.Zero;
+        return new;
     }
 };
 
-pub const Mesh = struct {
-    arena: std.heap.ArenaAllocator,
-    first_half: ?*HalfEdge,
+pub const HalfGraph = struct {
+    const Pair = struct { u32, u32 };
 
-    pub fn init(alloc: std.mem.Allocator) Mesh {
-        const arena = std.heap.ArenaAllocator.init(alloc);
-        return Mesh{
-            .arena = arena,
-            .first_half = null,
-        };
+    edge_map: std.AutoHashMapUnmanaged(Pair, *HalfEdge),
+
+    pub fn deinit(graph: *HalfGraph, ally: std.mem.Allocator) void {
+        graph.edge_map.deinit(ally);
     }
 
-    pub fn deinit(self: *Mesh) void {
-        self.arena.deinit();
-    }
+    pub fn addTri(graph: *HalfGraph, ally: std.mem.Allocator, face: [3]u32) !void {
+        // assert face >= 1
+        var in_start = true;
+        var previous_or: ?*HalfEdge = null;
+        var first: *HalfEdge = undefined;
 
-    pub fn syncEdges(a: *HalfEdge, b: *HalfEdge, twins: [2]*HalfEdge) void {
-        if (twins[0].vertex == a.vertex) {
-            twins[0].twin = a;
-            a.twin = twins[0];
+        for (face, 0..) |start, i| {
+            const next_i = if (i + 1 >= face.len) 0 else i + 1;
+            const end = face[next_i];
 
-            twins[1].twin = b;
-            b.twin = twins[1];
-        } else {
-            twins[1].twin = a;
-            a.twin = twins[1];
+            const res = graph.getEdge(.{ start, end });
+            const edge: *HalfEdge = blk: {
+                if (res) |twin| {
+                    break :blk try twin.initOn(ally, start);
+                } else {
+                    const new = try ally.create(HalfEdge);
 
-            twins[0].twin = b;
-            b.twin = twins[0];
-        }
-    }
+                    new.* = .{
+                        .next = null,
+                        .twin = null,
+                        .idx = start,
+                    };
 
-    pub fn subdivideMesh(self: *Mesh, count: usize) !void {
-        const allocator = self.arena.allocator();
+                    try graph.putEdge(ally, .{ start, end }, new);
 
-        var subdivide_set = std.AutoHashMap(?*HalfEdge, [2]*HalfEdge).init(allocator);
-        defer subdivide_set.deinit();
-
-        for (0..count) |_| {
-            try self.subdivide(self.first_half.?, &subdivide_set);
-            subdivide_set.clearRetainingCapacity();
-        }
-    }
-
-    // only for triangles rn
-    pub fn subdivide(self: *Mesh, half_edge: *HalfEdge, map: *std.AutoHashMap(?*HalfEdge, [2]*HalfEdge)) !void {
-        const allocator = self.arena.allocator();
-        var face: [3]*HalfEdge = .{ half_edge, half_edge.next.?, half_edge.next.?.next.? };
-
-        inline for (face) |elem| {
-            if (map.get(elem)) |_| {
-                return;
-            }
-        }
-
-        var a_vert: *Vertex = undefined;
-        var b_vert: *Vertex = undefined;
-        var c_vert: *Vertex = undefined;
-
-        const new_verts = .{ &a_vert, &b_vert, &c_vert };
-
-        inline for (new_verts, 0..) |vert, i| {
-            vert.* = try allocator.create(Vertex);
-            vert.*.* = face[i].halfVert();
-        }
-
-        var inner_triangle = try allocator.create(HalfEdge);
-        try inner_triangle.makeTri(allocator, &[_]*Vertex{ a_vert, b_vert, c_vert });
-
-        try face[0].makeTri(allocator, &[_]*Vertex{ face[0].vertex, a_vert, c_vert });
-        try face[1].makeTri(allocator, &[_]*Vertex{ face[1].vertex, b_vert, a_vert });
-        try face[2].makeTri(allocator, &[_]*Vertex{ face[2].vertex, c_vert, b_vert });
-
-        try map.put(face[0], .{ face[0], face[1].next.?.next.? });
-        try map.put(face[1], .{ face[1], face[2].next.?.next.? });
-        try map.put(face[2], .{ face[2], face[0].next.?.next.? });
-
-        try map.put(face[0].next.?.next.?, .{ face[2], face[0].next.?.next.? });
-        try map.put(face[1].next.?.next.?, .{ face[0], face[1].next.?.next.? });
-        try map.put(face[2].next.?.next.?, .{ face[1], face[2].next.?.next.? });
-
-        const faces_left = .{ face[0], face[1], face[2] };
-        const faces_right = .{ face[1], face[2], face[0] };
-
-        inline for (faces_left, faces_right) |left, right| {
-            if (map.get(left.twin)) |twins| {
-                Mesh.syncEdges(left, right.next.?.next.?, .{ twins[0], twins[1] });
-            } else {
-                if (left.twin) |twin| {
-                    try self.subdivide(twin, map);
+                    break :blk new;
                 }
+            };
+
+            if (previous_or) |previous| previous.next = edge;
+            previous_or = edge;
+
+            if (in_start) {
+                first = edge;
+                in_start = false;
             }
         }
 
-        inner_triangle.next.?.next.?.twin = face[0].next;
-        face[0].next.?.twin = inner_triangle.next.?.next;
-
-        inner_triangle.next.?.twin = face[2].next;
-        face[2].next.?.twin = inner_triangle.next;
-
-        inner_triangle.twin = face[1].next;
-        face[1].next.?.twin = inner_triangle;
+        previous_or.?.next = first;
     }
 
-    const Pair = struct { usize, usize };
-    const Format = struct {
-        pos_offset: usize,
-        norm_offset: usize,
-        uv_offset: usize,
-        length: usize,
-    };
-
-    pub fn makeFrom(self: *Mesh, vertices: []const Vertex, in_indices: []const u32, comptime n: comptime_int) !void {
-        const allocator = self.arena.allocator();
-
-        const indices = try allocator.dupe(u32, in_indices);
-
-        const res = try self.makeNgon(vertices, indices, n);
-        self.first_half = res;
+    pub fn putEdge(graph: *HalfGraph, ally: std.mem.Allocator, pair: Pair, edge: *HalfEdge) !void {
+        return graph.edge_map.put(ally, if (pair[0] > pair[1]) pair else .{ pair[1], pair[0] }, edge);
     }
 
-    pub fn makeNgon(self: *Mesh, in_vert: []const Vertex, indices: []const u32, comptime n: comptime_int) !*HalfEdge {
-        const allocator = self.arena.allocator();
-
-        var vertices = try allocator.dupe(Vertex, in_vert);
-
-        var face = try allocator.create(Face);
-        face.vertices = try allocator.alloc(*Vertex, n);
-        var face_i: usize = 0;
-
-        var half_edge: *HalfEdge = undefined;
-        var start: *HalfEdge = undefined;
-
-        var first_face: *HalfEdge = undefined;
-        var first_index: usize = undefined;
-
-        var begin = true;
-
-        var seen = std.ArrayList(struct { [2]Vec3, *HalfEdge }).init(allocator);
-        defer seen.deinit();
-
-        for (indices, 0..) |index, i| {
-            const current_vertex = &vertices[index];
-
-            const next_index: ?usize = if (i < indices.len - 1) indices[i + 1] else null;
-            var next_or: ?*Vertex = if (next_index) |id| &vertices[id] else null;
-
-            var previous_edge = half_edge;
-            half_edge = try allocator.create(HalfEdge);
-
-            half_edge.vertex = current_vertex;
-
-            half_edge.face = face;
-
-            half_edge.next = null;
-            half_edge.twin = null;
-
-            face.vertices[face_i] = current_vertex;
-            if (face_i == 0) {
-                first_face = half_edge;
-                first_index = index;
-            } else {
-                previous_edge.next = half_edge;
-            }
-
-            if (face_i == n - 1) {
-                half_edge.next = first_face;
-                next_or = &vertices[first_index];
-
-                previous_edge.next = half_edge;
-
-                face = try allocator.create(Face);
-                face.vertices = try allocator.alloc(*Vertex, n);
-
-                face_i = 0;
-            } else {
-                face_i += 1;
-            }
-
-            if (begin) {
-                begin = false;
-                start = half_edge;
-            }
-
-            if (next_or) |next_vertex| {
-                const a = [2]Vec3{ current_vertex.pos, next_vertex.pos };
-
-                var not_found = true;
-                for (seen.items) |candidate| {
-                    const b = candidate[0];
-                    if (a[0].eql(b[1]) and a[1].eql(b[0])) {
-                        var half_twin = candidate[1];
-
-                        if (half_twin.twin != null) {
-                            return error.TooManyTwins;
-                        }
-
-                        half_twin.twin = half_edge;
-                        half_edge.twin = half_twin;
-
-                        not_found = false;
-
-                        break;
-                    }
-                }
-
-                if (not_found) {
-                    try seen.append(.{ a, half_edge });
-                }
-            }
-        }
-
-        return start;
-    }
-
-    pub fn fixNormals(self: *Mesh) !void {
-        const allocator = self.arena.allocator();
-
-        var set = std.AutoHashMap(*HalfEdge, void).init(allocator);
-        var stack = std.ArrayList(?*HalfEdge).init(allocator);
-
-        defer set.deinit();
-        defer stack.deinit();
-
-        try stack.append(self.first_half);
-
-        while (stack.items.len > 0) {
-            const edge_or = stack.pop();
-            if (edge_or) |edge| {
-                if (set.get(edge)) |_| continue;
-                try set.put(edge, void{});
-
-                const position = &edge.vertex.pos;
-
-                position.* = position.scale(1.0 / position.length());
-
-                if (edge.next) |_| {
-                    if (edge.twin) |twin| {
-                        try stack.append(twin);
-                    }
-                }
-                try stack.append(edge.next);
-            }
-        }
+    pub fn getEdge(graph: HalfGraph, pair: Pair) ?*HalfEdge {
+        return graph.edge_map.get(if (pair[0] > pair[1]) pair else .{ pair[1], pair[0] });
     }
 };
 
-pub fn main() !void {
-    var mesh = Mesh.init(@import("common").allocator);
-    defer mesh.deinit();
+test {
+    // a graph needs an arena to be properly deinited
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
 
-    var vertices = [_]Vertex{
-        .{ .pos = .{ 0, 0, 0 } },
-        .{ .pos = .{ 0, 1, 0 } },
-        .{ .pos = .{ 0, 1, 1 } },
-        .{ .pos = .{ 1, 1, 1 } },
-    };
+    const ally = arena.allocator();
 
-    var indices = [_]usize{ 0, 1, 2, 1, 2, 3 };
+    var graph: HalfGraph = .{ .edge_map = .empty };
+    defer graph.deinit(ally);
 
-    std.debug.print("{}\n", .{try mesh.make(&vertices, &indices)});
-}
+    //graph.addVertices(&.{
+    //    .{ 1.0, 4.0, 0.0 },
+    //    .{ 3.0, 4.0, 0.0 },
+    //    .{ 0.0, 2.0, 0.0 },
+    //    .{ 2.0, 2.0, 0.0 },
+    //});
+    try graph.addTri(ally, .{ 0, 2, 3 });
+    try graph.addTri(ally, .{ 0, 3, 1 });
 
-test "half edge" {
-    const ally = testing.allocator;
-    var mesh = Mesh.init(ally);
-    defer mesh.deinit();
+    const edge = graph.getEdge(.{ 0, 3 });
 
-    var vertices = [_]Vertex{
-        .{ .pos = .{ 0, 0, 0 } },
-        .{ .pos = .{ 0, 1, 0 } },
-        .{ .pos = .{ 0, 1, 1 } },
-        .{ .pos = .{ 1, 1, 1 } },
-    };
+    try std.testing.expect(edge.?.idx == 3);
+    try std.testing.expect(edge.?.next.?.idx == 0);
 
-    var indices = [_]usize{ 0, 1, 2, 1, 2, 3 };
-
-    var edge: ?*HalfEdge = try mesh.make(&vertices, &indices);
-
-    var i: usize = 0;
-    while (edge) |actual| {
-        std.debug.print("half edge at {}: {any:.4} {any:.4}\n", .{ i, actual.vertex.pos, actual.twin != null });
-        edge = actual.next;
-        i += 1;
-    }
+    try std.testing.expect(edge.?.twin.?.idx == 0);
+    try std.testing.expect(edge.?.twin.?.next.?.idx == 3);
 }

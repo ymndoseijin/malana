@@ -3,12 +3,16 @@ const std = @import("std");
 const ui = @import("ui");
 const shaders = @import("shaders");
 
+const State = ui.State;
 const graphics = ui.graphics;
-const Ui = ui.Ui;
+const Vec3 = ui.Vec3;
+const Vertex = ui.Vertex;
+const common = ui.common;
+
 const math = ui.math;
 const gl = ui.gl;
 
-var state: *Ui = undefined;
+var state: *State = undefined;
 
 const Toy = struct {
     zoom: f32,
@@ -20,6 +24,8 @@ const Toy = struct {
 
     last_pos: math.Vec2,
     text: graphics.TextFt,
+
+    state: *State,
 
     pub fn getZoom(toy: Toy) f32 {
         return std.math.pow(f32, 1.2, toy.zoom);
@@ -37,7 +43,7 @@ const Toy = struct {
 
 var bad_code: *Toy = undefined;
 
-fn keyDown(key_state: ui.KeyState, mods: i32, dt: f32) !void {
+fn keyDown(_: State.Context, key_state: ui.KeyState, mods: i32, dt: f32) !void {
     _ = mods;
     _ = dt;
     if (key_state.pressed_table[graphics.glfw.GLFW_KEY_Q]) {
@@ -113,12 +119,12 @@ pub fn main() !void {
     const image_path = arg_it.next() orelse return error.NotEnoughArguments;
     const frequency = try std.fmt.parseFloat(f32, arg_it.next() orelse return error.NotEnoughArguments);
 
-    state = try Ui.init(ally, .{ .window = .{ .name = "Wave Sim", .width = 800, .height = 800, .resizable = true } });
+    state = try State.init(ally, .{ .window = .{ .name = "Wave Sim", .width = 800, .height = 800, .resizable = true } });
     defer state.deinit(ally);
 
     const gpu = &state.main_win.gpu;
     const win = state.main_win;
-    state.key_down = keyDown;
+    _ = try state.key_down_manager.subscribe(ally, .{ .func = keyDown });
 
     const ComputeUniform: graphics.DataDescription = .{
         .T = extern struct {
@@ -159,7 +165,7 @@ pub fn main() !void {
         .flipped_z = true,
     });
     defer compute_pipeline.deinit(&win.gpu);
-    var compute = try graphics.Compute.init(ally, .{ .win = win, .pipeline = compute_pipeline });
+    var compute = try graphics.Compute.init(ally, .{ .win = win, .compute = compute_pipeline });
     defer compute.deinit(ally);
 
     const size = 16 * 100 * 2;
@@ -179,9 +185,9 @@ pub fn main() !void {
     var current_tex = try graphics.Texture.init(win, size, size, .{ .preferred_format = .float, .type = .storage });
     var next_tex = try graphics.Texture.init(win, size, size, .{ .preferred_format = .float, .type = .storage });
 
-    try previous_tex.setFromRgba(.{ .data = init_tex });
-    try current_tex.setFromRgba(.{ .data = init_tex });
-    try next_tex.setFromRgba(.{ .data = init_tex });
+    try previous_tex.setFromRgba(.{ .data = init_tex }, false);
+    try current_tex.setFromRgba(.{ .data = init_tex }, false);
+    try next_tex.setFromRgba(.{ .data = init_tex }, false);
 
     const image_vert = try graphics.Shader.init(win.gpu, &shaders.image_vert, .vertex);
     defer image_vert.deinit(win.gpu);
@@ -223,37 +229,47 @@ pub fn main() !void {
     const image_drawing = try ally.create(graphics.Drawing);
     defer ally.destroy(image_drawing);
 
-    try image_drawing.init(ally, .{
-        .win = win,
-        .pipeline = image_pipeline,
-    });
-    defer image_drawing.deinit(ally);
+    const color_target: graphics.RenderTarget = .{
+        .texture = .{
+            // kind of an issue, also kind of not really, just throw an arena
+            .color_textures = try ally.dupe(*graphics.Texture, &.{&state.post_color_tex}),
+            .depth_texture = &state.post_depth_tex,
+            .region = .{},
+        },
+    };
 
-    try image_description.vertex_description.bindVertex(image_drawing, &.{
+    try image_drawing.init(ally, gpu, .{
+        .pipeline = image_pipeline,
+        .target = color_target,
+    });
+    defer image_drawing.deinit(ally, gpu.*);
+
+    try image_description.vertex_description.bindVertex(image_drawing, gpu, &.{
         .{ .{ -1, -1, 1 }, .{ 0, 0 } },
         .{ .{ 1, -1, 1 }, .{ 1, 0 } },
         .{ .{ 1, 1, 1 }, .{ 1, 1 } },
         .{ .{ -1, 1, 1 }, .{ 0, 1 } },
-    }, &.{ 0, 1, 2, 2, 3, 0 });
+    }, &.{ 0, 1, 2, 2, 3, 0 }, .immediate);
 
-    try image_drawing.descriptor.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 1, .textures = &.{next_tex}, .type = .combined_storage }} });
-    try image_drawing.descriptor.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 2, .textures = &.{space_tex} }} });
+    try image_drawing.descriptor.updateDescriptorSets(gpu, .{ .samplers = &.{.{ .idx = 1, .textures = &.{next_tex}, .type = .combined_storage }} });
+    try image_drawing.descriptor.updateDescriptorSets(gpu, .{ .samplers = &.{.{ .idx = 2, .textures = &.{space_tex} }} });
 
     var pressed: bool = false;
 
     var toy: Toy = .{
         .zoom = 1,
         .last_pos = win.getCursorPos(),
+        .state = state,
         .text = try graphics.TextFt.init(ally, .{
             .path = "resources/cmunrm.ttf",
             .size = 25,
             .line_spacing = 1,
             .bounding_width = 2500,
-            .flip_y = false,
             .scene = &state.scene,
+            .target = color_target,
         }),
     };
-    defer toy.text.deinit();
+    defer toy.text.deinit(ally, gpu.*);
 
     bad_code = &toy;
 
@@ -270,11 +286,11 @@ pub fn main() !void {
 
     var switch_val: u32 = 0;
 
-    try compute.descriptor.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 1, .dst = 0, .textures = &.{previous_tex}, .type = .storage }} });
-    try compute.descriptor.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 1, .dst = 1, .textures = &.{current_tex}, .type = .storage }} });
-    try compute.descriptor.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 1, .dst = 2, .textures = &.{next_tex}, .type = .storage }} });
+    try compute.descriptor.updateDescriptorSets(gpu, .{ .samplers = &.{.{ .idx = 1, .dst = 0, .textures = &.{previous_tex}, .type = .storage }} });
+    try compute.descriptor.updateDescriptorSets(gpu, .{ .samplers = &.{.{ .idx = 1, .dst = 1, .textures = &.{current_tex}, .type = .storage }} });
+    try compute.descriptor.updateDescriptorSets(gpu, .{ .samplers = &.{.{ .idx = 1, .dst = 2, .textures = &.{next_tex}, .type = .storage }} });
 
-    try compute.descriptor.updateDescriptorSets(ally, .{ .samplers = &.{.{ .idx = 2, .textures = &.{space_tex} }} });
+    try compute.descriptor.updateDescriptorSets(gpu, .{ .samplers = &.{.{ .idx = 2, .textures = &.{space_tex} }} });
 
     var sim_time: f32 = 0;
 
@@ -333,7 +349,7 @@ pub fn main() !void {
 
             compute_builder.push(PushConstants, gpu, compute_pipeline.pipeline, &data);
 
-            try compute.dispatch(compute_builder.getCurrent(), .{ .bind_pipeline = true, .frame_id = 0 });
+            try state.scene.dispatch(compute_builder, &compute);
         }
 
         try compute_builder.endCommand(gpu);
@@ -345,108 +361,27 @@ pub fn main() !void {
 
         try swapchain.wait(gpu, frame_id);
 
+        try toy.text.update(ally, gpu);
+
         try state.scene.queue.execute();
 
         state.image_index = try swapchain.acquireImage(gpu, frame_id);
 
         const builder_trace = graphics.tracy.traceNamed(@src(), "Color Builder");
+        try state.scene.begin();
+
         try builder.beginCommand(gpu);
 
-        builder.pipelineBarrier(gpu, .{
-            .src_stage = .{ .color_attachment_output_bit = true },
-            .dst_stage = .{ .color_attachment_output_bit = true },
-            .image_barriers = &.{
-                .{
-                    .image = swapchain.getImage(state.image_index),
-                    .src_access = .{},
-                    .dst_access = .{ .color_attachment_write_bit = true },
-                    .old_layout = .undefined,
-                    .new_layout = .color_attachment_optimal,
-                },
-            },
-        });
-
-        builder.pipelineBarrier(gpu, .{
-            .src_stage = .{ .color_attachment_output_bit = true },
-            .dst_stage = .{ .color_attachment_output_bit = true },
-            .image_barriers = &.{
-                .{
-                    .image = state.post_color_tex.image,
-                    .src_access = .{},
-                    .dst_access = .{ .color_attachment_write_bit = true },
-                    .old_layout = .undefined,
-                    .new_layout = .color_attachment_optimal,
-                },
-            },
-        });
-        state.post_color_tex.current_layout = .color_attachment_optimal;
-
-        builder.pipelineBarrier(gpu, .{
-            .src_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
-            .dst_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
-            .image_barriers = &.{
-                .{
-                    .image = state.post_depth_tex.image,
-                    .src_access = .{ .depth_stencil_attachment_write_bit = true },
-                    .dst_access = .{ .depth_stencil_attachment_write_bit = true },
-                    .old_layout = .undefined,
-                    .new_layout = .depth_stencil_attachment_optimal,
-                },
-            },
-        });
-        state.post_depth_tex.current_layout = .depth_stencil_attachment_optimal;
-
-        // first
-        try builder.setViewport(gpu, .{ .flip_z = state.scene.flip_z, .width = extent.width, .height = extent.height });
-        builder.beginRendering(gpu, .{
-            .color_attachments = &.{state.post_color_tex.getAttachment()},
-            .depth_attachment = state.post_depth_tex.getAttachment(),
-            .region = .{
-                .x = 0,
-                .y = 0,
-                .width = extent.width,
-                .height = extent.height,
-            },
-        });
-        try image_drawing.draw(builder.getCurrent(), .{
-            .frame_id = builder.frame_id,
-            .bind_pipeline = true,
-        });
-        try state.scene.draw(builder);
-        builder.endRendering(gpu);
-
-        builder.pipelineBarrier(gpu, .{
-            .src_stage = .{ .color_attachment_output_bit = true },
-            .dst_stage = .{ .fragment_shader_bit = true },
-            .image_barriers = &.{
-                .{
-                    .image = state.post_color_tex.image,
-                    .src_access = .{ .color_attachment_write_bit = true },
-                    .dst_access = .{ .shader_read_bit = true },
-                    .old_layout = .color_attachment_optimal,
-                    .new_layout = state.post_color_tex.getIdealLayout(),
-                },
-            },
-        });
+        try state.scene.draw(builder, image_drawing, state.image_index);
+        try state.scene.draw(builder, toy.text.batch.drawing, state.image_index);
 
         // post
         try builder.setViewport(gpu, .{ .flip_z = false, .width = extent.width, .height = extent.height });
-        builder.beginRendering(gpu, .{
-            .color_attachments = &.{swapchain.getAttachment(state.image_index)},
-            .region = .{
-                .x = 0,
-                .y = 0,
-                .width = extent.width,
-                .height = extent.height,
-            },
-        });
-        try state.post_scene.draw(builder);
-        builder.endRendering(gpu);
+        try state.scene.draw(builder, state.post_drawing, state.image_index);
 
-        try builder.transitionLayout(gpu, swapchain.getImage(state.image_index), .{
-            .old_layout = .color_attachment_optimal,
-            .new_layout = .present_src_khr,
-        });
+        state.scene.end(builder);
+
+        builder.transitionSwapimage(gpu, swapchain.getImage(state.image_index));
 
         try builder.endCommand(gpu);
         builder_trace.end();

@@ -42,7 +42,8 @@ const Focusable = struct {
     focus_exit_func: *const fn (*anyopaque, *Callback) anyerror!void = defaultExit,
 
     region: *const Region = &DefaultRegion,
-    ptr: *anyopaque,
+    // why is this here??
+    //ptr: *anyopaque,
 
     pub fn defaultKey(_: *anyopaque, _: *Callback, _: i32, _: i32, _: graphics.Action, _: i32) !void {
         return;
@@ -125,8 +126,7 @@ pub const Callback = struct {
     }
 
     pub fn getMouse(callback: *Callback, button: i32, action: graphics.Action, mods: i32) !void {
-        var pos: [2]f64 = undefined;
-        graphics.glfw.glfwGetCursorPos(callback.window.glfw_win, &pos[0], &pos[1]);
+        const pos = callback.window.getCursorPos();
 
         if (button == 0 and action == .press) {
             for (callback.elements.items) |elem| {
@@ -134,7 +134,7 @@ pub const Callback = struct {
                     if (elem[0] == focused_elem[0]) continue;
                 }
 
-                if (elem[1].region.isInside(.{ @floatCast(pos[0]), @floatCast(pos[1]) })) {
+                if (elem[1].region.isInside(pos.val)) {
                     if (!try elem[1].focus_enter_func(elem[0], callback)) {
                         continue;
                     }
@@ -148,7 +148,7 @@ pub const Callback = struct {
                 }
             }
             if (callback.focused) |focused_elem| {
-                if (!focused_elem[1].region.isInside(.{ @floatCast(pos[0]), @floatCast(pos[1]) })) {
+                if (!focused_elem[1].region.isInside(pos.val)) {
                     try callback.unfocus();
                 } else {
                     try focused_elem[1].mouse_func(focused_elem[0], callback, button, action, mods);
@@ -161,9 +161,10 @@ pub const Callback = struct {
         }
     }
 
-    pub fn getCursor(callback: *Callback, xoffset: f64, yoffset: f64) !void {
+    pub fn getCursor(callback: *Callback, x_pos: f64, y_pos: f64) !void {
         if (callback.focused) |focused_elem| {
-            try focused_elem[1].cursor_func(focused_elem[0], callback, xoffset, yoffset);
+            const height: f64 = @floatFromInt(callback.window.frame_height);
+            try focused_elem[1].cursor_func(focused_elem[0], callback, x_pos, if (callback.window.flip_z) height - y_pos else y_pos);
         }
     }
 

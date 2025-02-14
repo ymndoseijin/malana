@@ -9,13 +9,15 @@ const cos = std.math.cos;
 pub const Mat4 = Mat(f32, 4, 4);
 pub const Mat3 = Mat(f32, 3, 3);
 
-pub const tau = 6.28318530718;
+pub const tau = 6.28318530717958647692528676655900576839433879875021;
 
 pub fn Vec(comptime T: type, comptime size: usize) type {
     return struct {
         const Vector = @Vector(size, T);
         const Array = [size]T;
         const VecN = @This();
+
+        pub const zero: VecN = .init(.{0} ** size);
 
         val: Array,
 
@@ -134,7 +136,7 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
                 }
             }
 
-            return Mat(T, cw, ch).init(res);
+            return .init(res);
         }
 
         pub fn scaling(in_vec: Vec(T, width)) @This() {
@@ -149,7 +151,7 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
                     }
                 }
             }
-            return @This().init(res);
+            return .init(res);
         }
 
         pub fn translation(in_vec: Vec(T, height - 1)) @This() {
@@ -182,7 +184,7 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
 
                 res[i] = @reduce(.Add, row * vec);
             }
-            return Vec(T, width).init(res);
+            return .init(res);
         }
 
         pub fn gramschmidt(self: @This()) @This() {
@@ -241,7 +243,7 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
 }
 
 pub fn rotation2D(comptime T: type, t: T) Mat(T, 2, 2) {
-    return Mat(T, 2, 2).init(.{
+    return .init(.{
         .{ cos(t), sin(t) },
         .{ -sin(t), cos(t) },
     });
@@ -253,12 +255,12 @@ pub fn transform2D(comptime T: type, scaling: Vec(T, 2), rotation: struct { angl
     rot = Mat(T, 3, 3).translation(rotation.center).mul(rot);
 
     const trans = Mat(T, 3, 3).translation(translation);
-    const scale = Mat(T, 3, 3).scaling(Vec(T, 3).init(.{ scaling.val[0], scaling.val[1], 1 }));
+    const scale = Mat(T, 3, 3).scaling(.init(.{ scaling.val[0], scaling.val[1], 1 }));
     return trans.mul(rot.mul(scale));
 }
 
 pub fn rotationX(comptime T: type, t: T) Mat(T, 3, 3) {
-    return Mat(T, 3, 3).init(.{
+    return .init(.{
         .{ 1, 0, 0 },
         .{ 0, cos(t), sin(t) },
         .{ 0, -sin(t), cos(t) },
@@ -266,7 +268,7 @@ pub fn rotationX(comptime T: type, t: T) Mat(T, 3, 3) {
 }
 
 pub fn rotationY(comptime T: type, t: T) Mat(T, 3, 3) {
-    return Mat(T, 3, 3).init(.{
+    return .init(.{
         .{ cos(t), 0, -sin(t) },
         .{ 0, 1, 0 },
         .{ sin(t), 0, cos(t) },
@@ -274,7 +276,7 @@ pub fn rotationY(comptime T: type, t: T) Mat(T, 3, 3) {
 }
 
 pub fn rotationZ(comptime T: type, t: T) Mat(T, 3, 3) {
-    return Mat(T, 3, 3).init(.{
+    return .init(.{
         .{ cos(t), sin(t), 0 },
         .{ -sin(t), cos(t), 0 },
         .{ 0, 0, 1 },
@@ -294,7 +296,7 @@ pub fn perspectiveMatrix(fovy: f32, aspect: f32, nearZ: f32, farZ: f32) Mat4 {
     const f = 1.0 / std.math.tan(fovy * 0.5);
     const f_n = 1.0 / (nearZ - farZ);
 
-    return Mat4.init(.{
+    return .init(.{
         .{ f / aspect, 0, 0, 0 },
         .{ 0, f, 0, 0 },
         .{ 0, 0, (nearZ + farZ) * f_n, -1 },
@@ -307,7 +309,7 @@ pub fn orthoMatrix(left: f32, right: f32, bottom: f32, top: f32, near_z: f32, fa
     const tb = 1.0 / (top - bottom);
     const f_n = -1.0 / (far_z - near_z);
 
-    return Mat4.init(.{
+    return .init(.{
         .{ 2 * rl, 0, 0, -(right + left) * rl },
         .{ 0, 2 * tb, 0, -(top + bottom) * tb },
         .{ 0, 0, f_n, near_z * f_n },
@@ -323,10 +325,10 @@ pub fn lookAtMatrix(eye: Vec3, center: Vec3, up: Vec3) Mat4 {
     const s = s_vec.val;
     const u = u_vec.val;
 
-    return Mat4.init(.{
+    return .init(.{
         .{ s[0], u[0], -f[0], 0 },
         .{ s[1], u[1], -f[1], 0 },
         .{ s[2], u[2], -f[2], 0 },
-        .{ -Vec3.dot(s_vec, eye), -Vec3.dot(u_vec, eye), Vec3.dot(f_vec, eye), 1 },
+        .{ -s_vec.dot(eye), -u_vec.dot(eye), f_vec.dot(eye), 1 },
     });
 }

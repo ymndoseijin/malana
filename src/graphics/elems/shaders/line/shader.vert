@@ -17,9 +17,9 @@ void main()
 {
    vec4 position = vec4(aPos, 1.0);
 
-   //position /= vec4(spatial_ubo.in_resolution / 2, 1, 1);
+   position /= vec4(spatial_ubo.in_resolution / 2, 1, 1);
    position.xy -= 1;
-   position.x *= spatial_ubo.in_resolution.y / spatial_ubo.in_resolution.x;
+   //position.x *= spatial_ubo.in_resolution.y / spatial_ubo.in_resolution.x;
 
    //position.z = 0;
 

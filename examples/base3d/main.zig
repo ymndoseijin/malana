@@ -331,7 +331,7 @@ pub fn main() !void {
         .flipped_z = true,
     });
     defer line_pipeline.deinit(gpu);
-    const line = try graphics.Line.init(try state.scene.new(), state.main_win, .{ .pipeline = line_pipeline, .target = color_target });
+    const line = try graphics.Line.init(&state.scene, .{ .pipeline = line_pipeline, .target = color_target });
 
     while (state.main_win.alive) {
         const frame = graphics.tracy.namedFrame("Frame");

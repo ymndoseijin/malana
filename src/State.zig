@@ -335,15 +335,15 @@ pub fn mouseFunc(ptr: *anyopaque, button: i32, action: graphics.Action, mods: i3
     }
 }
 
-pub fn cursorFunc(ptr: *anyopaque, xoffset: f64, yoffset: f64) !void {
+pub fn cursorFunc(ptr: *anyopaque, x_pos: f64, y_pos: f64) !void {
     var state: *State = @ptrCast(@alignCast(ptr));
-    try state.callback.getCursor(xoffset, yoffset);
+    try state.callback.getCursor(x_pos, y_pos);
     for (state.cursor_func_manager.list.items) |sub| {
         try sub.func(.{
             .state = state,
             .ptr = sub.ptr,
             .id = sub.id,
-        }, xoffset, yoffset);
+        }, x_pos, y_pos);
     }
 }
 
