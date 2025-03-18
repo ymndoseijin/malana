@@ -490,7 +490,7 @@ pub const TextureInfo = struct {
 
 const Texture = @This();
 
-const vk = @import("vk.zig");
+const vk = @import("vulkan");
 const img = @import("img");
 const std = @import("std");
 const builtin = @import("builtin");

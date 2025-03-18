@@ -257,6 +257,8 @@ pub const Text = struct {
             text.clear_dirty = false;
         }
 
+        if (text.codepoints.items.len == 0) return;
+
         {
             var index: usize = text.codepoints.items.len - 1;
 

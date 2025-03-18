@@ -152,7 +152,11 @@ pub fn main() !void {
         .constants_size = PushConstants.getSize(),
     };
 
-    const space_tex = try graphics.Texture.initFromPath(ally, state.main_win, image_path, .{ .mag_filter = .linear, .min_filter = .linear, .texture_type = .flat });
+    const space_tex = try graphics.Texture.initFromPath(ally, state.main_win, image_path, .{
+        .mag_filter = .linear,
+        .min_filter = .linear,
+        .texture_type = .flat,
+    });
     defer space_tex.deinit();
 
     const compute_shader = try graphics.Shader.init(win.gpu, &shaders.compute, .compute);

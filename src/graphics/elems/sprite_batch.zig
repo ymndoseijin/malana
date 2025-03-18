@@ -100,7 +100,6 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             transform: graphics.Transform2D,
 
             pub fn delete(sprite: Sprite) !void {
-                std.debug.print("wa\n", .{});
                 const tracy = trace(@src());
                 defer tracy.end();
 

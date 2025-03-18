@@ -18,7 +18,7 @@ const freetype = @cImport({
 
 pub const tracy = @import("tracy.zig");
 
-const vk = @import("vk.zig");
+const vk = @import("vulkan");
 
 pub extern fn glfwGetInstanceProcAddress(instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction;
 pub extern fn glfwGetPhysicalDevicePresentationSupport(instance: vk.Instance, pdev: vk.PhysicalDevice, queuefamily: u32) c_int;
@@ -690,14 +690,14 @@ pub const OpQueue = struct {
             try update.descriptor.updateSets(queue.gpu, update.options);
         }
 
-        while (queue.set_update.popOrNull()) |update| {
+        while (queue.set_update.pop()) |update| {
             for (update.options.samplers) |s| queue.ally.free(s.textures);
             queue.ally.free(update.options.samplers);
             queue.ally.free(update.options.uniforms);
             queue.ally.free(update.options.storage);
         }
 
-        while (queue.buffer_deletion.popOrNull()) |buffer| {
+        while (queue.buffer_deletion.pop()) |buffer| {
             buffer.deinit(queue.gpu.*);
         }
     }
@@ -2572,14 +2572,16 @@ pub const VertexDescription = struct {
             const T = attrib.getType();
             var num_buf: [128]u8 = undefined;
 
-            fields = fields ++ .{.{
+            const field: std.builtin.Type.StructField = .{
                 .name = std.fmt.bufPrintZ(&num_buf, "{d}", .{i}) catch unreachable,
                 .type = T,
-                .default_value = null,
+                .default_value_ptr = null,
                 .is_comptime = false,
                 //.alignment = if (@sizeOf(T) > 0) 1 else 0,
                 .alignment = if (@sizeOf(T) > 0) @alignOf(T) else 0,
-            }};
+            };
+
+            fields = fields ++ .{field};
         }
 
         return @Type(.{
@@ -2970,7 +2972,7 @@ pub const RenderPipeline = struct {
                     .format = try attrib.getVK(),
                     .offset = off,
                 };
-                off += @intCast(attrib.getSize()); // ?
+                off += @intCast(attrib.getSize());
             }
         }
 

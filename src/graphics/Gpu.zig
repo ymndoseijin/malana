@@ -155,10 +155,10 @@ pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.
 
     const app_info: vk.ApplicationInfo = .{
         .p_application_name = app_name,
-        .application_version = vk.makeApiVersion(0, 0, 0, 0),
+        .application_version = @bitCast(vk.makeApiVersion(0, 0, 0, 0)),
         .p_engine_name = app_name,
-        .engine_version = vk.makeApiVersion(0, 0, 0, 0),
-        .api_version = vk.API_VERSION_1_3,
+        .engine_version = @bitCast(vk.makeApiVersion(0, 0, 0, 0)),
+        .api_version = @bitCast(vk.API_VERSION_1_3),
     };
 
     gpu.instance = try gpu.vkb.createInstance(&.{
@@ -557,7 +557,7 @@ pub fn createStagingBuffer(gpu: *Gpu, size: usize) !graphics.BufferMemory {
 
 const Gpu = @This();
 
-const vk = @import("vk.zig");
+const vk = @import("vulkan");
 const std = @import("std");
 const builtin = @import("builtin");
 const graphics = @import("graphics.zig");

@@ -1,5 +1,6 @@
 .{
-    .name = "ui-toolkit",
+    .name = .ui_toolkit,
+    .fingerprint = 0xa3ee50a5df119651,
     .version = "0.0.0",
     .paths = .{
         "src",
@@ -8,9 +9,13 @@
     },
 
     .dependencies = .{
+        .vulkan_zig = .{
+            .url = "https://github.com/Snektron/vulkan-zig/archive/57d587c8a4b6ff5493613b1cf0c64ce34461696e.tar.gz",
+            .hash = "vulkan-0.0.0-r7Ytx5GAAwBIBpjW4Ipd81FiM24t7UxlVomrGkubzW3v",
+        },
         .zigimg = .{
-            .url = "https://github.com/AshishBhattarai/zigimg/archive/8c6fe0f5e37e4cae2728e5ae33f5c8a5d661accf.tar.gz",
-            .hash = "1220dcdd3df49d5b3cdbf279efee2a5bfbea1bb05065a569650b0688de269108e562",
+            .url = "https://github.com/TUSF/zigimg/archive/0ce4eca3560d5553b13263d6b6bb72e146dd43d0.tar.gz",
+            .hash = "zigimg-0.1.0-lly-O4heEADSRxoTwJwrD3TBfUob9052sIgb9SL8Iz-A",
         },
         .box2c = .{
             .url = "https://github.com/erincatto/box2c/archive/7fdd976d91330e3c0e1009820ae9539fb51a7b6c.tar.gz",

@@ -74,6 +74,10 @@ pub fn build(b: *std.Build) void {
         elem_shaders.add(shader[0], shader[1], .{});
     }
 
+    const vulkan = b.dependency("vulkan_zig", .{
+        .registry = b.path("vk.xml"),
+    }).module("vulkan-zig");
+
     const graphics = b.createModule(.{
         .root_source_file = b.path("src/graphics/graphics.zig"),
         .imports = &.{
@@ -84,6 +88,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "geometry", .module = geometry },
             .{ .name = "img", .module = zigimg_dep.module("zigimg") },
             .{ .name = "elem_shaders", .module = elem_shaders.getModule() },
+            .{ .name = "vulkan", .module = vulkan },
         },
     });
     graphics.addIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
@@ -193,6 +198,8 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         });
+
+        exe.root_module.addImport("vulkan", vulkan);
 
         if (tracy) |tracy_path| {
             const client_cpp = b.pathJoin(

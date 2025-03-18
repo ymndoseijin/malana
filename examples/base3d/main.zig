@@ -380,7 +380,7 @@ pub fn main() !void {
         }
 
         try fps.clear();
-        try fps.printFmt(ally, gpu, "FPS: {}", .{@as(u32, @intFromFloat(1 / state.dt))});
+        try fps.printFmt(ally, "FPS: {}", .{@as(u32, @intFromFloat(1 / state.dt))});
 
         // begin frame
 
@@ -391,6 +391,8 @@ pub fn main() !void {
         // render graphics
 
         try swapchain.wait(gpu, frame_id);
+
+        try fps.update(ally, gpu);
 
         try state.scene.queue.execute();
 
@@ -418,12 +420,11 @@ pub fn main() !void {
             try state.scene.draw(builder, shadow_drawing, state.image_index);
         }
 
-        const data = .{
+        builder.push(PushConstants, gpu, pipeline.pipeline, &.{
             .cam_pos = state.cam.move.val,
             .cam_transform = state.cam.transform_mat,
             .light_count = lights.len,
-        };
-        builder.push(PushConstants, gpu, pipeline.pipeline, &data);
+        });
 
         try state.scene.draw(builder, camera_drawing, state.image_index);
         try state.scene.draw(builder, line.drawing, state.image_index);
