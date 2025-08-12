@@ -61,7 +61,7 @@ const DefaultPipelines = struct {
         };
     }
 
-    pub fn deinit(pipelines: *DefaultPipelines, gpu: *const graphics.Gpu) void {
+    pub fn deinit(pipelines: *DefaultPipelines, gpu: graphics.Gpu) void {
         pipelines.color.deinit(gpu);
         pipelines.sprite.deinit(gpu);
         pipelines.sprite_batch.deinit(gpu);
@@ -95,7 +95,7 @@ pub fn deinit(scene: *Scene) void {
     scene.drawing_array.deinit();
     scene.queue.deinit();
     scene.textures.deinit();
-    scene.default_pipelines.deinit(&scene.window.gpu);
+    scene.default_pipelines.deinit(scene.window.gpu);
     scene.clearBuffers();
     scene.buffers.deinit();
 }

@@ -152,7 +152,7 @@ pub fn init(win: *graphics.Window, width: u32, height: u32, info: TextureInfo) !
 
     if (builtin.mode == .Debug) {
         //std.debug.dumpCurrentStackTrace(null);
-        std.debug.print("texture {any}\n", .{tex.image});
+        //std.debug.print("texture {any}\n", .{tex.image});
         try graphics.addDebugMark(win.gpu, .image, @intFromEnum(tex.image), "texture image");
         try graphics.addDebugMark(win.gpu, .image_view, @intFromEnum(tex.image_view), "texture image view");
     }
@@ -284,7 +284,7 @@ fn copyBufferToImage(tex: Texture, buffer: vk.Buffer) !void {
 
 pub fn setCube(tex: Texture, ally: std.mem.Allocator, paths: [6][]const u8) !void {
     const size = tex.width * tex.height;
-    const staging_buff = try tex.window.gpu.createStagingBuffer(size * 4 * 6);
+    const staging_buff = try tex.window.gpu.createStagingBuffer(size * 4 * 6, .src);
     defer staging_buff.deinit(tex.window.gpu);
 
     const Rgba = struct {
@@ -359,7 +359,7 @@ pub fn createImage(tex: Texture, input: anytype, flip: bool) !void {
         else => return error.UnhandledFormat,
     };
 
-    const staging_buff = try tex.window.gpu.createStagingBuffer(size * input.data.len);
+    const staging_buff = try tex.window.gpu.createStagingBuffer(size * input.data.len, .src);
     defer staging_buff.deinit(tex.window.gpu);
 
     {
@@ -371,36 +371,21 @@ pub fn createImage(tex: Texture, input: anytype, flip: bool) !void {
                 switch (input_type) {
                     .rgb, .rgba => {
                         const Format = Bgra;
-                        const PixT = std.meta.fields(T)[0].type;
 
                         var slice = @as([*]Format, @ptrCast(data))[0..input.data.len];
 
-                        if (PixT != u8) {
-                            const factor = std.math.maxInt(PixT) / 256;
-                            for (0..tex.width) |i| {
-                                for (0..tex.height) |j_in| {
-                                    const j = if (flip) tex.height - j_in - 1 else j_in;
-                                    const p = &slice[j * tex.width + i];
-                                    const source = j_in * tex.width + i;
+                        for (0..tex.width) |i| {
+                            for (0..tex.height) |j_in| {
+                                const j = if (flip) tex.height - j_in - 1 else j_in;
+                                const p = &slice[j * tex.width + i];
+                                const source = j_in * tex.width + i;
 
-                                    p.r = @intCast(@min(255, input.data[source].r / factor));
-                                    p.g = @intCast(@min(255, input.data[source].g / factor));
-                                    p.b = @intCast(@min(255, input.data[source].b / factor));
-                                    p.a = if (input_type == .rgb) 255 else @intCast(@min(255, input.data[source].a / factor));
-                                }
-                            }
-                        } else {
-                            for (0..tex.width) |i| {
-                                for (0..tex.height) |j_in| {
-                                    const j = if (flip) tex.height - j_in - 1 else j_in;
-                                    const p = &slice[j * tex.width + i];
-                                    const source = j_in * tex.width + i;
+                                const v = input.data[source].to.u32Rgba();
 
-                                    p.r = input.data[source].r;
-                                    p.g = input.data[source].g;
-                                    p.b = input.data[source].b;
-                                    p.a = if (input_type == .rgb) 255 else input.data[source].a;
-                                }
+                                p.r = @intCast(v >> 24 & 0xFF);
+                                p.g = @intCast(v >> 16 & 0xFF);
+                                p.b = @intCast(v >> 8 & 0xFF);
+                                p.a = @intCast(v >> 0 & 0xFF);
                             }
                         }
                     },

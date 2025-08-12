@@ -168,7 +168,7 @@ pub fn main() !void {
         .gpu = &win.gpu,
         .flipped_z = true,
     });
-    defer compute_pipeline.deinit(&win.gpu);
+    defer compute_pipeline.deinit(win.gpu);
     var compute = try graphics.Compute.init(ally, .{ .win = win, .compute = compute_pipeline });
     defer compute.deinit(ally);
 
@@ -228,7 +228,7 @@ pub fn main() !void {
         .gpu = &win.gpu,
         .flipped_z = true,
     });
-    defer image_pipeline.deinit(gpu);
+    defer image_pipeline.deinit(win.gpu);
 
     const image_drawing = try ally.create(graphics.Drawing);
     defer ally.destroy(image_drawing);
@@ -390,11 +390,17 @@ pub fn main() !void {
         try builder.endCommand(gpu);
         builder_trace.end();
 
-        try swapchain.submit(gpu, state.command_builder, .{ .wait = &.{
-            .{ .semaphore = compute.compute_semaphores[frame_id], .flag = .{ .fragment_shader_bit = true, .vertex_input_bit = true } },
-            .{ .semaphore = swapchain.image_acquired[frame_id], .flag = .{ .color_attachment_output_bit = true } },
-        } });
-        try swapchain.present(gpu, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = state.image_index });
+        try swapchain.submit(gpu, state.command_builder, .{
+            .wait = &.{
+                .{ .semaphore = compute.compute_semaphores[frame_id], .flag = .{ .fragment_shader_bit = true, .vertex_input_bit = true } },
+                .{ .semaphore = swapchain.image_acquired[frame_id], .flag = .{ .color_attachment_output_bit = true } },
+            },
+            .image_index = state.image_index,
+        });
+        try swapchain.present(gpu, .{
+            .wait = &.{swapchain.swap_images[@intFromEnum(state.image_index)].submit_semaphore},
+            .image_index = state.image_index,
+        });
     }
 
     try win.gpu.vkd.deviceWaitIdle(win.gpu.dev);

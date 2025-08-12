@@ -60,10 +60,16 @@ pub fn Vec(comptime T: type, comptime size: usize) type {
 
         pub fn dot(a: VecN, b: VecN) T {
             return @reduce(.Add, a.toSimd() * b.toSimd());
+            //const dot_res: [size]T = a.toSimd() * b.toSimd();
+            //var val: T = 0;
+            //for (dot_res) |r| {
+            //    val += r;
+            //}
+            //return val;
         }
 
         pub fn length(a: VecN) T {
-            return @sqrt(@reduce(.Add, a.toSimd() * a.toSimd()));
+            return @sqrt(a.dot(a));
         }
 
         pub fn norm(a: VecN) VecN {
@@ -183,6 +189,11 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
                 }
 
                 res[i] = @reduce(.Add, row * vec);
+                //const mul_res: [width]T = row * vec;
+                //res[i] = 0;
+                //inline for (mul_res) |r| {
+                //    res[i] += r;
+                //}
             }
             return .init(res);
         }

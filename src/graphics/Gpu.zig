@@ -509,33 +509,44 @@ fn debugCallback(
 
     const callback_data = p_callback_data.?;
 
-    std.debug.print("validation {}: {s}\n", .{ message_severity, p_callback_data.?.p_message.? });
+    std.debug.print("\u{001b}[0;31mValidation Error [\u{001b}[0;37m{}\u{001b}[0;31m]:\u{001b}[0m\n{s}\n", .{ message_severity, p_callback_data.?.p_message.? });
 
     if (callback_data.p_objects) |obj_ptr| {
         const objects = obj_ptr[0..callback_data.object_count];
         if (objects.len > 0) {
-            std.debug.print("objects:\n", .{});
+            std.debug.print("\u{001b}[0;31mObjects:\u{001b}[0m\n", .{});
             for (objects) |object| {
-                std.debug.print("{s} {} ({}): {s}\n", .{
-                    object.p_object_name orelse "unknown name",
+                std.debug.print("\u{001b}[0;31m\"\u{001b}[0;37m{s}\u{001b}[0;31m\" \u{001b}[0;37m{}\u{001b}[0;31m (\u{001b}[0;37m{}\u{001b}[0;31m): \"\u{001b}[0;37m{s}\u{001b}[0;31m\"\u{001b}[0m\n", .{
+                    object.p_object_name orelse "(?)",
                     object.object_type,
                     object.object_handle,
-                    graphics.global_object_map.get(object.object_handle) orelse "unknown handle",
+                    graphics.global_object_map.get(object.object_handle) orelse "(?)",
                 });
             }
         }
     }
 
     if (message_severity.error_bit_ext) {
-        //@panic("error\n");
+        @breakpoint();
     }
+
     return vk.FALSE;
 }
 
-pub fn createStagingBuffer(gpu: *Gpu, size: usize) !graphics.BufferMemory {
+pub fn createStagingBuffer(
+    gpu: *Gpu,
+    size: usize,
+    usage: enum {
+        src,
+        dst,
+    },
+) !graphics.BufferMemory {
     const staging_buffer = try gpu.vkd.createBuffer(gpu.dev, &.{
         .size = size,
-        .usage = .{ .transfer_src_bit = true },
+        .usage = switch (usage) {
+            .src => .{ .transfer_src_bit = true },
+            .dst => .{ .transfer_dst_bit = true },
+        },
         .sharing_mode = .exclusive,
     }, null);
 

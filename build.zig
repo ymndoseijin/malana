@@ -189,14 +189,16 @@ pub fn build(b: *std.Build) void {
         },
     };
 
+    const build_all_step = b.step("all", "Build all");
+
     inline for (apps) |app| {
         const exe = b.addExecutable(.{
             .name = app.name,
-            // In this case the main source file is merely a path, however, in more
-            // complicated build scripts, this could be a generated file.
             .root_source_file = b.path("examples/" ++ app.name ++ "/main.zig"),
             .target = target,
             .optimize = optimize,
+            //.use_llvm = false,
+            //.use_lld = false,
         });
 
         exe.root_module.addImport("vulkan", vulkan);
@@ -291,6 +293,7 @@ pub fn build(b: *std.Build) void {
 
         const build_step = b.step(app.name, "Build " ++ app.name);
         build_step.dependOn(&artifact.step);
+        build_all_step.dependOn(&artifact.step);
 
         const run_cmd = b.addRunArtifact(exe);
 

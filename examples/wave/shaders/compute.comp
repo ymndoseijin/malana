@@ -14,7 +14,7 @@ layout (push_constant) uniform Constants {
 } constants;
 
 
-layout(rgba32f, binding = 1) uniform image2D spaces[3];
+layout(r32f, binding = 1) uniform image2D spaces[3];
 layout(binding = 2) uniform sampler2D base_image;
 
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;

@@ -14,8 +14,8 @@
             .hash = "vulkan-0.0.0-r7Ytx5GAAwBIBpjW4Ipd81FiM24t7UxlVomrGkubzW3v",
         },
         .zigimg = .{
-            .url = "https://github.com/TUSF/zigimg/archive/0ce4eca3560d5553b13263d6b6bb72e146dd43d0.tar.gz",
-            .hash = "zigimg-0.1.0-lly-O4heEADSRxoTwJwrD3TBfUob9052sIgb9SL8Iz-A",
+            .url = "git+https://github.com/zigimg/zigimg.git#b1c5beea3b200a949fe7edf15ba8317cb9253efe",
+            .hash = "zigimg-0.1.0-8_eo2lrXEgBlEihqJdiw_ZtxgL-vO72ajJpmOdO59qxp",
         },
         .box2c = .{
             .url = "https://github.com/erincatto/box2c/archive/7fdd976d91330e3c0e1009820ae9539fb51a7b6c.tar.gz",

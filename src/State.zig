@@ -398,7 +398,7 @@ pub fn deinit(state: *State, ally: std.mem.Allocator) void {
     state.multisampling_tex.deinit();
     state.post_depth_tex.deinit();
     state.first_pass.deinit(&state.main_win.gpu);
-    state.post_pipeline.deinit(&state.main_win.gpu);
+    state.post_pipeline.deinit(state.main_win.gpu);
 
     state.post_drawing.deinitAllBuffers(ally, gpu.*);
     ally.destroy(state.post_drawing);

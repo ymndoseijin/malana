@@ -56,7 +56,7 @@ pub fn main() !void {
 
     // shadow testing
 
-    const shadow_res = 1024;
+    const shadow_res = 8192;
 
     const shadow_pass = try graphics.RenderPass.init(gpu, .{
         .format = state.main_win.swapchain.surface_format.format,
@@ -140,7 +140,7 @@ pub fn main() !void {
         .gpu = gpu,
         .flipped_z = true,
     });
-    defer screen_pipeline.deinit(gpu);
+    defer screen_pipeline.deinit(gpu.*);
 
     const screen_drawing = try ally.create(graphics.Drawing);
     defer ally.destroy(screen_drawing);
@@ -207,7 +207,7 @@ pub fn main() !void {
         .gpu = gpu,
         .flipped_z = true,
     });
-    defer pipeline.deinit(gpu);
+    defer pipeline.deinit(gpu.*);
 
     var cubemap = try graphics.Texture.init(state.main_win, 1000, 1000, .{ .cubemap = true });
     try cubemap.setCube(ally, .{
@@ -273,7 +273,7 @@ pub fn main() !void {
         .gpu = gpu,
         .flipped_z = true,
     });
-    defer shadow_pipeline.deinit(gpu);
+    defer shadow_pipeline.deinit(gpu.*);
 
     var shadow_drawing = try ally.create(graphics.Drawing);
     defer ally.destroy(shadow_drawing);
@@ -330,13 +330,18 @@ pub fn main() !void {
         .gpu = gpu,
         .flipped_z = true,
     });
-    defer line_pipeline.deinit(gpu);
+    defer line_pipeline.deinit(gpu.*);
     const line = try graphics.Line.init(&state.scene, .{ .pipeline = line_pipeline, .target = color_target });
 
     while (state.main_win.alive) {
         const frame = graphics.tracy.namedFrame("Frame");
         defer frame.end();
 
+        const swapchain = &state.main_win.swapchain;
+        const builder = &state.command_builder;
+        const frame_id = builder.frame_id;
+
+        try swapchain.wait(gpu, frame_id);
         try state.updateEvents();
 
         var spring_verts = std.ArrayList([3]f32).init(ally);
@@ -384,13 +389,9 @@ pub fn main() !void {
 
         // begin frame
 
-        const builder = &state.command_builder;
-        const frame_id = builder.frame_id;
-        const swapchain = &state.main_win.swapchain;
-
         // render graphics
 
-        try swapchain.wait(gpu, frame_id);
+        //try swapchain.wait(gpu, frame_id);
 
         try fps.update(ally, gpu);
 
@@ -436,9 +437,13 @@ pub fn main() !void {
 
         try builder.endCommand(gpu);
 
-        try swapchain.submit(gpu, state.command_builder, .{ .wait = &.{
-            .{ .semaphore = swapchain.image_acquired[frame_id], .flag = .{ .color_attachment_output_bit = true } },
-        } });
-        try swapchain.present(gpu, .{ .wait = &.{swapchain.render_finished[frame_id]}, .image_index = state.image_index });
+        try swapchain.submit(gpu, state.command_builder, .{
+            .wait = &.{.{ .semaphore = swapchain.image_acquired[frame_id], .flag = .{ .color_attachment_output_bit = true } }},
+            .image_index = state.image_index,
+        });
+        try swapchain.present(gpu, .{
+            .wait = &.{swapchain.swap_images[@intFromEnum(state.image_index)].submit_semaphore},
+            .image_index = state.image_index,
+        });
     }
 }

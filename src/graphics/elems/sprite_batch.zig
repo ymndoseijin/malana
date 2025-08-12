@@ -85,6 +85,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             batch.textures.deinit();
         }
 
+        //const current_idx: u32 = @intCast(batch.sprite_indices.items.len);
         pub fn clear(batch: *ThisBatch) void {
             batch.sprite_indices.clearRetainingCapacity();
             batch.textures.clearRetainingCapacity();
@@ -92,25 +93,24 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
         }
 
         pub const Sprite = struct {
-            batch: *ThisBatch,
             idx: u32,
             width: f32,
             height: f32,
             opacity: f32,
             transform: graphics.Transform2D,
 
-            pub fn delete(sprite: Sprite) !void {
+            // TODO: not currently working
+            pub fn delete(sprite: Sprite, batch: *ThisBatch) !void {
                 const tracy = trace(@src());
                 defer tracy.end();
 
-                const batch = sprite.batch;
-
-                const current = batch.sprite_indices[sprite.idx];
+                const current = batch.sprite_indices.items[sprite.idx];
                 const last = batch.sprite_indices.items[batch.sprite_indices.items.len - 1];
                 batch.sprite_indices.shrinkRetainingCapacity(batch.sprite_indices.items.len - 1);
 
-                batch.drawing.getUniform(0, 1, current).getData().* = batch.drawing.getUniform(0, 1, last).getData().*;
+                batch.drawing.getUniformOr(0, 1, current).getData().* = batch.drawing.getUniform(0, 1, last).getData().*;
                 const ally = batch.drawing.window.ally;
+                std.debug.print("current dst: {}\n", .{current});
                 try batch.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{
                     .set = 1,
                     .idx = 0,
@@ -122,30 +122,35 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
                 batch.textures.shrinkRetainingCapacity(batch.textures.items.len - 1);
             }
 
-            pub fn getUniformOr(sprite: Sprite, binding: u32) ?graphics.BufferHandle {
-                return sprite.batch.drawing.descriptor.getUniformOr(0, binding, sprite.batch.sprite_indices.items[sprite.idx]);
+            pub fn getUniformOr(sprite: Sprite, batch: ThisBatch, binding: u32) ?graphics.BufferHandle {
+                return batch.drawing.descriptor.getUniformOr(0, binding, batch.sprite_indices.items[sprite.idx]);
             }
 
-            pub fn updateTransform(sprite: Sprite) void {
-                sprite.getUniformOr(1).?.setAsUniformField(SpriteUniform, .transform, sprite.transform.getMat().cast(4, 4).columns);
+            pub fn updateTransform(sprite: Sprite, batch: ThisBatch) void {
+                sprite.getUniformOr(batch, 1).?.setAsUniformField(SpriteUniform, .transform, sprite.transform.getMat().cast(4, 4).columns);
             }
             pub fn setOpacity(sprite: *Sprite, opacity: f32) void {
                 sprite.opacity = opacity;
                 sprite.getUniformOr(1).?.setAsUniformField(SpriteUniform, .opacity, opacity);
             }
-            pub fn setTexture(sprite: *Sprite, tex: graphics.Texture) !void {
-                const ally = sprite.batch.drawing.window.ally;
-                sprite.batch.textures[sprite.idx] = tex;
-                try sprite.batch.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{
+            pub fn setTexture(sprite: *Sprite, batch: ThisBatch, tex: graphics.Texture) !void {
+                const ally = batch.drawing.window.ally;
+                batch.textures[sprite.idx] = tex;
+                try batch.drawing.updateDescriptorSets(ally, .{ .samplers = &.{.{
                     .set = 1,
                     .idx = 0,
-                    .dst = sprite.batch.sprite_indices[sprite.idx],
+                    .dst = batch.sprite_indices[sprite.idx],
                     .textures = &.{tex},
                 }} });
             }
         };
 
         pub fn newSprite(batch: *ThisBatch, gpu: *graphics.Gpu, options: struct {
+            transform: graphics.Transform2D = .{
+                .scale = math.Vec2.init(.{ 1, 1 }),
+                .rotation = .{ .angle = 0, .center = math.Vec2.init(.{ 0.5, 0.5 }) },
+                .translation = math.Vec2.init(.{ 0, 0 }),
+            },
             tex: graphics.Texture,
             uniform: SpriteUniform.T,
         }) !Sprite {
@@ -154,12 +159,6 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
 
             const w: f32 = @floatFromInt(options.tex.width);
             const h: f32 = @floatFromInt(options.tex.height);
-
-            const default_transform: graphics.Transform2D = .{
-                .scale = math.Vec2.init(.{ 1, 1 }),
-                .rotation = .{ .angle = 0, .center = math.Vec2.init(.{ 0.5, 0.5 }) },
-                .translation = math.Vec2.init(.{ 0, 0 }),
-            };
 
             const current_idx: u32 = @intCast(batch.sprite_indices.items.len);
             try batch.sprite_indices.append(current_idx);
@@ -180,12 +179,11 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             }} });
 
             return .{
-                .batch = batch,
                 .idx = current_idx,
                 .width = w,
                 .height = h,
                 .opacity = 1.0,
-                .transform = default_transform,
+                .transform = options.transform,
             };
         }
 

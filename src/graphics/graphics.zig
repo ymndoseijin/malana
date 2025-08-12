@@ -4,8 +4,6 @@ pub const glfw = @cImport({
     @cInclude("GLFW/glfw3.h");
 });
 
-const max_boundless = 2560;
-
 const common = @import("common");
 const std = @import("std");
 const builtin = @import("builtin");
@@ -18,7 +16,8 @@ const freetype = @cImport({
 
 pub const tracy = @import("tracy.zig");
 
-const vk = @import("vulkan");
+// REMOVE THIS
+pub const vk = @import("vulkan");
 
 pub extern fn glfwGetInstanceProcAddress(instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction;
 pub extern fn glfwGetPhysicalDevicePresentationSupport(instance: vk.Instance, pdev: vk.PhysicalDevice, queuefamily: u32) c_int;
@@ -75,21 +74,12 @@ pub const Swapchain = struct {
 
     swap_images: []SwapImage,
 
-    render_finished: []vk.Semaphore,
     image_acquired: []vk.Semaphore,
     frame_fence: []vk.Fence,
 
     pub const ImageIndex = enum(u32) { _ };
 
     pub fn init(gpu: *const Gpu, ally: Allocator, extent: vk.Extent2D, format: PreferredFormat) !Swapchain {
-        const finished = try ally.alloc(vk.Semaphore, frames_in_flight);
-        for (finished) |*f| {
-            f.* = try gpu.vkd.createSemaphore(gpu.dev, &.{}, null);
-            if (builtin.mode == .Debug) {
-                try addDebugMark(gpu.*, .semaphore, @intFromEnum(f.*), "swapchain finished semaphore");
-            }
-        }
-
         const image = try ally.alloc(vk.Semaphore, frames_in_flight);
         for (image) |*f| {
             f.* = try gpu.vkd.createSemaphore(gpu.dev, &.{}, null);
@@ -110,7 +100,6 @@ pub const Swapchain = struct {
             .extent = extent,
             .old_handle = .null_handle,
             .format = format,
-            .finished = finished,
             .image = image,
             .frames = frame_fence,
         });
@@ -120,7 +109,6 @@ pub const Swapchain = struct {
         extent: vk.Extent2D,
         old_handle: vk.SwapchainKHR,
         format: PreferredFormat,
-        finished: []vk.Semaphore,
         image: []vk.Semaphore,
         frames: []vk.Fence,
     }) !Swapchain {
@@ -178,14 +166,13 @@ pub const Swapchain = struct {
         }
         //errdefer gpu.vkd.destroySemaphore(gpu.dev, next_image_acquired, null);
 
-        return Swapchain{
+        return .{
             .ally = ally,
             .surface_format = surface_format,
             .present_mode = present_mode,
             .extent = actual_extent,
             .handle = handle,
             .swap_images = swap_images,
-            .render_finished = options.finished,
             .frame_fence = options.frames,
             .image_acquired = options.image,
         };
@@ -199,9 +186,6 @@ pub const Swapchain = struct {
     pub fn deinit(self: Swapchain, gpu: *Gpu) void {
         self.deinitExceptSwapchain(gpu);
         gpu.vkd.destroySwapchainKHR(gpu.dev, self.handle, null);
-
-        for (self.render_finished) |s| gpu.vkd.destroySemaphore(gpu.dev, s, null);
-        self.ally.free(self.render_finished);
 
         for (self.image_acquired) |s| gpu.vkd.destroySemaphore(gpu.dev, s, null);
         self.ally.free(self.image_acquired);
@@ -218,7 +202,6 @@ pub const Swapchain = struct {
             .extent = new_extent,
             .old_handle = old_handle,
             .format = format,
-            .finished = self.render_finished,
             .image = self.image_acquired,
             .frames = self.frame_fence,
         });
@@ -264,10 +247,13 @@ pub const Swapchain = struct {
         };
     }
 
-    pub fn submit(swapchain: *Swapchain, gpu: *Gpu, builder: CommandBuilder, options: struct { wait: []const struct {
-        semaphore: vk.Semaphore,
-        flag: vk.PipelineStageFlags,
-    } }) !void {
+    pub fn submit(swapchain: *Swapchain, gpu: *Gpu, builder: CommandBuilder, options: struct {
+        wait: []const struct {
+            semaphore: vk.Semaphore,
+            flag: vk.PipelineStageFlags,
+        },
+        image_index: ImageIndex,
+    }) !void {
         const wait_stage = try swapchain.ally.alloc(vk.PipelineStageFlags, options.wait.len);
         defer swapchain.ally.free(wait_stage);
 
@@ -289,7 +275,7 @@ pub const Swapchain = struct {
             .command_buffer_count = 1,
             .p_command_buffers = @ptrCast(&cmdbuf),
             .signal_semaphore_count = 1,
-            .p_signal_semaphores = @ptrCast(&swapchain.render_finished[builder.frame_id]),
+            .p_signal_semaphores = @ptrCast(&swapchain.swap_images[@intFromEnum(options.image_index)].submit_semaphore),
         }}, swapchain.frame_fence[builder.frame_id]);
     }
 
@@ -310,7 +296,7 @@ pub const Swapchain = struct {
 const SwapImage = struct {
     image: vk.Image,
     view: vk.ImageView,
-    image_acquired: vk.Semaphore,
+    submit_semaphore: vk.Semaphore,
 
     fn init(gpu: *const Gpu, image: vk.Image, format: vk.Format) !SwapImage {
         const view = try gpu.vkd.createImageView(gpu.dev, &.{
@@ -333,20 +319,20 @@ const SwapImage = struct {
             try addDebugMark(gpu.*, .image, @intFromEnum(image), "swapchain image");
         }
 
-        const image_acquired = try gpu.vkd.createSemaphore(gpu.dev, &.{}, null);
-        errdefer gpu.vkd.destroySemaphore(gpu.dev, image_acquired, null);
+        const semaphore = try gpu.vkd.createSemaphore(gpu.dev, &.{}, null);
+        errdefer gpu.vkd.destroySemaphore(gpu.dev, semaphore, null);
 
-        return SwapImage{
+        return .{
             .image = image,
             .view = view,
-            .image_acquired = image_acquired,
+            .submit_semaphore = semaphore,
         };
     }
 
     fn deinit(self: SwapImage, gpu: *const Gpu) void {
         //self.waitForFence(gpu) catch return;
         gpu.vkd.destroyImageView(gpu.dev, self.view, null);
-        gpu.vkd.destroySemaphore(gpu.dev, self.image_acquired, null);
+        gpu.vkd.destroySemaphore(gpu.dev, self.submit_semaphore, null);
     }
 };
 
@@ -509,9 +495,7 @@ pub fn copyBuffer(
 
 // end
 
-pub fn addDebugMark(gpu: Gpu, object_type: vk.ObjectType, handle: u64, name: []const u8) !void {
-    if (true) return;
-    const ally = std.heap.page_allocator;
+pub fn getLineString(ally: std.mem.Allocator, name: []const u8) ![]const u8 {
     const debug_info = try std.debug.getSelfDebugInfo();
 
     var image_name = std.ArrayList(u8).init(ally);
@@ -522,23 +506,34 @@ pub fn addDebugMark(gpu: Gpu, object_type: vk.ObjectType, handle: u64, name: []c
 
     try stream.print("{s} (", .{name});
     _ = it.next();
+    var count: usize = 0;
     while (it.next()) |return_address| {
+        if (count == 3) break;
         const address = if (return_address == 0) return_address else return_address - 1;
 
         const module = debug_info.getModuleForAddress(address) catch break;
         const symbol_info = try module.getSymbolAtAddress(debug_info.allocator, address);
 
-        const line_info = symbol_info.line_info.?;
+        const line_info = symbol_info.source_location.?;
         try stream.print("{s}:{}:{}|", .{ std.fs.path.basename(line_info.file_name), line_info.line, line_info.column });
+
+        count += 1;
     }
     try stream.print(")", .{});
 
+    return image_name.toOwnedSlice();
+}
+
+pub fn addDebugMark(gpu: Gpu, object_type: vk.ObjectType, handle: u64, name: []const u8) !void {
     //try global_object_map.put(handle, image_name.items);
+    const ally = std.heap.page_allocator;
+    const string = try getLineString(ally, name);
+    defer ally.free(string);
 
     try gpu.vkd.setDebugUtilsObjectNameEXT(gpu.dev, &.{
         .object_type = object_type,
         .object_handle = handle,
-        .p_object_name = try ally.dupeZ(u8, image_name.items),
+        .p_object_name = try ally.dupeZ(u8, string),
     });
 }
 
@@ -715,6 +710,9 @@ pub const OpQueue = struct {
 pub const Semaphore = struct {
     semaphore: vk.Semaphore,
 };
+
+// maximum amount of bindings of a bindless descriptor
+const max_boundless = 2560;
 
 pub const Descriptor = struct {
     descriptor_sets: []vk.DescriptorSet,
@@ -981,9 +979,9 @@ pub const Descriptor = struct {
             const buffer_info = try arena_ally.alloc(vk.DescriptorBufferInfo, 1);
 
             buffer_info[0] = vk.DescriptorBufferInfo{
-                .buffer = uniform.buffer.buff_mem.buffer,
+                .buffer = uniform.buffer.mem.buffer,
                 .offset = 0,
-                .range = uniform.buffer.size,
+                .range = uniform.buffer.mem.size,
             };
 
             try descriptor_writes.append(.{
@@ -1001,10 +999,10 @@ pub const Descriptor = struct {
         for (options.storage) |storage| {
             const buffer_info = try arena_ally.alloc(vk.DescriptorBufferInfo, 1);
 
-            buffer_info[0] = vk.DescriptorBufferInfo{
-                .buffer = storage.buffer.buff_mem.buffer,
+            buffer_info[0] = .{
+                .buffer = storage.buffer.mem.buffer,
                 .offset = 0,
-                .range = storage.buffer.size,
+                .range = storage.buffer.mem.size,
             };
 
             try descriptor_writes.append(.{
@@ -1312,7 +1310,7 @@ pub const Drawing = struct {
         if (drawing.instances == 0 or drawing.vert_count == 0) return;
 
         const offset = [_]vk.DeviceSize{0};
-        if (drawing.vertex_buffer) |vb| gpu.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&vb.buff_mem.buffer), &offset);
+        if (drawing.vertex_buffer) |vb| gpu.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&vb.mem.buffer), &offset);
         gpu.vkd.cmdBindDescriptorSets(
             command_buffer,
             .graphics,
@@ -1324,7 +1322,7 @@ pub const Drawing = struct {
             null,
         );
         if (drawing.index_buffer) |ib| {
-            gpu.vkd.cmdBindIndexBuffer(command_buffer, ib.buff_mem.buffer, 0, .uint32);
+            gpu.vkd.cmdBindIndexBuffer(command_buffer, ib.mem.buffer, 0, .uint32);
             gpu.vkd.cmdDrawIndexed(command_buffer, @intCast(drawing.vert_count), drawing.instances, 0, 0, 0);
         } else gpu.vkd.cmdDraw(command_buffer, @intCast(drawing.vert_count), drawing.instances, 0, 0);
     }
@@ -2625,13 +2623,13 @@ pub const VertexDescription = struct {
             try draw.destroyVertex(gpu);
         }
 
-        const vertex_buff = try gpu.createStagingBuffer(description.getVertexSize() * vertices.len);
+        const vertex_buff = try gpu.createStagingBuffer(description.getVertexSize() * vertices.len, .src);
         defer vertex_buff.deinit(gpu.*);
 
         draw.vertex_buffer = try description.createBuffer(gpu, vertices.len);
         try draw.vertex_buffer.?.setVertex(description, gpu, gpu.graphics_pool, vertices, vertex_buff, mode);
 
-        const index_buff = try gpu.createStagingBuffer(@sizeOf(u32) * indices.len);
+        const index_buff = try gpu.createStagingBuffer(@sizeOf(u32) * indices.len, .src);
         defer index_buff.deinit(gpu.*);
 
         draw.index_buffer = try BufferHandle.init(gpu, .{ .size = @sizeOf(u32) * indices.len, .buffer_type = .index });
@@ -2900,7 +2898,7 @@ pub const ComputePipeline = struct {
         };
     }
 
-    pub fn deinit(compute: *ComputePipeline, gpu: *const Gpu) void {
+    pub fn deinit(compute: *ComputePipeline, gpu: Gpu) void {
         compute.pipeline.deinit(gpu);
     }
 };
@@ -3114,7 +3112,7 @@ pub const RenderPipeline = struct {
         };
     }
 
-    pub fn deinit(render: *RenderPipeline, gpu: *const Gpu) void {
+    pub fn deinit(render: *RenderPipeline, gpu: Gpu) void {
         render.pipeline.deinit(gpu);
     }
 };
@@ -3149,7 +3147,7 @@ pub const Pipeline = struct {
         compute,
     },
 
-    pub fn deinit(render: *Pipeline, gpu: *const Gpu) void {
+    pub fn deinit(render: *Pipeline, gpu: Gpu) void {
         for (render.set_bindings) |bindings| render.ally.free(bindings);
         render.ally.free(render.set_bindings);
 
@@ -3175,6 +3173,21 @@ pub const LinePipeline = RenderPipeline{
 };
 
 pub const BufferMemory = struct {
+    buffer: vk.Buffer,
+    offset: u64,
+
+    // memory data, retain from parent
+    memory: vk.DeviceMemory,
+    size: u64,
+
+    pub fn map(buff: BufferMemory, gpu: Gpu) !?*anyopaque {
+        return try gpu.vkd.mapMemory(gpu.dev, buff.memory, 0, vk.WHOLE_SIZE, .{});
+    }
+
+    pub fn unmap(buff: BufferMemory, gpu: Gpu) void {
+        gpu.vkd.unmapMemory(gpu.dev, buff.memory);
+    }
+
     pub fn deinit(buff: BufferMemory, gpu: Gpu) void {
         gpu.vkd.destroyBuffer(gpu.dev, buff.buffer, null);
         gpu.vkd.freeMemory(gpu.dev, buff.memory, null);
@@ -3204,18 +3217,10 @@ pub const BufferMemory = struct {
             .size = buff.size,
         };
     }
-
-    buffer: vk.Buffer,
-    offset: u64,
-
-    // memory data, retain from parent
-    memory: vk.DeviceMemory,
-    size: u64,
 };
 
 pub const BufferHandle = struct {
-    buff_mem: BufferMemory,
-    size: usize,
+    mem: BufferMemory,
     data: ?*anyopaque,
 
     pub fn init(gpu: *Gpu, options: struct {
@@ -3231,7 +3236,7 @@ pub const BufferHandle = struct {
             .size = options.size,
             .usage = switch (options.buffer_type) {
                 .uniform => .{ .uniform_buffer_bit = true },
-                .storage => .{ .storage_buffer_bit = true, .vertex_buffer_bit = true, .transfer_dst_bit = true },
+                .storage => .{ .storage_buffer_bit = true, .vertex_buffer_bit = true, .transfer_dst_bit = true, .transfer_src_bit = true },
                 .index => .{ .index_buffer_bit = true, .transfer_dst_bit = true },
                 .vertex => .{ .vertex_buffer_bit = true, .transfer_dst_bit = true },
             },
@@ -3250,19 +3255,18 @@ pub const BufferHandle = struct {
         try gpu.vkd.bindBufferMemory(gpu.dev, buffer, memory, 0);
 
         return .{
-            .buff_mem = .{
+            .mem = .{
                 .buffer = buffer,
                 .memory = memory,
                 .offset = 0,
                 .size = options.size,
             },
-            .size = options.size,
             .data = if (options.buffer_type == .uniform) (try gpu.vkd.mapMemory(gpu.dev, memory, 0, vk.WHOLE_SIZE, .{})).? else null,
         };
     }
 
     pub fn deinit(buffer: BufferHandle, gpu: Gpu) void {
-        buffer.buff_mem.deinit(gpu);
+        buffer.mem.deinit(gpu);
     }
 
     pub fn setVertex(
@@ -3280,8 +3284,8 @@ pub const BufferHandle = struct {
         if (vertices.len == 0) return;
 
         {
-            const data = try gpu.vkd.mapMemory(gpu.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
-            defer gpu.vkd.unmapMemory(gpu.dev, staging_buff.memory);
+            const data = try staging_buff.map(gpu.*);
+            defer staging_buff.unmap(gpu.*);
 
             const gpu_vertices: [*]self.getAttributeType() = @ptrCast(@alignCast(data));
             for (vertices, 0..) |vertex, i| {
@@ -3289,7 +3293,7 @@ pub const BufferHandle = struct {
             }
         }
 
-        try copyBuffer(gpu, pool, buffer.buff_mem.buffer, staging_buff.buffer, self.getVertexSize() * vertices.len, mode);
+        try copyBuffer(gpu, pool, buffer.mem.buffer, staging_buff.buffer, self.getVertexSize() * vertices.len, mode);
     }
 
     pub fn setIndices(
@@ -3306,8 +3310,8 @@ pub const BufferHandle = struct {
         if (indices.len == 0) return;
 
         {
-            const data = try gpu.vkd.mapMemory(gpu.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
-            defer gpu.vkd.unmapMemory(gpu.dev, staging_buff.memory);
+            const data = try staging_buff.map(gpu.*);
+            defer staging_buff.unmap(gpu.*);
 
             const gpu_indices: [*]u32 = @ptrCast(@alignCast(data));
             for (indices, 0..) |index, i| {
@@ -3315,9 +3319,13 @@ pub const BufferHandle = struct {
             }
         }
 
-        try copyBuffer(gpu, pool, buffer.buff_mem.buffer, staging_buff.buffer, @sizeOf(u32) * indices.len, mode);
+        try copyBuffer(gpu, pool, buffer.mem.buffer, staging_buff.buffer, @sizeOf(u32) * indices.len, mode);
     }
 
+    // TODO: whats up with this BufferMemory, BufferHandle, Buffer nonsense?? ren
+    // seems like BufferMemory is like a fat pointer
+
+    // TODO: pass offset to both set and get storage
     pub fn setStorage(
         buffer: BufferHandle,
         comptime data: DataDescription,
@@ -3325,7 +3333,6 @@ pub const BufferHandle = struct {
         pool: vk.CommandPool,
         options: struct {
             data: []data.lastField(),
-            index: usize,
         },
     ) !void {
         const trace = tracy.trace(@src());
@@ -3334,12 +3341,12 @@ pub const BufferHandle = struct {
         if (options.data.len == 0) return;
 
         const size = data.getSize() + @sizeOf(data.lastField()) * (options.data.len - 1);
-        const staging_buff = try gpu.createStagingBuffer(size);
-        defer staging_buff.deinit(gpu);
+        const staging_buff = try gpu.createStagingBuffer(size, .src);
+        defer staging_buff.deinit(gpu.*);
 
         {
-            const mem = try gpu.vkd.mapMemory(gpu.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
-            defer gpu.vkd.unmapMemory(gpu.dev, staging_buff.memory);
+            const mem = try staging_buff.map(gpu.*);
+            defer staging_buff.unmap(gpu.*);
 
             const storage_ptr: *data.T = @ptrCast(@alignCast(mem));
 
@@ -3350,26 +3357,61 @@ pub const BufferHandle = struct {
         }
 
         // TODO: pass mode
-        try copyBuffer(gpu, pool, buffer.buff_mem.buffer, staging_buff.buffer, size, .immediate);
+        try copyBuffer(gpu, pool, buffer.mem.buffer, staging_buff.buffer, size, .immediate);
+    }
+
+    // NOTE: needs to deinit returned buffer
+    pub fn getStorage(
+        buffer: BufferHandle,
+        comptime data: DataDescription,
+        gpu: *Gpu,
+        pool: vk.CommandPool,
+        options: struct {
+            count: u32,
+        },
+    ) !struct {
+        buffer: BufferMemory,
+        data_ptr: *data.T,
+        slice: []data.lastField(),
+    } {
+        const trace = tracy.trace(@src());
+        defer trace.end();
+
+        if (options.count == 0) return error.EmptyRead;
+
+        const size = data.getSize() + @sizeOf(data.lastField()) * (options.count - 1);
+        const staging_buff = try gpu.createStagingBuffer(size, .dst);
+
+        // TODO: pass mode
+        try copyBuffer(gpu, pool, staging_buff.buffer, buffer.mem.buffer, size, .immediate);
+
+        const storage_ptr: *data.T = @ptrCast(@alignCast(try staging_buff.map(gpu.*)));
+        const many_ptr: [*]data.lastField() = @ptrCast(@alignCast(&@field(storage_ptr, data.lastFieldName())));
+
+        return .{
+            .buffer = staging_buff,
+            .data_ptr = storage_ptr,
+            .slice = many_ptr[0..options.count],
+        };
     }
 
     pub fn setBytesStaging(buffer: BufferHandle, gpu: *Gpu, pool: vk.CommandPool, bytes: []const u8) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
 
-        const staging_buff = try gpu.createStagingBuffer(bytes.len);
+        const staging_buff = try gpu.createStagingBuffer(bytes.len, .src);
         defer staging_buff.deinit(gpu);
 
         {
-            const data = try gpu.vkd.mapMemory(gpu.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
-            defer gpu.vkd.unmapMemory(gpu.dev, staging_buff.memory);
+            const data = try staging_buff.map(gpu.*);
+            defer staging_buff.unmap(gpu.*);
 
             const data_bytes: [*]u8 = @ptrCast(@alignCast(data));
             @memcpy(data_bytes, bytes);
         }
 
         // TODO: pass mode
-        try copyBuffer(gpu, pool, buffer.buff_mem.buffer, staging_buff.buffer, bytes.len, .immediate);
+        try copyBuffer(gpu, pool, buffer.mem.buffer, staging_buff.buffer, bytes.len, .immediate);
     }
 
     pub fn getData(buffer: BufferHandle, comptime self: DataDescription) *self.T {

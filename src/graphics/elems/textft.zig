@@ -66,6 +66,7 @@ pub const Text = struct {
     scene: *graphics.Scene,
 
     clear_dirty: bool,
+    write_dirty: bool,
 
     const CodepointQuery = struct {
         metrics: freetype.FT_Glyph_Metrics,
@@ -197,8 +198,8 @@ pub const Text = struct {
             };
         }
 
-        pub fn deinit(character: Character) !void {
-            try character.sprite.delete();
+        pub fn deinit(character: Character, batch: *graphics.CustomSpriteBatch(CharacterUniform)) !void {
+            try character.sprite.delete(batch);
         }
     };
 
@@ -240,6 +241,8 @@ pub const Text = struct {
     pub fn print(text: *Text, ally: std.mem.Allocator, info: PrintInfo) !void {
         if (info.text.len == 0) return;
 
+        text.write_dirty = true;
+
         var unicode = (try std.unicode.Utf8View.init(info.text)).iterator();
 
         while (unicode.nextCodepoint()) |c| {
@@ -257,7 +260,9 @@ pub const Text = struct {
             text.clear_dirty = false;
         }
 
-        if (text.codepoints.items.len == 0) return;
+        if (text.codepoints.items.len == 0 or !text.write_dirty) return;
+
+        text.write_dirty = false;
 
         {
             var index: usize = text.codepoints.items.len - 1;
@@ -273,11 +278,11 @@ pub const Text = struct {
                     .index = index,
                 });
                 const color = .{ 1.0, 1.0, 1.0 };
-                char.sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .color, .{ color[0], color[1], color[2], 0.0 });
+                char.sprite.getUniformOr(text.batch, 1).?.setAsUniformField(CharacterUniform, .color, .{ color[0], color[1], color[2], 0.0 });
                 try text.characters.append(char);
             }
             for (text.characters.items) |char| {
-                char.sprite.getUniformOr(1).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(text.codepoints.items.len)));
+                char.sprite.getUniformOr(text.batch, 1).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(text.codepoints.items.len)));
             }
         }
 
@@ -338,7 +343,7 @@ pub const Text = struct {
                     }));
                 }
                 char.sprite.transform.scale = math.Vec2.init(.{ @floatFromInt(char.tex.width), @floatFromInt(char.tex.height) });
-                char.sprite.updateTransform();
+                char.sprite.updateTransform(text.batch);
 
                 text.width = @max(text.width + char.advance, text.width);
                 start.val[0] += char.advance;
@@ -402,6 +407,7 @@ pub const Text = struct {
                 .translation = math.Vec2.init(.{ 0, 0 }),
             },
             .clear_dirty = false,
+            .write_dirty = false,
         };
     }
 };
