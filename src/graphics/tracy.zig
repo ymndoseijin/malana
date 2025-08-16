@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const enable = true;
+pub const enable = false;
 pub const enable_allocation = true;
 pub const enable_callstack = true;
 

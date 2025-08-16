@@ -195,6 +195,9 @@ pub const Swapchain = struct {
     }
 
     pub fn recreate(self: *Swapchain, gpu: *Gpu, new_extent: vk.Extent2D, format: PreferredFormat) !void {
+        const trace = tracy.trace(@src());
+        defer trace.end();
+
         const ally = self.ally;
         const old_handle = self.handle;
         self.deinitExceptSwapchain(gpu);
@@ -254,6 +257,9 @@ pub const Swapchain = struct {
         },
         image_index: ImageIndex,
     }) !void {
+        const trace = tracy.trace(@src());
+        defer trace.end();
+
         const wait_stage = try swapchain.ally.alloc(vk.PipelineStageFlags, options.wait.len);
         defer swapchain.ally.free(wait_stage);
 
@@ -283,6 +289,9 @@ pub const Swapchain = struct {
         wait: []const vk.Semaphore,
         image_index: ImageIndex,
     }) !void {
+        const trace = tracy.trace(@src());
+        defer trace.end();
+
         _ = try gpu.vkd.queuePresentKHR(gpu.present_queue.handle, &.{
             .wait_semaphore_count = @intCast(options.wait.len),
             .p_wait_semaphores = if (options.wait.len == 0) null else options.wait.ptr,
@@ -508,7 +517,7 @@ pub fn getLineString(ally: std.mem.Allocator, name: []const u8) ![]const u8 {
     _ = it.next();
     var count: usize = 0;
     while (it.next()) |return_address| {
-        if (count == 3) break;
+        if (count == 10) break;
         const address = if (return_address == 0) return_address else return_address - 1;
 
         const module = debug_info.getModuleForAddress(address) catch break;
@@ -526,6 +535,7 @@ pub fn getLineString(ally: std.mem.Allocator, name: []const u8) ![]const u8 {
 
 pub fn addDebugMark(gpu: Gpu, object_type: vk.ObjectType, handle: u64, name: []const u8) !void {
     //try global_object_map.put(handle, image_name.items);
+    if (true) return;
     const ally = std.heap.page_allocator;
     const string = try getLineString(ally, name);
     defer ally.free(string);
@@ -1457,6 +1467,9 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, in_width: c_int, in_height:
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
+        const trace = tracy.trace(@src());
+        defer trace.end();
+
         var win = map[1];
         var swapchain = &map[1].swapchain;
 
@@ -1485,8 +1498,6 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, in_width: c_int, in_height:
         win.framebuffers = Window.createFramebuffers(&win.gpu, win.ally, win.render_pass.pass, swapchain.*, win.depth_buffer) catch |err| {
             printError(err);
         };
-
-        //gl.viewport(0, 0, width, height);
 
         win.frame_width = width;
         win.frame_height = height;
@@ -1529,17 +1540,45 @@ pub const EventTable = struct {
 };
 
 pub const PreferredFormat = enum {
-    unorm,
-    srgb,
+    s8_bgra,
+
+    unorm8_rgb,
+    unorm8_rgba,
+    unorm8_bgra,
+
     depth,
-    float,
+    swapchain,
+
+    f32_r,
+    f32_rg,
+    f32_rgb,
+    f32_rgba,
+
+    f16_r,
+    f16_rg,
+    f16_rgb,
+    f16_rgba,
 
     pub fn getSurfaceFormat(format: PreferredFormat, gpu: Gpu) vk.Format {
         return switch (format) {
-            .srgb => .b8g8r8a8_srgb,
-            .unorm => .b8g8r8a8_unorm,
+            .s8_bgra => .b8g8r8a8_srgb,
+
+            .unorm8_rgb => .r8g8b8_unorm,
+            .unorm8_rgba => .r8g8b8a8_unorm,
+            .unorm8_bgra => .b8g8r8a8_unorm,
+
+            .f32_r => .r32_sfloat,
+            .f32_rg => .r32g32_sfloat,
+            .f32_rgb => .r32g32b32_sfloat,
+            .f32_rgba => .r32g32b32a32_sfloat,
+
+            .f16_r => .r16_sfloat,
+            .f16_rg => .r16g16_sfloat,
+            .f16_rgb => .r16g16b16_sfloat,
+            .f16_rgba => .r16g16b16a16_sfloat,
+
             .depth => gpu.depth_format,
-            .float => .r32_sfloat,
+            .swapchain => gpu.swapchain_format,
         };
     }
 };
@@ -1549,7 +1588,7 @@ pub const WindowInfo = struct {
     height: i32 = 256,
     resizable: bool = true,
     flip_z: bool = false,
-    preferred_format: PreferredFormat = .srgb,
+    preferred_format: PreferredFormat = .s8_bgra,
     name: [:0]const u8 = "default name",
 };
 
@@ -2125,7 +2164,6 @@ pub const Window = struct {
 
     default_shaders: DefaultShaders,
 
-    rendering_options: RenderingOptions,
     flip_z: bool,
 
     const DepthBuffer = struct {
@@ -2389,8 +2427,8 @@ pub const Window = struct {
             .cursor_func = null,
         };
 
-        const color_formats = try ally.alloc(vk.Format, 1);
-        color_formats[0] = swapchain.surface_format.format;
+        // swapchain_format set here
+        gpu.swapchain_format = swapchain.surface_format.format;
 
         return .{
             .glfw_win = glfw_win,
@@ -2414,12 +2452,6 @@ pub const Window = struct {
             .depth_buffer = depth_buffer,
             .default_shaders = try DefaultShaders.init(gpu),
 
-            // useful
-            .rendering_options = .{
-                .color_formats = color_formats,
-                .depth_format = try gpu.findDepthFormat(),
-            },
-
             // temporary
             .flip_z = info.flip_z,
         };
@@ -2431,8 +2463,6 @@ pub const Window = struct {
 
         for (win.framebuffers) |fb| fb.deinit(win.gpu);
         win.ally.free(win.framebuffers);
-
-        win.ally.free(win.rendering_options.color_formats);
 
         win.render_pass.deinit(&win.gpu);
         win.depth_buffer.deinit(&win.gpu);
@@ -2604,6 +2634,21 @@ pub const VertexDescription = struct {
         return BufferHandle.init(gpu, .{ .size = vert_count * description.getVertexSize(), .buffer_type = .vertex });
     }
 
+    pub fn createVertexBuffer(
+        comptime description: VertexDescription,
+        gpu: *Gpu,
+        vertices: []const description.getAttributeType(),
+        mode: CommandMode,
+    ) !BufferHandle {
+        const vertex_buff = try gpu.createStagingBuffer(description.getVertexSize() * vertices.len, .src);
+        defer vertex_buff.deinit(gpu.*);
+
+        const vertex_buffer = try description.createBuffer(gpu, vertices.len);
+        try vertex_buffer.setVertex(description, gpu, gpu.graphics_pool, vertices, vertex_buff, mode);
+
+        return vertex_buffer;
+    }
+
     pub fn bindVertex(
         comptime description: VertexDescription,
         draw: *Drawing,
@@ -2615,6 +2660,7 @@ pub const VertexDescription = struct {
         const trace = tracy.trace(@src());
         defer trace.end();
 
+        // sets vert_count even if it's zero, although it's set again by Drawing.setVertex
         draw.vert_count = indices.len;
 
         if (indices.len == 0) return;
@@ -2623,17 +2669,8 @@ pub const VertexDescription = struct {
             try draw.destroyVertex(gpu);
         }
 
-        const vertex_buff = try gpu.createStagingBuffer(description.getVertexSize() * vertices.len, .src);
-        defer vertex_buff.deinit(gpu.*);
-
-        draw.vertex_buffer = try description.createBuffer(gpu, vertices.len);
-        try draw.vertex_buffer.?.setVertex(description, gpu, gpu.graphics_pool, vertices, vertex_buff, mode);
-
-        const index_buff = try gpu.createStagingBuffer(@sizeOf(u32) * indices.len, .src);
-        defer index_buff.deinit(gpu.*);
-
-        draw.index_buffer = try BufferHandle.init(gpu, .{ .size = @sizeOf(u32) * indices.len, .buffer_type = .index });
-        try draw.index_buffer.?.setIndices(gpu, gpu.graphics_pool, indices, index_buff, mode);
+        draw.vertex_buffer = try description.createVertexBuffer(gpu, vertices, mode);
+        draw.index_buffer = try gpu.createIndexBuffer(indices, mode);
     }
 };
 
@@ -2663,8 +2700,6 @@ pub const BufferDescription = struct {
     boundless: bool = false,
 };
 
-pub const AttachmentDescription = struct {};
-
 pub const Binding = union(enum) {
     uniform: UniformDescription,
     storage: UniformDescription,
@@ -2684,7 +2719,10 @@ pub const PipelineDescription = struct {
     constants_size: ?usize = null,
 
     sets: []const Set = &.{},
-    attachment_descriptions: []const AttachmentDescription = &.{.{}},
+
+    // TODO: pass renderingoptions to here!!!!!! i guess
+    //attachment_descriptions: []const AttachmentDescription = &.{.{}},
+
     // assume DefaultUbo at index 0
     global_ubo: bool = false,
     bindless: bool = false,
@@ -2800,7 +2838,8 @@ pub fn createBindingsFromSets(ally: std.mem.Allocator, gpu: *Gpu, options: struc
 pub const ComputeDescription = struct {
     constants_size: ?usize = null,
     sets: []const Set = &.{},
-    attachment_descriptions: []const AttachmentDescription = &.{.{}},
+    // TODO: remove default val
+    attachment_count: u32 = 1,
     global_ubo: bool = false,
     bindless: bool = false,
 };
@@ -2876,7 +2915,6 @@ pub const ComputePipeline = struct {
             .description = .{
                 .constants_size = info.description.constants_size,
                 .sets = info.description.sets,
-                .attachment_descriptions = info.description.attachment_descriptions,
                 .global_ubo = info.description.global_ubo,
                 .bindless = info.description.bindless,
             },
@@ -2890,7 +2928,6 @@ pub const ComputePipeline = struct {
                 .description = .{
                     .constants_size = info.description.constants_size,
                     .sets = info.description.sets,
-                    .attachment_descriptions = info.description.attachment_descriptions,
                     .global_ubo = info.description.global_ubo,
                     .bindless = info.description.bindless,
                 },
@@ -2904,8 +2941,8 @@ pub const ComputePipeline = struct {
 };
 
 pub const RenderingOptions = struct {
-    color_formats: []const vk.Format,
-    depth_format: ?vk.Format,
+    attachments: []const PreferredFormat,
+    depth: ?PreferredFormat,
 };
 
 pub const RenderPipeline = struct {
@@ -2913,8 +2950,8 @@ pub const RenderPipeline = struct {
 
     pub const Info = struct {
         description: PipelineDescription,
-        shaders: []const Shader,
         rendering: RenderingOptions,
+        shaders: []const Shader,
         gpu: *Gpu,
         flipped_z: bool = false,
     };
@@ -2978,7 +3015,7 @@ pub const RenderPipeline = struct {
 
         const dynstate = [_]vk.DynamicState{ .viewport, .scissor };
 
-        const attachments = try ally.alloc(vk.PipelineColorBlendAttachmentState, description.attachment_descriptions.len);
+        const attachments = try ally.alloc(vk.PipelineColorBlendAttachmentState, info.rendering.attachments.len);
         defer ally.free(attachments);
         for (attachments) |*a| {
             a.* = .{
@@ -2992,6 +3029,13 @@ pub const RenderPipeline = struct {
                 .color_write_mask = .{ .r_bit = true, .g_bit = true, .b_bit = true, .a_bit = true },
             };
         }
+
+        const color_formats = try ally.alloc(vk.Format, info.rendering.attachments.len);
+        defer ally.free(color_formats);
+        for (color_formats, info.rendering.attachments) |*vk_fmt, fmt| {
+            vk_fmt.* = fmt.getSurfaceFormat(gpu.*);
+        }
+        const depth_format: ?vk.Format = if (info.rendering.depth) |fmt| fmt.getSurfaceFormat(gpu.*) else null;
 
         var vk_pipeline: vk.Pipeline = undefined;
         _ = try gpu.vkd.createGraphicsPipelines(
@@ -3078,9 +3122,9 @@ pub const RenderPipeline = struct {
                 .base_pipeline_handle = .null_handle,
                 .base_pipeline_index = -1,
                 .p_next = &vk.PipelineRenderingCreateInfo{
-                    .color_attachment_count = @intCast(info.rendering.color_formats.len),
-                    .p_color_attachment_formats = info.rendering.color_formats.ptr,
-                    .depth_attachment_format = info.rendering.depth_format orelse .undefined,
+                    .color_attachment_count = @intCast(color_formats.len),
+                    .p_color_attachment_formats = color_formats.ptr,
+                    .depth_attachment_format = depth_format orelse .undefined,
                     .stencil_attachment_format = .undefined,
                     // ?
                     .view_mask = 0,
@@ -3104,7 +3148,6 @@ pub const RenderPipeline = struct {
                 .description = .{
                     .constants_size = info.description.constants_size,
                     .sets = info.description.sets,
-                    .attachment_descriptions = info.description.attachment_descriptions,
                     .global_ubo = info.description.global_ubo,
                     .bindless = info.description.bindless,
                 },
@@ -3120,7 +3163,6 @@ pub const RenderPipeline = struct {
 pub const GenericPipelineDescription = struct {
     constants_size: ?usize = null,
     sets: []const Set = &.{},
-    attachment_descriptions: []const AttachmentDescription = &.{.{}},
     global_ubo: bool = false,
     bindless: bool = false,
 

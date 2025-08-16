@@ -114,6 +114,7 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
             return @This(){ .columns = columns };
         }
 
+        // TODO: make this a decl
         pub fn identity() @This() {
             comptime assert(width == height);
 
@@ -248,6 +249,18 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
                 const sign = if (i % 2 == 0) 1 else -1;
                 res += sign * column[0] * mat.determinant();
             }
+            return res;
+        }
+
+        pub fn transpose(mat: @This()) @This() {
+            var res: @This() = undefined;
+
+            for (mat.columns, 0..) |col, i| {
+                for (col, 0..) |val, j| {
+                    res.columns[j][i] = val;
+                }
+            }
+
             return res;
         }
     };

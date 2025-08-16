@@ -34,7 +34,7 @@ pub fn getAttachment(texture: Texture, current_layout: vk.ImageLayout) vk.Render
         .store_op = .store,
         .resolve_mode = .{},
         .resolve_image_layout = .undefined,
-        .clear_value = switch (texture.info.preferred_format orelse .unorm) {
+        .clear_value = switch (texture.info.preferred_format orelse .unorm8_bgra) {
             .depth => clear_depth,
             else => clear_color,
         },
@@ -63,7 +63,7 @@ pub fn init(win: *graphics.Window, width: u32, height: u32, info: TextureInfo) !
             } else {
                 break :blk switch (format) {
                     .depth => .optimal,
-                    .unorm, .srgb, .float => .linear,
+                    else => .linear,
                 };
             }
         },
@@ -75,7 +75,7 @@ pub fn init(win: *graphics.Window, width: u32, height: u32, info: TextureInfo) !
                 .storage => break :blk .{ .transfer_dst_bit = true, .sampled_bit = true, .storage_bit = true },
                 .regular => break :blk switch (format) {
                     .depth => .{ .depth_stencil_attachment_bit = true, .sampled_bit = true },
-                    .unorm, .srgb, .float => .{ .transfer_dst_bit = true, .sampled_bit = true },
+                    else => .{ .transfer_dst_bit = true, .sampled_bit = true },
                 },
             }
         },
@@ -169,6 +169,8 @@ pub fn deinit(self: Texture) void {
 }
 
 pub fn initFromMemory(ally: std.mem.Allocator, win: *graphics.Window, buffer: []const u8, info: TextureInfo) !Texture {
+    const trace = graphics.tracy.trace(@src());
+    defer trace.end();
     var read_image = try img.Image.fromMemory(ally, buffer);
     defer read_image.deinit();
 
@@ -179,7 +181,7 @@ pub fn initFromMemory(ally: std.mem.Allocator, win: *graphics.Window, buffer: []
                 .width = read_image.width,
                 .height = read_image.height,
                 .data = data,
-            });
+            }, info.flip);
             return tex;
         },
         else => return error.InvalidImage,
@@ -187,6 +189,8 @@ pub fn initFromMemory(ally: std.mem.Allocator, win: *graphics.Window, buffer: []
 }
 
 pub fn initFromPath(ally: std.mem.Allocator, win: *graphics.Window, path: []const u8, info: TextureInfo) !Texture {
+    const trace = graphics.tracy.trace(@src());
+    defer trace.end();
     var read_image = try img.Image.fromFilePath(ally, path);
     defer read_image.deinit();
 

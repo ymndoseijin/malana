@@ -19,6 +19,8 @@ const DefaultPipelines = struct {
     textft: graphics.RenderPipeline,
     line: graphics.RenderPipeline,
 
+    const default_rendering: graphics.RenderingOptions = .{ .attachments = &.{.swapchain}, .depth = .depth };
+
     pub fn init(win: *graphics.Window, flip_z: bool) !DefaultPipelines {
         const shaders = win.default_shaders;
 
@@ -26,37 +28,37 @@ const DefaultPipelines = struct {
             .color = try graphics.RenderPipeline.init(win.ally, .{
                 .description = graphics.ColorRect.description,
                 .shaders = &shaders.color_shaders,
-                .rendering = win.rendering_options,
                 .gpu = &win.gpu,
                 .flipped_z = flip_z,
+                .rendering = default_rendering,
             }),
             .sprite = try graphics.RenderPipeline.init(win.ally, .{
                 .description = graphics.Sprite.description,
                 .shaders = &shaders.sprite_shaders,
-                .rendering = win.rendering_options,
                 .gpu = &win.gpu,
                 .flipped_z = flip_z,
+                .rendering = default_rendering,
             }),
             .sprite_batch = try graphics.RenderPipeline.init(win.ally, .{
                 .description = graphics.SpriteBatch.description,
                 .shaders = &shaders.sprite_batch_shaders,
-                .rendering = win.rendering_options,
                 .gpu = &win.gpu,
                 .flipped_z = flip_z,
+                .rendering = default_rendering,
             }),
             .textft = try graphics.RenderPipeline.init(win.ally, .{
                 .description = graphics.TextFt.description,
                 .shaders = &shaders.textft_shaders,
-                .rendering = win.rendering_options,
                 .gpu = &win.gpu,
                 .flipped_z = flip_z,
+                .rendering = default_rendering,
             }),
             .line = try graphics.RenderPipeline.init(win.ally, .{
                 .description = graphics.Line.description,
                 .shaders = &shaders.line_shaders,
-                .rendering = win.rendering_options,
                 .gpu = &win.gpu,
                 .flipped_z = flip_z,
+                .rendering = default_rendering,
             }),
         };
     }

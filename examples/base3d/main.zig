@@ -39,7 +39,12 @@ pub fn main() !void {
     const ally = gpa.allocator();
 
     state = try State.init(ally, .{
-        .window = .{ .name = "box test", .width = 500, .height = 500, .resizable = true, .preferred_format = .srgb },
+        .window = .{
+            .name = "Base3D",
+            .width = 500,
+            .height = 500,
+            .resizable = true,
+        },
         .scene = .{ .flip_z = true },
     });
     defer state.deinit(ally);
@@ -73,14 +78,8 @@ pub fn main() !void {
                 .min_filter = .linear,
             });
 
-            const shadow_diffuse = try graphics.Texture.init(state.main_win, shadow_res, shadow_res, .{
-                .preferred_format = .srgb,
-                //.type = .render_target,
-            });
-
             return .{
                 .shadow_tex = shadow_tex,
-                .shadow_diffuse = shadow_diffuse,
                 .pos = pos,
                 .intensity = intensity,
             };
@@ -88,11 +87,9 @@ pub fn main() !void {
 
         pub fn deinit(light: @This()) void {
             light.shadow_tex.deinit();
-            light.shadow_diffuse.deinit();
         }
 
         shadow_tex: graphics.Texture,
-        shadow_diffuse: graphics.Texture,
         pos: math.Vec3,
         intensity: [3]f32,
     };
@@ -136,7 +133,7 @@ pub fn main() !void {
     var screen_pipeline = try graphics.RenderPipeline.init(ally, .{
         .description = ScreenPipeline,
         .shaders = &.{ screen_vert, screen_frag },
-        .rendering = state.main_win.rendering_options,
+        .rendering = .{ .attachments = &.{.swapchain}, .depth = .depth },
         .gpu = gpu,
         .flipped_z = true,
     });
@@ -203,7 +200,7 @@ pub fn main() !void {
     var pipeline = try graphics.RenderPipeline.init(ally, .{
         .description = TrianglePipeline,
         .shaders = &.{ triangle_vert, triangle_frag },
-        .rendering = state.main_win.rendering_options,
+        .rendering = .{ .attachments = &.{.swapchain}, .depth = .depth },
         .gpu = gpu,
         .flipped_z = true,
     });
@@ -259,17 +256,13 @@ pub fn main() !void {
             .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
             .{ .uniform = .{ .size = graphics.SpatialMesh.Uniform.getSize() } },
         } }},
-        .attachment_descriptions = &.{},
         .constants_size = PushConstants.getSize(),
         .global_ubo = true,
     };
     var shadow_pipeline = try graphics.RenderPipeline.init(ally, .{
         .description = ShadowPipeline,
         .shaders = &.{triangle_vert},
-        .rendering = .{
-            .depth_format = try gpu.findDepthFormat(),
-            .color_formats = &.{},
-        },
+        .rendering = .{ .attachments = &.{}, .depth = .depth },
         .gpu = gpu,
         .flipped_z = true,
     });
@@ -326,7 +319,7 @@ pub fn main() !void {
             .constants_size = PushConstants.getSize(),
         },
         .shaders = &.{ line_vert, line_frag },
-        .rendering = state.main_win.rendering_options,
+        .rendering = .{ .attachments = &.{.swapchain}, .depth = .depth },
         .gpu = gpu,
         .flipped_z = true,
     });
@@ -390,8 +383,6 @@ pub fn main() !void {
         // begin frame
 
         // render graphics
-
-        //try swapchain.wait(gpu, frame_id);
 
         try fps.update(ally, gpu);
 

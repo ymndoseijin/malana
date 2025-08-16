@@ -185,9 +185,9 @@ pub fn main() !void {
     };
     defer ally.free(init_tex);
 
-    var previous_tex = try graphics.Texture.init(win, size, size, .{ .preferred_format = .float, .type = .storage });
-    var current_tex = try graphics.Texture.init(win, size, size, .{ .preferred_format = .float, .type = .storage });
-    var next_tex = try graphics.Texture.init(win, size, size, .{ .preferred_format = .float, .type = .storage });
+    var previous_tex = try graphics.Texture.init(win, size, size, .{ .preferred_format = .f32_r, .type = .storage });
+    var current_tex = try graphics.Texture.init(win, size, size, .{ .preferred_format = .f32_r, .type = .storage });
+    var next_tex = try graphics.Texture.init(win, size, size, .{ .preferred_format = .f32_r, .type = .storage });
 
     try previous_tex.setFromRgba(.{ .data = init_tex }, false);
     try current_tex.setFromRgba(.{ .data = init_tex }, false);
@@ -224,7 +224,7 @@ pub fn main() !void {
     var image_pipeline = try graphics.RenderPipeline.init(ally, .{
         .description = image_description,
         .shaders = &.{ image_vert, image_frag },
-        .rendering = state.main_win.rendering_options,
+        .rendering = .{ .attachments = &.{.swapchain}, .depth = .depth },
         .gpu = &win.gpu,
         .flipped_z = true,
     });

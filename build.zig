@@ -225,6 +225,8 @@ pub fn build(b: *std.Build) void {
             }
         }
 
+        exe.linkSystemLibrary("assimp");
+
         exe.addIncludePath(box2c.path("src"));
         exe.addIncludePath(box2c.path("include"));
         exe.addIncludePath(box2c.path("extern/simde"));
@@ -360,5 +362,6 @@ pub fn linkLibraries(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Bu
     exe.linkSystemLibrary("glfw3");
     exe.linkSystemLibrary("freetype2");
     exe.addIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
+    exe.linkSystemLibrary("assimp");
     exe.linkLibC();
 }

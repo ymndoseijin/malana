@@ -16,6 +16,7 @@ present_queue: Queue,
 graphics_pool: vk.CommandPool,
 
 depth_format: vk.Format,
+swapchain_format: vk.Format,
 debug_messenger: vk.DebugUtilsMessengerEXT,
 
 const required_device_extensions = [_][*:0]const u8{
@@ -195,6 +196,10 @@ pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.
 
     gpu.mem_props = gpu.vki.getPhysicalDeviceMemoryProperties(gpu.pdev);
     gpu.depth_format = try gpu.findDepthFormat();
+
+    // TODO: as we don't actually know what the format is before creating the window, right now we just take a guess instead of leaving it undefined
+    // this isn't ideal
+    gpu.swapchain_format = .b8g8r8a8_srgb;
 
     gpu.graphics_pool = try gpu.vkd.createCommandPool(gpu.dev, &.{
         .queue_family_index = gpu.graphics_queue.family,
@@ -564,6 +569,20 @@ pub fn createStagingBuffer(
         .offset = 0,
         .size = size,
     };
+}
+
+pub fn createIndexBuffer(
+    gpu: *Gpu,
+    indices: []const u32,
+    mode: graphics.CommandMode,
+) !graphics.BufferHandle {
+    const index_buff = try gpu.createStagingBuffer(@sizeOf(u32) * indices.len, .src);
+    defer index_buff.deinit(gpu.*);
+
+    const index_buffer = try graphics.BufferHandle.init(gpu, .{ .size = @sizeOf(u32) * indices.len, .buffer_type = .index });
+    try index_buffer.setIndices(gpu, gpu.graphics_pool, indices, index_buff, mode);
+
+    return index_buffer;
 }
 
 const Gpu = @This();

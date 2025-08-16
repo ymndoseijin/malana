@@ -241,7 +241,7 @@ pub fn init(ally: std.mem.Allocator, info: struct {
     const post_pipeline = try graphics.RenderPipeline.init(ally, .{
         .description = post_description,
         .shaders = &main_win.default_shaders.post_shaders,
-        .rendering = main_win.rendering_options,
+        .rendering = .{ .attachments = &.{.swapchain}, .depth = .depth },
         .gpu = gpu,
         .flipped_z = scene.flip_z,
     });
@@ -265,7 +265,7 @@ pub fn init(ally: std.mem.Allocator, info: struct {
         .{ .{ -1, 1, 1 }, .{ 0, 1 } },
     }, &.{ 0, 1, 2, 2, 3, 0 }, .immediate);
 
-    state.* = State{
+    state.* = .{
         .main_win = main_win,
         .cam = cam,
         .time = 0,
@@ -279,7 +279,6 @@ pub fn init(ally: std.mem.Allocator, info: struct {
 
         .color_depth_target = .{
             .texture = .{
-                // kind of an issue, also kind of not really, just throw an arena
                 .color_textures = try ally.dupe(*graphics.Texture, &.{&state.post_color_tex}),
                 .depth_texture = &state.post_depth_tex,
                 .region = .{},
@@ -389,12 +388,14 @@ pub fn render(state: *State) !void {
     state.main_win.swapBuffers();
 }
 
+// invalidates state ptr after call
 pub fn deinit(state: *State, ally: std.mem.Allocator) void {
     state.main_win.gpu.vkd.deviceWaitIdle(state.main_win.gpu.dev) catch {};
 
     const gpu = &state.main_win.gpu;
 
     state.post_color_tex.deinit();
+    ally.free(state.color_depth_target.texture.color_textures);
     state.multisampling_tex.deinit();
     state.post_depth_tex.deinit();
     state.first_pass.deinit(&state.main_win.gpu);
@@ -417,6 +418,8 @@ pub fn deinit(state: *State, ally: std.mem.Allocator) void {
     state.cursor_func_manager.list.deinit(ally);
     state.frame_func_manager.list.deinit(ally);
     state.key_func_manager.list.deinit(ally);
+
+    ally.destroy(state);
 }
 
 fn frameFunc(ptr: *anyopaque, width: i32, height: i32) !void {
