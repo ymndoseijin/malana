@@ -87,10 +87,11 @@ pub const Callback = struct {
     window: *Window,
 
     pub fn init(allocator: std.mem.Allocator, win: *Window) !Callback {
+        _ = allocator;
         return .{
             .window = win,
             .focused = null,
-            .elements = std.ArrayList(EventType).init(allocator),
+            .elements = .empty,
         };
     }
 
@@ -169,6 +170,6 @@ pub const Callback = struct {
     }
 
     pub fn deinit(self: *Callback) void {
-        self.elements.deinit();
+        self.elements.deinit(self.window.ally);
     }
 };

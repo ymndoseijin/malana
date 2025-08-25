@@ -18,8 +18,6 @@ const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
 const Vec3Utils = math.Vec3Utils;
 
-const elem_shaders = @import("elem_shaders");
-
 const DefaultSpriteUniform: graphics.DataDescription = .{ .T = extern struct { transform: math.Mat4, opacity: f32 } };
 
 const SpriteInfo = struct {
@@ -37,6 +35,7 @@ pub fn CustomSprite(comptime SpriteUniform: graphics.DataDescription) type {
             },
             .render_type = .triangle,
             .depth_test = false,
+            .depth_write = false,
             .sets = &.{.{ .bindings = &.{
                 .{ .uniform = .{
                     .size = graphics.GlobalUniform.getSize(),

@@ -28,7 +28,7 @@ pub const Camera = struct {
     transform_mat: math.Mat4,
 
     move: Vec3 = Vec3.init(.{ 0, 0, 0 }),
-    up: Vec3 = Vec3.init(.{ 0, 1, 0 }),
+    up: Vec3 = Vec3.init(.{ 0, 0, 1 }),
 
     eye: [2]f32 = .{ 4.32, -0.23 },
 
@@ -36,7 +36,7 @@ pub const Camera = struct {
         const eye_x = self.eye[0];
         const eye_y = self.eye[1];
 
-        const eye = Vec3.init(.{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) });
+        const eye = Vec3.init(.{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y) });
 
         const view_mat = math.lookAtMatrix(Vec3.init(.{ 0, 0, 0 }), eye, self.up);
         //const translation_mat = Mat4.translation(-self.move);
@@ -48,7 +48,7 @@ pub const Camera = struct {
         const eye_x = self.eye[0];
         const eye_y = self.eye[1];
 
-        const eye = Vec3{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) };
+        const eye = Vec3{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y) };
 
         return Point.create(self.move).regressive(Point.create(self.move + eye));
     }
@@ -130,7 +130,7 @@ pub const Camera = struct {
             look_speed *= format.look_multiplier;
         }
 
-        const eye = Vec3.init(.{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y) }).scale(speed);
+        const eye = Vec3.init(.{ std.math.cos(eye_x) * std.math.cos(eye_y), std.math.sin(eye_x) * std.math.cos(eye_y), std.math.sin(eye_y) }).scale(speed);
 
         const cross_eye = eye.crossn(cam.up).scale(-speed);
 
@@ -152,9 +152,9 @@ pub const Camera = struct {
 
         if (keys[format.downward_key]) cam_pos.* = cam_pos.sub(up_eye);
 
-        if (keys[format.right_look_key]) cam.eye[0] += look_speed;
+        if (keys[format.right_look_key]) cam.eye[0] -= look_speed;
 
-        if (keys[format.left_look_key]) cam.eye[0] -= look_speed;
+        if (keys[format.left_look_key]) cam.eye[0] += look_speed;
 
         const ep: f32 = 0.01;
 

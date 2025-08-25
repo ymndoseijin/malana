@@ -6,8 +6,6 @@ const trace = @import("../tracy.zig").trace;
 
 const Drawing = graphics.Drawing;
 
-const elem_shaders = @import("elem_shaders");
-
 pub const ColorRect = struct {
     pub const Info = struct {
         pipeline: ?graphics.RenderPipeline = null,
@@ -27,6 +25,7 @@ pub const ColorRect = struct {
         },
         .render_type = .triangle,
         .depth_test = false,
+        .depth_write = false,
         .sets = &.{
             .{
                 .bindings = &.{

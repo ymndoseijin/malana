@@ -6,8 +6,6 @@ const trace = @import("../tracy.zig").trace;
 
 const Drawing = graphics.Drawing;
 
-const elem_shaders = @import("elem_shaders");
-
 const DefaultSpriteUniform: graphics.DataDescription = .{ .T = extern struct { transform: [4][4]f32, opacity: f32 } };
 
 pub const SpriteBatch = CustomSpriteBatch(DefaultSpriteUniform);
@@ -25,6 +23,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             },
             .render_type = .triangle,
             .depth_test = false,
+            .depth_write = false,
             .sets = &.{
                 .{
                     .bindings = &.{
@@ -68,8 +67,9 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
 
             return .{
                 .drawing = drawing,
-                .sprite_indices = std.ArrayList(u32).init(scene.window.ally),
-                .textures = std.ArrayList(graphics.Texture).init(scene.window.ally),
+                .ally = scene.window.ally,
+                .sprite_indices = .empty,
+                .textures = .empty,
             };
         }
 
@@ -81,8 +81,8 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             batch.drawing.deinit(ally, gpu);
             ally.destroy(batch.drawing);
 
-            batch.sprite_indices.deinit();
-            batch.textures.deinit();
+            batch.sprite_indices.deinit(ally);
+            batch.textures.deinit(ally);
         }
 
         //const current_idx: u32 = @intCast(batch.sprite_indices.items.len);
@@ -154,6 +154,8 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             tex: graphics.Texture,
             uniform: SpriteUniform.T,
         }) !Sprite {
+            const ally = batch.ally;
+
             const tracy = trace(@src());
             defer tracy.end();
 
@@ -161,7 +163,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             const h: f32 = @floatFromInt(options.tex.height);
 
             const current_idx: u32 = @intCast(batch.sprite_indices.items.len);
-            try batch.sprite_indices.append(current_idx);
+            try batch.sprite_indices.append(ally, current_idx);
             batch.drawing.instances = @intCast(batch.sprite_indices.items.len);
 
             const uniform = try batch.drawing.descriptor.getUniformOrCreate(gpu, 0, 1, current_idx);
@@ -188,6 +190,8 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
         }
 
         drawing: *Drawing,
+        // TODO: remove
+        ally: std.mem.Allocator,
 
         sprite_indices: std.ArrayList(u32),
         textures: std.ArrayList(graphics.Texture),

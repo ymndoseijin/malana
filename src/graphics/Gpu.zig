@@ -22,137 +22,36 @@ debug_messenger: vk.DebugUtilsMessengerEXT,
 const required_device_extensions = [_][*:0]const u8{
     vk.extensions.khr_swapchain.name,
     vk.extensions.khr_dynamic_rendering.name,
+    vk.extensions.khr_shader_draw_parameters.name,
+    // required if exporting slang with -fspv-reflect!!!
+    vk.extensions.google_hlsl_functionality_1.name,
+    vk.extensions.google_user_type.name,
 };
 
-const apis: []const vk.ApiInfo = &.{
-    .{ .base_commands = .{
-        .createInstance = true,
-        .enumerateInstanceLayerProperties = true,
-        .getInstanceProcAddr = true,
-    }, .instance_commands = .{
-        .destroyInstance = true,
-        .createDevice = true,
-        .destroySurfaceKHR = true,
-        .enumeratePhysicalDevices = true,
-        .getPhysicalDeviceProperties = true,
-        .enumerateDeviceExtensionProperties = true,
-        .getPhysicalDeviceSurfaceFormatsKHR = true,
-        .getPhysicalDeviceSurfacePresentModesKHR = true,
-        .getPhysicalDeviceSurfaceCapabilitiesKHR = true,
-        .getPhysicalDeviceQueueFamilyProperties = true,
-        .getPhysicalDeviceSurfaceSupportKHR = true,
-        .getPhysicalDeviceMemoryProperties = true,
-        .getPhysicalDeviceFormatProperties = true,
-        .getDeviceProcAddr = true,
-        .createDebugUtilsMessengerEXT = true,
-        .destroyDebugUtilsMessengerEXT = true,
-    }, .device_commands = .{
-        .destroyDevice = true,
-        .getDeviceQueue = true,
-        .createSemaphore = true,
-        .createFence = true,
-        .createImageView = true,
-        .destroyImageView = true,
-        .destroySemaphore = true,
-        .destroyFence = true,
-        .getSwapchainImagesKHR = true,
-        .createSwapchainKHR = true,
-        .destroySwapchainKHR = true,
-        .acquireNextImageKHR = true,
-        .deviceWaitIdle = true,
-        .setDebugUtilsObjectNameEXT = true,
-        .setDebugUtilsObjectTagEXT = true,
-        .waitForFences = true,
-        .resetFences = true,
-        .queueSubmit = true,
-        .queuePresentKHR = true,
-        .createCommandPool = true,
-        .destroyCommandPool = true,
-        .allocateCommandBuffers = true,
-        .freeCommandBuffers = true,
-        .queueWaitIdle = true,
-        .createShaderModule = true,
-        .destroyShaderModule = true,
-        .createPipelineLayout = true,
-        .destroyPipelineLayout = true,
-        .createRenderPass = true,
-        .destroyRenderPass = true,
-        .createGraphicsPipelines = true,
-        .createComputePipelines = true,
-        .destroyPipeline = true,
-        .createFramebuffer = true,
-        .destroyFramebuffer = true,
-        .beginCommandBuffer = true,
-        .endCommandBuffer = true,
-        .allocateMemory = true,
-        .freeMemory = true,
-        .createBuffer = true,
-        .destroyBuffer = true,
-        .getBufferMemoryRequirements = true,
-        .mapMemory = true,
-        .unmapMemory = true,
-        .bindBufferMemory = true,
-        .cmdBeginRenderPass = true,
-        .cmdEndRenderPass = true,
-        .cmdBindPipeline = true,
-        .cmdDraw = true,
-        .cmdDrawIndexed = true,
-        .cmdDispatch = true,
-        .cmdBeginRendering = true,
-        .cmdEndRendering = true,
-        .cmdSetViewport = true,
-        .cmdPushConstants = true,
-        .cmdSetScissor = true,
-        .cmdBindVertexBuffers = true,
-        .cmdBindIndexBuffer = true,
-        .cmdCopyBuffer = true,
-        .cmdPipelineBarrier = true,
-        .cmdCopyBufferToImage = true,
-        .createImage = true,
-        .getImageMemoryRequirements = true,
-        .bindImageMemory = true,
-        .createDescriptorPool = true,
-        .allocateDescriptorSets = true,
-        .updateDescriptorSets = true,
-        .cmdBindDescriptorSets = true,
-        .createDescriptorSetLayout = true,
-        .resetCommandBuffer = true,
-        .createSampler = true,
-        .destroyDescriptorSetLayout = true,
-        .destroyDescriptorPool = true,
-        .destroySampler = true,
-        .destroyImage = true,
-    } },
-    // Or you can add entire feature sets or extensions
-    vk.features.version_1_0,
-    vk.extensions.khr_surface,
-    vk.extensions.khr_swapchain,
-};
+const BaseDispatch = vk.BaseWrapper;
 
-const BaseDispatch = vk.BaseWrapper(apis);
+const InstanceDispatch = vk.InstanceWrapper;
 
-const InstanceDispatch = vk.InstanceWrapper(apis);
-
-const DeviceDispatch = vk.DeviceWrapper(apis);
+const DeviceDispatch = vk.DeviceWrapper;
 
 pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.GLFWwindow) !Gpu {
     //@breakpoint();
     std.debug.print("Vulkan support: {}\n", .{glfw.glfwVulkanSupported()});
     var gpu: Gpu = undefined;
-    gpu.vkb = try BaseDispatch.load(glfwGetInstanceProcAddress);
+    gpu.vkb = BaseDispatch.load(glfwGetInstanceProcAddress);
 
     if (builtin.mode != .ReleaseFast and !try checkValidationLayerSupport(ally, gpu.vkb)) return error.NoValidationLayers;
 
-    var extensions = std.ArrayList(?[*:0]const u8).init(ally);
-    defer extensions.deinit();
+    var extensions: std.ArrayList(?[*:0]const u8) = .empty;
+    defer extensions.deinit(ally);
 
     var glfw_exts_count: u32 = 0;
     const glfw_exts_ptr = glfw.glfwGetRequiredInstanceExtensions(&glfw_exts_count);
 
     const glfw_exts = glfw_exts_ptr[0..glfw_exts_count];
-    try extensions.appendSlice(glfw_exts);
+    try extensions.appendSlice(ally, glfw_exts);
 
-    try extensions.append(vk.extensions.ext_debug_utils.name);
+    try extensions.append(ally, vk.extensions.ext_debug_utils.name);
 
     const app_info: vk.ApplicationInfo = .{
         .p_application_name = app_name,
@@ -170,7 +69,7 @@ pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.
         .pp_enabled_layer_names = @as([*]const [*:0]const u8, @ptrCast(&validation_layers)),
     }, null);
 
-    gpu.vki = try InstanceDispatch.load(gpu.instance, gpu.vkb.dispatch.vkGetInstanceProcAddr);
+    gpu.vki = InstanceDispatch.load(gpu.instance, gpu.vkb.dispatch.vkGetInstanceProcAddr.?);
     errdefer gpu.vki.destroyInstance(gpu.instance, null);
 
     gpu.debug_messenger = try gpu.vki.createDebugUtilsMessengerEXT(gpu.instance, &vk.DebugUtilsMessengerCreateInfoEXT{
@@ -187,7 +86,7 @@ pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.
     gpu.pdev = candidate.pdev;
     gpu.props = candidate.props;
     gpu.dev = try initializeCandidate(gpu.vki, candidate);
-    gpu.vkd = try DeviceDispatch.load(gpu.dev, gpu.vki.dispatch.vkGetDeviceProcAddr);
+    gpu.vkd = DeviceDispatch.load(gpu.dev, gpu.vki.dispatch.vkGetDeviceProcAddr.?);
     errdefer gpu.vkd.destroyDevice(gpu.dev, null);
 
     gpu.graphics_queue = Queue.init(gpu.vkd, gpu.dev, candidate.queues.graphics_family);
@@ -274,7 +173,10 @@ fn initializeCandidate(vki: InstanceDispatch, candidate: DeviceCandidate) !vk.De
     else
         2;
 
-    const features: vk.PhysicalDeviceFeatures = .{ .sampler_anisotropy = vk.TRUE };
+    const features: vk.PhysicalDeviceFeatures = .{
+        .sampler_anisotropy = vk.TRUE,
+        .independent_blend = vk.TRUE,
+    };
 
     return try vki.createDevice(candidate.pdev, &.{
         .queue_create_info_count = queue_count,
@@ -514,18 +416,34 @@ fn debugCallback(
 
     const callback_data = p_callback_data.?;
 
-    std.debug.print("\u{001b}[0;31mValidation Error [\u{001b}[0;37m{}\u{001b}[0;31m]:\u{001b}[0m\n{s}\n", .{ message_severity, p_callback_data.?.p_message.? });
+    // p -> primary color
+    // s -> secondary color
+    // r -> reset
+    std.log.err("{[p]s}Validation Error [{[s]s}{[severity]f}{[p]s}]:{[r]s} {[message]s}", .{
+        .severity = message_severity,
+        .message = p_callback_data.?.p_message.?,
+        .p = "\u{001b}[0;31m",
+        .s = "\u{001b}[0;90m",
+        .r = "\u{001b}[0m",
+    });
 
     if (callback_data.p_objects) |obj_ptr| {
         const objects = obj_ptr[0..callback_data.object_count];
         if (objects.len > 0) {
-            std.debug.print("\u{001b}[0;31mObjects:\u{001b}[0m\n", .{});
+            // zig why the hell would you add unused arguments here do you hate me
+            std.log.err("{[p]s}Objects:{[r]s}", .{
+                .p = "\u{001b}[0;31m",
+                .r = "\u{001b}[0m",
+            });
             for (objects) |object| {
-                std.debug.print("\u{001b}[0;31m\"\u{001b}[0;37m{s}\u{001b}[0;31m\" \u{001b}[0;37m{}\u{001b}[0;31m (\u{001b}[0;37m{}\u{001b}[0;31m): \"\u{001b}[0;37m{s}\u{001b}[0;31m\"\u{001b}[0m\n", .{
-                    object.p_object_name orelse "(?)",
-                    object.object_type,
-                    object.object_handle,
-                    graphics.global_object_map.get(object.object_handle) orelse "(?)",
+                std.log.err("{[p]s}\"{[s]s}{[name]s}{[p]s}\" {[s]s}{[typ]}{[p]s} ({[s]s}{[handle]}{[p]s}): \"{[s]s}{[map]s}{[p]s}\"{[r]s}", .{
+                    .name = object.p_object_name orelse "(?)",
+                    .typ = object.object_type,
+                    .handle = object.object_handle,
+                    .map = graphics.global_object_map.get(object.object_handle) orelse "(?)",
+                    .p = "\u{001b}[0;31m",
+                    .s = "\u{001b}[0;90m",
+                    .r = "\u{001b}[0m",
                 });
             }
         }
@@ -585,6 +503,10 @@ pub fn createIndexBuffer(
     return index_buffer;
 }
 
+pub fn waitIdle(gpu: *Gpu) !void {
+    try gpu.vkd.deviceWaitIdle(gpu.dev);
+}
+
 const Gpu = @This();
 
 const vk = @import("vulkan");
@@ -595,7 +517,4 @@ const graphics = @import("graphics.zig");
 pub extern fn glfwGetInstanceProcAddress(instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction;
 pub extern fn glfwCreateWindowSurface(instance: vk.Instance, window: *glfw.GLFWwindow, allocation_callbacks: ?*const vk.AllocationCallbacks, surface: *vk.SurfaceKHR) vk.Result;
 
-pub const glfw = @cImport({
-    @cDefine("GLFW_INCLUDE_NONE", {});
-    @cInclude("GLFW/glfw3.h");
-});
+pub const glfw = @import("glfw");

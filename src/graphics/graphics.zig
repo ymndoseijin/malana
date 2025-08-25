@@ -1,19 +1,14 @@
 // TODO: remove pub
-pub const glfw = @cImport({
-    @cDefine("GLFW_INCLUDE_NONE", {});
-    @cInclude("GLFW/glfw3.h");
-});
+pub const glfw = @import("glfw");
 
 const common = @import("common");
 const std = @import("std");
 const builtin = @import("builtin");
 const math = @import("math");
 
-const freetype = @cImport({
-    @cInclude("ft2build.h");
-    @cInclude("freetype/freetype.h");
-});
+const spirv = @import("spirv_reflect");
 
+const freetype = @import("freetype");
 pub const tracy = @import("tracy.zig");
 
 // REMOVE THIS
@@ -47,8 +42,6 @@ pub const ComptimeMeshBuilder = @import("comptime_meshbuilder.zig").ComptimeMesh
 const Vec2 = math.Vec2;
 const Vec3 = math.Vec3;
 const Vec4 = math.Vec3;
-
-const elem_shaders = @import("elem_shaders");
 
 // global vars
 pub var global_object_map: std.AutoHashMap(u64, []const u8) = undefined;
@@ -251,38 +244,18 @@ pub const Swapchain = struct {
     }
 
     pub fn submit(swapchain: *Swapchain, gpu: *Gpu, builder: CommandBuilder, options: struct {
-        wait: []const struct {
-            semaphore: vk.Semaphore,
-            flag: vk.PipelineStageFlags,
-        },
+        wait: []const CommandBuilder.WaitSemaphore,
         image_index: ImageIndex,
     }) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
 
-        const wait_stage = try swapchain.ally.alloc(vk.PipelineStageFlags, options.wait.len);
-        defer swapchain.ally.free(wait_stage);
-
-        const semaphores = try swapchain.ally.alloc(vk.Semaphore, options.wait.len);
-        defer swapchain.ally.free(semaphores);
-
-        for (semaphores, options.wait) |*dst, src| dst.* = src.semaphore;
-
-        for (wait_stage, options.wait) |*stage, semaphore| {
-            stage.* = semaphore.flag;
-        }
-
-        const cmdbuf = builder.getCurrent();
-
-        try gpu.vkd.queueSubmit(gpu.graphics_queue.handle, 1, &.{.{
-            .wait_semaphore_count = @intCast(semaphores.len),
-            .p_wait_semaphores = if (semaphores.len == 0) null else semaphores.ptr,
-            .p_wait_dst_stage_mask = wait_stage.ptr,
-            .command_buffer_count = 1,
-            .p_command_buffers = @ptrCast(&cmdbuf),
-            .signal_semaphore_count = 1,
-            .p_signal_semaphores = @ptrCast(&swapchain.swap_images[@intFromEnum(options.image_index)].submit_semaphore),
-        }}, swapchain.frame_fence[builder.frame_id]);
+        try builder.queueSubmit(gpu, swapchain.ally, .{
+            .queue = gpu.graphics_queue,
+            .wait_semaphores = options.wait,
+            .signal_semaphores = &.{swapchain.swap_images[@intFromEnum(options.image_index)].submit_semaphore},
+            .fence = swapchain.frame_fence[builder.frame_id],
+        });
     }
 
     pub fn present(swapchain: *Swapchain, gpu: *Gpu, options: struct {
@@ -507,8 +480,8 @@ pub fn copyBuffer(
 pub fn getLineString(ally: std.mem.Allocator, name: []const u8) ![]const u8 {
     const debug_info = try std.debug.getSelfDebugInfo();
 
-    var image_name = std.ArrayList(u8).init(ally);
-    const stream = image_name.writer();
+    var image_name: std.ArrayList(u8) = .empty;
+    const stream = image_name.writer(ally);
 
     var it = std.debug.StackIterator.init(null, null);
     defer it.deinit();
@@ -523,14 +496,15 @@ pub fn getLineString(ally: std.mem.Allocator, name: []const u8) ![]const u8 {
         const module = debug_info.getModuleForAddress(address) catch break;
         const symbol_info = try module.getSymbolAtAddress(debug_info.allocator, address);
 
-        const line_info = symbol_info.source_location.?;
-        try stream.print("{s}:{}:{}|", .{ std.fs.path.basename(line_info.file_name), line_info.line, line_info.column });
+        const line_or = symbol_info.source_location;
+        if (line_or) |line_info|
+            try stream.print("{s}:{}:{}|", .{ std.fs.path.basename(line_info.file_name), line_info.line, line_info.column });
 
         count += 1;
     }
     try stream.print(")", .{});
 
-    return image_name.toOwnedSlice();
+    return image_name.toOwnedSlice(ally);
 }
 
 pub fn addDebugMark(gpu: Gpu, object_type: vk.ObjectType, handle: u64, name: []const u8) !void {
@@ -553,6 +527,7 @@ const TransitionOptions = struct {
     old_layout: vk.ImageLayout,
     new_layout: vk.ImageLayout,
     layer_count: u32 = 1,
+    level_count: u32 = 1,
 };
 
 pub fn recordTransitionImageLayout(gpu: *const Gpu, cmdbuf: vk.CommandBuffer, image: vk.Image, options: TransitionOptions) !void {
@@ -572,7 +547,7 @@ pub fn recordTransitionImageLayout(gpu: *const Gpu, cmdbuf: vk.CommandBuffer, im
                 }
             },
             .base_mip_level = 0,
-            .level_count = 1,
+            .level_count = options.level_count,
             .base_array_layer = 0,
             .layer_count = options.layer_count,
         },
@@ -636,6 +611,7 @@ const ShaderType = enum {
 pub const Shader = struct {
     module: vk.ShaderModule,
     type: ShaderType,
+    file_src: []align(@alignOf(u32)) const u8,
 
     pub fn init(gpu: Gpu, file_src: []align(@alignOf(u32)) const u8, shader_enum: ShaderType) !Shader {
         //std.debug.dumpCurrentStackTrace(null);
@@ -649,6 +625,7 @@ pub const Shader = struct {
         return Shader{
             .module = module,
             .type = shader_enum,
+            .file_src = file_src,
         };
     }
 
@@ -669,18 +646,18 @@ pub const OpQueue = struct {
     ally: std.mem.Allocator,
 
     pub fn deinit(queue: *OpQueue) void {
-        queue.set_update.deinit();
-        queue.buffer_deletion.deinit();
+        queue.set_update.deinit(queue.ally);
+        queue.buffer_deletion.deinit(queue.ally);
     }
 
     pub fn appendBufferDeletion(queue: *OpQueue, buffer: BufferHandle) !void {
-        try queue.buffer_deletion.append(buffer);
+        try queue.buffer_deletion.append(queue.ally, buffer);
     }
 
     pub fn appendSet(queue: *OpQueue, options: Descriptor.WriteOptions, descriptor: *Descriptor) !void {
         const samplers = try queue.ally.dupe(Descriptor.SamplerWrite, options.samplers);
         for (samplers) |*s| s.textures = try queue.ally.dupe(Texture, s.textures);
-        try queue.set_update.append(.{
+        try queue.set_update.append(queue.ally, .{
             .descriptor = descriptor,
             .options = .{
                 .samplers = samplers,
@@ -709,8 +686,8 @@ pub const OpQueue = struct {
 
     pub fn init(ally: std.mem.Allocator, gpu: *Gpu) OpQueue {
         return .{
-            .set_update = std.ArrayList(SetUpdate).init(ally),
-            .buffer_deletion = std.ArrayList(BufferHandle).init(ally),
+            .set_update = .empty,
+            .buffer_deletion = .empty,
             .gpu = gpu,
             .ally = ally,
         };
@@ -856,7 +833,7 @@ pub const Descriptor = struct {
         for (descriptor.uniform_buffers[set][binding].items) |uniform| {
             if (uniform.idx == dst) return uniform.buffer;
         }
-        try descriptor.uniform_buffers[set][binding].append(.{
+        try descriptor.uniform_buffers[set][binding].append(descriptor.ally, .{
             .idx = dst,
             .buffer = try BufferHandle.init(gpu, .{
                 .size = pipeline_description.sets[set].bindings[binding].uniform.size,
@@ -886,6 +863,19 @@ pub const Descriptor = struct {
         (try descriptor.getUniformOrCreate(gpu, set, binding, dst)).setAsUniform(Data, value);
     }
 
+    pub fn setUniformSliceOrCreate(
+        descriptor: *Descriptor,
+        comptime Data: DataDescription,
+        gpu: *Gpu,
+        set: u32,
+        binding: u32,
+        slice: []Data.T,
+    ) !void {
+        for (slice, 0..) |value, i| {
+            (try descriptor.getUniformOrCreate(gpu, set, binding, i)).setAsUniform(Data, value);
+        }
+    }
+
     pub fn createUniformBuffers(descriptor: *Descriptor, ally: std.mem.Allocator, gpu: *Gpu) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
@@ -903,11 +893,11 @@ pub const Descriptor = struct {
                     const description = binding.uniform;
                     const array = &descriptor.uniform_buffers[set_i][uniform_i];
 
-                    array.* = std.ArrayList(UniformHandle).init(ally);
+                    array.* = .empty;
                     uniform_i += 1;
 
                     if (!description.boundless) {
-                        try array.append(.{ .idx = 0, .buffer = try BufferHandle.init(gpu, .{
+                        try array.append(ally, .{ .idx = 0, .buffer = try BufferHandle.init(gpu, .{
                             .size = description.size,
                             .buffer_type = .uniform,
                         }) });
@@ -933,7 +923,7 @@ pub const Descriptor = struct {
 
         for (descriptor.uniform_buffers) |set_array| {
             for (set_array) |*array| {
-                array.deinit();
+                array.deinit(ally);
             }
             ally.free(set_array);
         }
@@ -982,8 +972,8 @@ pub const Descriptor = struct {
         defer arena.deinit();
         const arena_ally = arena.allocator();
 
-        var descriptor_writes = std.ArrayList(vk.WriteDescriptorSet).init(arena_ally);
-        defer descriptor_writes.deinit();
+        var descriptor_writes: std.ArrayList(vk.WriteDescriptorSet) = .empty;
+        defer descriptor_writes.deinit(ally);
 
         for (options.uniforms) |uniform| {
             const buffer_info = try arena_ally.alloc(vk.DescriptorBufferInfo, 1);
@@ -994,7 +984,7 @@ pub const Descriptor = struct {
                 .range = uniform.buffer.mem.size,
             };
 
-            try descriptor_writes.append(.{
+            try descriptor_writes.append(descriptor.ally, .{
                 .dst_set = descriptor.descriptor_sets[uniform.set],
                 .dst_binding = uniform.idx,
                 .dst_array_element = uniform.dst,
@@ -1015,7 +1005,7 @@ pub const Descriptor = struct {
                 .range = storage.buffer.mem.size,
             };
 
-            try descriptor_writes.append(.{
+            try descriptor_writes.append(descriptor.ally, .{
                 .dst_set = descriptor.descriptor_sets[storage.set],
                 .dst_binding = storage.idx,
                 .dst_array_element = storage.dst,
@@ -1028,26 +1018,27 @@ pub const Descriptor = struct {
         }
 
         for (options.samplers) |write| {
+            std.debug.assert(write.textures.len != 0);
             const image_infos = try arena_ally.alloc(vk.DescriptorImageInfo, write.textures.len);
 
-            for (image_infos, 0..) |*info, texture_i| {
+            for (image_infos, write.textures) |*info, write_tex| {
                 try descriptor.dependencies.textures.put(.{
                     .dst = write.dst,
                     .idx = write.idx,
                     .set = write.set,
-                }, write.textures[texture_i]);
+                }, write_tex);
                 info.* = .{
                     .image_layout = switch (write.type) {
                         .combined => .shader_read_only_optimal,
                         .storage => .general,
                         .combined_storage => .general,
                     },
-                    .image_view = write.textures[texture_i].image_view,
-                    .sampler = write.textures[texture_i].sampler,
+                    .image_view = write_tex.getReadView(),
+                    .sampler = write_tex.sampler,
                 };
             }
 
-            try descriptor_writes.append(.{
+            try descriptor_writes.append(descriptor.ally, .{
                 .dst_set = descriptor.descriptor_sets[write.set],
                 .dst_binding = write.idx,
                 .dst_array_element = write.dst,
@@ -1223,7 +1214,7 @@ pub const RenderTarget = union(enum) {
             y: f32 = 0,
         },
         color_textures: []const *Texture,
-        depth_texture: ?*const Texture = null,
+        depth_texture: ?*Texture = null,
 
         pub fn eql(a: TextureTarget, b: TextureTarget) bool {
             if (a.color_textures.len != b.color_textures.len) return false;
@@ -1255,6 +1246,7 @@ pub const Drawing = struct {
 
     render_target: RenderTarget,
     flip_z: Flip,
+    pipeline: RenderPipeline,
 
     pub const Flip = enum {
         true,
@@ -1270,6 +1262,17 @@ pub const Drawing = struct {
     };
 
     pub fn init(drawing: *Drawing, ally: std.mem.Allocator, gpu: *Gpu, options: Info) !void {
+        // check if pipeline and targets match
+        switch (options.target) {
+            .texture => |textures| {
+                std.debug.assert((textures.depth_texture == null and options.pipeline.attachments.depth == null) or
+                    (textures.depth_texture != null and options.pipeline.attachments.depth != null));
+                for (textures.color_textures) |tex| {
+                    std.debug.assert(tex.info.type == .render_target);
+                }
+            },
+            else => {},
+        }
         drawing.* = .{
             .vert_count = 0,
             .global_ubo = options.pipeline.pipeline.description.global_ubo,
@@ -1278,6 +1281,7 @@ pub const Drawing = struct {
             .index_buffer = null,
             .render_target = options.target,
             .flip_z = options.flip_z,
+            .pipeline = options.pipeline,
         };
 
         if (drawing.global_ubo) {
@@ -1405,7 +1409,7 @@ fn printError(err: anyerror) noreturn {
     @panic(std.fmt.bufPrint(&buf, "error: {s}", .{@errorName(err)}) catch @panic("error name too long"));
 }
 
-pub fn getGlfwCursorPos(win_or: ?*glfw.GLFWwindow, xpos: f64, ypos: f64) callconv(.C) void {
+pub fn getGlfwCursorPos(win_or: ?*glfw.GLFWwindow, xpos: f64, ypos: f64) callconv(.c) void {
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
@@ -1424,7 +1428,7 @@ pub const Action = enum(i32) {
     repeat = 2,
 };
 
-pub fn getGlfwMouseButton(win_or: ?*glfw.GLFWwindow, button: c_int, action: c_int, mods: c_int) callconv(.C) void {
+pub fn getGlfwMouseButton(win_or: ?*glfw.GLFWwindow, button: c_int, action: c_int, mods: c_int) callconv(.c) void {
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
@@ -1437,7 +1441,7 @@ pub fn getGlfwMouseButton(win_or: ?*glfw.GLFWwindow, button: c_int, action: c_in
     }
 }
 
-pub fn getGlfwKey(win_or: ?*glfw.GLFWwindow, key: c_int, scancode: c_int, action: c_int, mods: c_int) callconv(.C) void {
+pub fn getGlfwKey(win_or: ?*glfw.GLFWwindow, key: c_int, scancode: c_int, action: c_int, mods: c_int) callconv(.c) void {
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
@@ -1450,7 +1454,7 @@ pub fn getGlfwKey(win_or: ?*glfw.GLFWwindow, key: c_int, scancode: c_int, action
     }
 }
 
-pub fn getGlfwChar(win_or: ?*glfw.GLFWwindow, codepoint: c_uint) callconv(.C) void {
+pub fn getGlfwChar(win_or: ?*glfw.GLFWwindow, codepoint: c_uint) callconv(.c) void {
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
@@ -1463,7 +1467,7 @@ pub fn getGlfwChar(win_or: ?*glfw.GLFWwindow, codepoint: c_uint) callconv(.C) vo
     }
 }
 
-pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, in_width: c_int, in_height: c_int) callconv(.C) void {
+pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, in_width: c_int, in_height: c_int) callconv(.c) void {
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
@@ -1513,7 +1517,7 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, in_width: c_int, in_height:
     }
 }
 
-pub fn getScroll(win_or: ?*glfw.GLFWwindow, xoffset: f64, yoffset: f64) callconv(.C) void {
+pub fn getScroll(win_or: ?*glfw.GLFWwindow, xoffset: f64, yoffset: f64) callconv(.c) void {
     const glfw_win = win_or orelse return;
 
     if (windowMap.?.get(glfw_win)) |map| {
@@ -1542,6 +1546,8 @@ pub const EventTable = struct {
 pub const PreferredFormat = enum {
     s8_bgra,
 
+    unorm8_r,
+    unorm8_rg,
     unorm8_rgb,
     unorm8_rgba,
     unorm8_bgra,
@@ -1563,6 +1569,8 @@ pub const PreferredFormat = enum {
         return switch (format) {
             .s8_bgra => .b8g8r8a8_srgb,
 
+            .unorm8_r => .r8_unorm,
+            .unorm8_rg => .r8g8_unorm,
             .unorm8_rgb => .r8g8b8_unorm,
             .unorm8_rgba => .r8g8b8a8_unorm,
             .unorm8_bgra => .b8g8r8a8_unorm,
@@ -1818,10 +1826,72 @@ pub const RenderRegion = struct {
 };
 
 const debug_command_builder = false;
+const dump_stack = false;
 
+// an abstraction over a list of commandbuffers
 pub const CommandBuilder = struct {
     buffers: []vk.CommandBuffer,
     frame_id: usize,
+
+    pub const WaitSemaphore = struct {
+        semaphore: vk.Semaphore,
+        flag: vk.PipelineStageFlags,
+    };
+
+    pub fn queueSubmit(
+        builder: CommandBuilder,
+        gpu: *Gpu,
+        ally: std.mem.Allocator,
+        options: struct {
+            queue: Gpu.Queue,
+            wait_semaphores: []const WaitSemaphore = &.{},
+            signal_semaphores: []const vk.Semaphore = &.{},
+            fence: vk.Fence = .null_handle,
+        },
+    ) !void {
+        if (debug_command_builder) {
+            std.debug.print(
+                \\queueSubmit {{
+                \\    queue: {any},
+                \\    wait_semaphores: {any},
+                \\    signal_semaphores: {any},
+                \\    fence: {},
+                \\}}
+                \\
+            , .{
+                options.queue,
+                options.wait_semaphores,
+                options.signal_semaphores,
+                options.fence,
+            });
+        }
+
+        const cmdbuf = builder.getCurrent();
+
+        const wait_semaphores = try ally.alloc(vk.Semaphore, options.wait_semaphores.len);
+        defer ally.free(wait_semaphores);
+        const wait_stage_masks = try ally.alloc(vk.PipelineStageFlags, options.wait_semaphores.len);
+        defer ally.free(wait_stage_masks);
+
+        for (wait_semaphores, options.wait_semaphores) |*dst, src| {
+            dst.* = src.semaphore;
+        }
+        for (wait_stage_masks, options.wait_semaphores) |*dst, src| {
+            dst.* = src.flag;
+        }
+
+        const submit_info: vk.SubmitInfo = .{
+            .wait_semaphore_count = @intCast(wait_semaphores.len),
+            .p_wait_semaphores = wait_semaphores.ptr,
+            .p_wait_dst_stage_mask = wait_stage_masks.ptr,
+            .command_buffer_count = 1,
+            .p_command_buffers = @ptrCast(&cmdbuf),
+            .signal_semaphore_count = @intCast(options.signal_semaphores.len),
+            .p_signal_semaphores = if (options.signal_semaphores.len > 0) options.signal_semaphores.ptr else null,
+        };
+
+        try gpu.vkd.queueSubmit(options.queue.handle, 1, @ptrCast(&submit_info), options.fence);
+    }
 
     pub fn pipelineBarrier(
         builder: CommandBuilder,
@@ -1833,7 +1903,8 @@ pub const CommandBuilder = struct {
             image_barriers: []const struct {
                 old_layout: vk.ImageLayout,
                 new_layout: vk.ImageLayout,
-                layer_count: u32 = 1,
+                layer_count: u32,
+                level_count: u32,
 
                 src_access: vk.AccessFlags,
                 dst_access: vk.AccessFlags,
@@ -1848,11 +1919,12 @@ pub const CommandBuilder = struct {
         },
     ) void {
         if (debug_command_builder) {
-            std.debug.dumpCurrentStackTrace(null);
+            std.debug.print("\n\n\n", .{});
+            if (dump_stack) std.debug.dumpCurrentStackTrace(null);
             std.debug.print(
                 \\pipelineBarrier {{
-                \\    src_stage: {any}
-                \\    dst_stage: {any}
+                \\    src_stage: {f}
+                \\    dst_stage: {f}
                 \\    image_barriers {{
                 \\
             , .{
@@ -1866,8 +1938,8 @@ pub const CommandBuilder = struct {
                     \\        new_layout: {any},
                     \\        layer_count: {},
                     \\
-                    \\        src_acces: {any},
-                    \\        dst_access: {any},
+                    \\        src_acces: {f},
+                    \\        dst_access: {f},
                     \\
                     \\        image: {any},
                 , .{
@@ -1882,6 +1954,7 @@ pub const CommandBuilder = struct {
 
             std.debug.print("    }}\n", .{});
             std.debug.print("}}\n", .{});
+            std.debug.print("\n\n\n", .{});
         }
         const cmdbuf = builder.getCurrent();
 
@@ -1904,7 +1977,7 @@ pub const CommandBuilder = struct {
                         }
                     },
                     .base_mip_level = 0,
-                    .level_count = 1,
+                    .level_count = barrier.level_count,
                     .base_array_layer = 0,
                     .layer_count = barrier.layer_count,
                 },
@@ -1943,6 +2016,8 @@ pub const CommandBuilder = struct {
             .image_barriers = &.{
                 .{
                     .image = swapimage,
+                    .layer_count = 1,
+                    .level_count = 1,
                     .src_access = .{ .color_attachment_write_bit = true },
                     .dst_access = .{},
                     .old_layout = .color_attachment_optimal,
@@ -1963,6 +2038,8 @@ pub const CommandBuilder = struct {
         },
     ) void {
         if (debug_command_builder) {
+            std.debug.print("\n\n\n", .{});
+            if (dump_stack) std.debug.dumpCurrentStackTrace(null);
             std.debug.print(
                 \\beginRendering {{
                 \\    region: {any},
@@ -1971,6 +2048,7 @@ pub const CommandBuilder = struct {
                 \\}}
                 \\
             , .{ options.region, options.color_attachments, options.depth_attachment });
+            std.debug.print("\n\n\n", .{});
         }
         const cmdbuf = builder.getCurrent();
 
@@ -2084,7 +2162,7 @@ pub const CommandBuilder = struct {
             },
             0,
             @intCast(self.getSize()),
-            @alignCast(@ptrCast(constants)),
+            @ptrCast(@alignCast(constants)),
         );
     }
 
@@ -2117,8 +2195,9 @@ pub const CommandBuilder = struct {
         //builder.frame_id = (builder.frame_id + 1) % frames_in_flight;
         builder.frame_id = 0;
     }
-    pub fn init(gpu: *Gpu, pool: vk.CommandPool, ally: std.mem.Allocator) !CommandBuilder {
-        const cmd_buffs = try ally.alloc(vk.CommandBuffer, frames_in_flight);
+
+    pub fn init(gpu: *Gpu, pool: vk.CommandPool, ally: std.mem.Allocator, count: usize) !CommandBuilder {
+        const cmd_buffs = try ally.alloc(vk.CommandBuffer, count);
 
         try gpu.vkd.allocateCommandBuffers(gpu.dev, &.{
             .command_pool = pool,
@@ -2188,26 +2267,26 @@ pub const Window = struct {
         line_shaders: [2]Shader,
 
         pub fn init(gpu: Gpu) !DefaultShaders {
-            const sprite_vert = try Shader.init(gpu, &elem_shaders.sprite_vert, .vertex);
-            const sprite_frag = try Shader.init(gpu, &elem_shaders.sprite_frag, .fragment);
+            const sprite_vert = try Shader.init(gpu, @alignCast(@embedFile("sprite_vert")), .vertex);
+            const sprite_frag = try Shader.init(gpu, @alignCast(@embedFile("sprite_frag")), .fragment);
 
-            const sprite_batch_vert = try Shader.init(gpu, &elem_shaders.sprite_batch_vert, .vertex);
-            const sprite_batch_frag = try Shader.init(gpu, &elem_shaders.sprite_batch_frag, .fragment);
+            const sprite_batch_vert = try Shader.init(gpu, @alignCast(@embedFile("sprite_batch_vert")), .vertex);
+            const sprite_batch_frag = try Shader.init(gpu, @alignCast(@embedFile("sprite_batch_frag")), .fragment);
 
-            const color_vert = try Shader.init(gpu, &elem_shaders.color_vert, .vertex);
-            const color_frag = try Shader.init(gpu, &elem_shaders.color_frag, .fragment);
+            const color_vert = try Shader.init(gpu, @alignCast(@embedFile("color_vert")), .vertex);
+            const color_frag = try Shader.init(gpu, @alignCast(@embedFile("color_frag")), .fragment);
 
-            const text_vert = try Shader.init(gpu, &elem_shaders.text_vert, .vertex);
-            const text_frag = try Shader.init(gpu, &elem_shaders.text_frag, .fragment);
+            const text_vert = try Shader.init(gpu, @alignCast(@embedFile("text_vert")), .vertex);
+            const text_frag = try Shader.init(gpu, @alignCast(@embedFile("text_frag")), .fragment);
 
-            const textft_vert = try Shader.init(gpu, &elem_shaders.textft_vert, .vertex);
-            const textft_frag = try Shader.init(gpu, &elem_shaders.textft_frag, .fragment);
+            const textft_vert = try Shader.init(gpu, @alignCast(@embedFile("textft_vert")), .vertex);
+            const textft_frag = try Shader.init(gpu, @alignCast(@embedFile("textft_frag")), .fragment);
 
-            const post_vert = try Shader.init(gpu, &elem_shaders.post_vert, .vertex);
-            const post_frag = try Shader.init(gpu, &elem_shaders.post_frag, .fragment);
+            const post_vert = try Shader.init(gpu, @alignCast(@embedFile("post_vert")), .vertex);
+            const post_frag = try Shader.init(gpu, @alignCast(@embedFile("post_frag")), .fragment);
 
-            const line_vert = try Shader.init(gpu, &elem_shaders.line_vert, .vertex);
-            const line_frag = try Shader.init(gpu, &elem_shaders.line_frag, .fragment);
+            const line_vert = try Shader.init(gpu, @alignCast(@embedFile("line_vert")), .vertex);
+            const line_frag = try Shader.init(gpu, @alignCast(@embedFile("line_frag")), .fragment);
 
             return .{
                 .sprite_shaders = .{ sprite_vert, sprite_frag },
@@ -2704,6 +2783,48 @@ pub const Binding = union(enum) {
     uniform: UniformDescription,
     storage: UniformDescription,
     sampler: SamplerDescription,
+
+    pub fn getDescriptorCount(binding: Binding) ?u32 {
+        switch (binding) {
+            .uniform => |binding_desc| {
+                return if (binding_desc.boundless) null else 1;
+            },
+            .storage => |binding_desc| {
+                return if (binding_desc.boundless) null else 1;
+            },
+            .sampler => |binding_desc| {
+                return if (binding_desc.boundless) null else binding_desc.count;
+            },
+        }
+    }
+    pub fn getDescriptorType(binding: Binding) vk.DescriptorType {
+        switch (binding) {
+            .uniform => |_| {
+                return .uniform_buffer;
+            },
+            .storage => |_| {
+                return .storage_buffer;
+            },
+            .sampler => |binding_desc| {
+                return switch (binding_desc.type) {
+                    .storage => .storage_image,
+                    .combined => .combined_image_sampler,
+                };
+            },
+        }
+    }
+    pub fn getFlags(binding: Binding) vk.DescriptorBindingFlags {
+        switch (binding) {
+            inline else => |binding_desc| {
+                return if (binding_desc.boundless) .{
+                    .variable_descriptor_count_bit = true,
+                    .partially_bound_bit = true,
+                    .update_after_bind_bit = true,
+                    .update_unused_while_pending_bit = true,
+                } else .{};
+            },
+        }
+    }
 };
 
 pub const Set = struct {
@@ -2714,6 +2835,7 @@ pub const PipelineDescription = struct {
     vertex_description: VertexDescription,
     render_type: RenderType,
     depth_test: bool,
+    depth_write: bool,
     cull_type: CullType = .none,
 
     constants_size: ?usize = null,
@@ -2759,61 +2881,16 @@ pub fn createBindingsFromSets(ally: std.mem.Allocator, gpu: *Gpu, options: struc
                 .drawing => .{ .vertex_bit = true, .fragment_bit = true },
                 .compute => .{ .compute_bit = true, .vertex_bit = true },
             };
-            switch (binding) {
-                .uniform => |binding_desc| {
-                    bindings.*[idx] = .{
-                        .binding = @intCast(idx),
-                        .descriptor_count = if (binding_desc.boundless) max_boundless else 1,
-                        .descriptor_type = .uniform_buffer,
-                        .p_immutable_samplers = null,
-                        .stage_flags = stage_flags,
-                    };
 
-                    binding_flags[idx] = if (binding_desc.boundless) .{
-                        .variable_descriptor_count_bit = true,
-                        .partially_bound_bit = true,
-                        .update_after_bind_bit = true,
-                        .update_unused_while_pending_bit = true,
-                    } else .{};
-                },
+            bindings.*[idx] = .{
+                .binding = @intCast(idx),
+                .descriptor_count = binding.getDescriptorCount() orelse max_boundless,
+                .descriptor_type = binding.getDescriptorType(),
+                .p_immutable_samplers = null,
+                .stage_flags = stage_flags,
+            };
 
-                .storage => |binding_desc| {
-                    bindings.*[idx] = .{
-                        .binding = @intCast(idx),
-                        .descriptor_count = if (binding_desc.boundless) max_boundless else 1,
-                        .descriptor_type = .storage_buffer,
-                        .p_immutable_samplers = null,
-                        .stage_flags = stage_flags,
-                    };
-
-                    binding_flags[idx] = if (binding_desc.boundless) .{
-                        .variable_descriptor_count_bit = true,
-                        .partially_bound_bit = true,
-                        .update_after_bind_bit = true,
-                        .update_unused_while_pending_bit = true,
-                    } else .{};
-                },
-
-                .sampler => |binding_desc| {
-                    bindings.*[idx] = vk.DescriptorSetLayoutBinding{
-                        .binding = @intCast(idx),
-                        .descriptor_count = if (binding_desc.boundless) max_boundless else binding_desc.count,
-                        .descriptor_type = switch (binding_desc.type) {
-                            .storage => .storage_image,
-                            .combined => .combined_image_sampler,
-                        },
-                        .p_immutable_samplers = null,
-                        .stage_flags = stage_flags,
-                    };
-
-                    binding_flags[idx] = if (binding_desc.boundless) .{
-                        .variable_descriptor_count_bit = true,
-                        .partially_bound_bit = true,
-                        .update_after_bind_bit = true,
-                        .update_unused_while_pending_bit = true,
-                    } else .{};
-                },
-            }
+            binding_flags[idx] = binding.getFlags();
         }
 
         const layout_info: vk.DescriptorSetLayoutCreateInfo = .{
@@ -2940,25 +3017,238 @@ pub const ComputePipeline = struct {
     }
 };
 
+pub const AttachmentOptions = struct {
+    pub const BlendFactor = enum {
+        zero,
+        one,
+        src_color,
+        one_minus_src_color,
+        dst_color,
+        one_minus_dst_color,
+        src_alpha,
+        one_minus_src_alpha,
+        dst_alpha,
+        one_minus_dst_alpha,
+        constant_color,
+        one_minus_constant_color,
+        constant_alpha,
+        one_minus_constant_alpha,
+        src_alpha_saturate,
+        src1_color,
+        one_minus_src1_color,
+        src1_alpha,
+        one_minus_src1_alpha,
+
+        pub fn toVulkan(blend: BlendFactor) vk.BlendFactor {
+            return switch (blend) {
+                .zero => .zero,
+                .one => .one,
+                .src_color => .src_color,
+                .one_minus_src_color => .one_minus_src_color,
+                .dst_color => .dst_color,
+                .one_minus_dst_color => .one_minus_dst_color,
+                .src_alpha => .src_alpha,
+                .one_minus_src_alpha => .one_minus_src_alpha,
+                .dst_alpha => .dst_alpha,
+                .one_minus_dst_alpha => .one_minus_dst_alpha,
+                .constant_color => .constant_color,
+                .one_minus_constant_color => .one_minus_constant_color,
+                .constant_alpha => .constant_alpha,
+                .one_minus_constant_alpha => .one_minus_constant_alpha,
+                .src_alpha_saturate => .src_alpha_saturate,
+                .src1_color => .src1_color,
+                .one_minus_src1_color => .one_minus_src1_color,
+                .src1_alpha => .src1_alpha,
+                .one_minus_src1_alpha => .one_minus_src1_alpha,
+            };
+        }
+    };
+
+    pub const BlendOp = enum {
+        add,
+        subtract,
+        reverse_subtract,
+        min,
+        max,
+
+        pub fn toVulkan(op: BlendOp) vk.BlendOp {
+            return switch (op) {
+                .add => .add,
+                .subtract => .subtract,
+                .reverse_subtract => .reverse_subtract,
+                .min => .min,
+                .max => .max,
+            };
+        }
+    };
+
+    pub const Description = struct {
+        format: PreferredFormat,
+        blending: struct {
+            will_blend: bool,
+            src_color: BlendFactor,
+            dst_color: BlendFactor,
+            color_op: BlendOp,
+
+            src_alpha: BlendFactor,
+            dst_alpha: BlendFactor,
+            alpha_op: BlendOp,
+
+            color_mask: struct { r: bool, g: bool, b: bool, a: bool },
+        } = .{
+            .will_blend = true,
+            .src_color = .src_alpha,
+            .dst_color = .one_minus_src_alpha,
+            .color_op = .add,
+            .src_alpha = .one,
+            .dst_alpha = .one_minus_src_alpha,
+            .alpha_op = .add,
+            .color_mask = .{ .r = true, .g = true, .b = true, .a = true },
+        },
+    };
+
+    descriptions: []const Description,
+    depth: ?struct {
+        format: PreferredFormat,
+    },
+};
+
 pub const RenderingOptions = struct {
-    attachments: []const PreferredFormat,
-    depth: ?PreferredFormat,
+    pub const ClearValue = union(enum) {
+        color: math.Vec4,
+        depth: f32,
+        none: void,
+    };
+
+    pub const Description = struct {
+        clear: ClearValue = .{ .color = .init(.{ 0.0, 0.0, 0.0, 1.0 }) },
+        view: Texture.ViewDescription = .{
+            .layer_index = 0,
+            .layer_count = 1,
+        },
+    };
+
+    descriptions: []const Description,
+    depth: ?struct {
+        clear: ClearValue = .{ .depth = 1.0 },
+        view: Texture.ViewDescription = .{
+            .layer_index = 0,
+            .layer_count = 1,
+        },
+    } = .{},
 };
 
 pub const RenderPipeline = struct {
     pipeline: Pipeline,
+    attachments: AttachmentOptions,
 
     pub const Info = struct {
         description: PipelineDescription,
-        rendering: RenderingOptions,
+        // TODO: change to attachments instead
+        rendering: AttachmentOptions,
         shaders: []const Shader,
         gpu: *Gpu,
         flipped_z: bool = false,
     };
-    pub fn init(ally: std.mem.Allocator, info: Info) !RenderPipeline {
-        const shaders = info.shaders;
-        const description = info.description;
-        const gpu = info.gpu;
+
+    pub fn init(ally: std.mem.Allocator, options: Info) !RenderPipeline {
+        const shaders = options.shaders;
+        const description = options.description;
+        const gpu = options.gpu;
+
+        // verify using reflect, eventually make something that **optionally** makes a PipelineDescription from it instead
+        // this is going to be somewhat interesting, as it would require you to convert something over from the vulkan side to
+        // our code's side. for some reason, the following doesn't work for slang shaders and has differing behavior from
+        // the x86 backend to the llvm one
+        for (shaders) |shader| {
+            var module: spirv.SpvReflectShaderModule = undefined;
+            var result = spirv.spvReflectCreateShaderModule(
+                shader.file_src.len * @sizeOf(u32) / @sizeOf(u8),
+                @ptrCast(@alignCast(shader.file_src)),
+                &module,
+            );
+            if (result != spirv.SPV_REFLECT_RESULT_SUCCESS) {
+                std.log.warn("{[p]s}Warning:{[s]s} couldn't read shader {[module]any} reflection, failed with {[result]d}. Will skip this one.{[r]s}", .{
+                    .result = result,
+                    .module = shader.module,
+                    .p = "\u{001b}[0;93m",
+                    .s = "\u{001b}[0;90m",
+                    .r = "\u{001b}[0m",
+                });
+                continue;
+            }
+
+            var input_var_count: u32 = 0;
+            var descriptor_set_count: u32 = 0;
+
+            result = spirv.spvReflectEnumerateInputVariables(&module, &input_var_count, null);
+            std.debug.assert(result == spirv.SPV_REFLECT_RESULT_SUCCESS);
+
+            result = spirv.spvReflectEnumerateDescriptorSets(&module, &descriptor_set_count, null);
+            std.debug.assert(result == spirv.SPV_REFLECT_RESULT_SUCCESS);
+
+            const input_vars = try ally.alloc(*spirv.SpvReflectInterfaceVariable, input_var_count);
+            defer ally.free(input_vars);
+
+            const descriptor_sets = try ally.alloc(*spirv.SpvReflectDescriptorSet, descriptor_set_count);
+            defer ally.free(descriptor_sets);
+
+            result = spirv.spvReflectEnumerateInputVariables(&module, &input_var_count, @ptrCast(input_vars.ptr));
+            std.debug.assert(result == spirv.SPV_REFLECT_RESULT_SUCCESS);
+
+            result = spirv.spvReflectEnumerateDescriptorSets(&module, &descriptor_set_count, @ptrCast(descriptor_sets.ptr));
+            std.debug.assert(result == spirv.SPV_REFLECT_RESULT_SUCCESS);
+
+            if (descriptor_sets.len > description.sets.len) {
+                std.log.warn("{[p]s}Warning:{[s]s} shader {[module]any} has {[spv_len]} sets but PipelineDescription only has {[desc_len]}. Will skip this one.{[r]s}", .{
+                    .module = shader.module,
+                    .desc_len = description.sets.len,
+                    .spv_len = descriptor_sets.len,
+                    .p = "\u{001b}[0;93m",
+                    .s = "\u{001b}[0;90m",
+                    .r = "\u{001b}[0m",
+                });
+                continue;
+            }
+            for (descriptor_sets, description.sets[0..descriptor_sets.len], 0..) |spv_set, set, set_i| {
+                const spv_bindings = spv_set.bindings[0..spv_set.binding_count];
+                if (descriptor_sets.len > description.sets.len) {
+                    std.log.warn("{[p]s}Warning:{[s]s} Set {[i]} in shader {[module]any} has {[spv_len]} bindings but PipelineDescription only has {[desc_len]}. Will skip this one.{[r]s}", .{
+                        .module = shader.module,
+                        .desc_len = set.bindings.len,
+                        .spv_len = spv_set.binding_count,
+                        .i = set_i,
+                        .p = "\u{001b}[0;93m",
+                        .s = "\u{001b}[0;90m",
+                        .r = "\u{001b}[0m",
+                    });
+                    continue;
+                }
+                for (spv_bindings, set.bindings[0..spv_set.binding_count]) |spv_binding, binding| {
+                    const desc_type: vk.DescriptorType = @enumFromInt(spv_binding.*.descriptor_type);
+                    if (binding.getDescriptorType() != desc_type) {
+                        std.log.warn("{[p]s}Warning:{[s]s} descriptor type is not the same in {[module]any} ({[desc_type]}) and PipelineDescription ({[spv_type]}).{[r]s}", .{
+                            .module = shader.module,
+                            .spv_type = binding.getDescriptorType(),
+                            .desc_type = desc_type,
+                            .p = "\u{001b}[0;93m",
+                            .s = "\u{001b}[0;90m",
+                            .r = "\u{001b}[0m",
+                        });
+                    }
+                    if (binding.getDescriptorCount() orelse 0 != spv_binding.*.count) {
+                        std.log.warn("{[p]s}Warning:{[s]s} descriptor count is not the same in {[module]any} and PipelineDescription. Values are {[desc_count]d} and {[spv_count]d}.{[r]s}", .{
+                            .module = shader.module,
+                            .desc_count = binding.getDescriptorCount() orelse 0,
+                            .spv_count = spv_binding.*.count,
+                            .p = "\u{001b}[0;93m",
+                            .s = "\u{001b}[0;90m",
+                            .r = "\u{001b}[0m",
+                        });
+                    }
+                }
+            }
+        }
 
         const set_bindings, const layouts = try createBindingsFromSets(ally, gpu, .{
             .sets = description.sets,
@@ -3015,27 +3305,33 @@ pub const RenderPipeline = struct {
 
         const dynstate = [_]vk.DynamicState{ .viewport, .scissor };
 
-        const attachments = try ally.alloc(vk.PipelineColorBlendAttachmentState, info.rendering.attachments.len);
+        const attachments = try ally.alloc(vk.PipelineColorBlendAttachmentState, options.rendering.descriptions.len);
         defer ally.free(attachments);
-        for (attachments) |*a| {
+        for (attachments, options.rendering.descriptions) |*a, attach_desc| {
+            const desc = attach_desc.blending;
             a.* = .{
-                .blend_enable = vk.TRUE,
-                .src_color_blend_factor = .src_alpha,
-                .dst_color_blend_factor = .one_minus_src_alpha,
-                .color_blend_op = .add,
-                .src_alpha_blend_factor = .one,
-                .dst_alpha_blend_factor = .one_minus_src_alpha,
-                .alpha_blend_op = .add,
-                .color_write_mask = .{ .r_bit = true, .g_bit = true, .b_bit = true, .a_bit = true },
+                .blend_enable = if (desc.will_blend) vk.TRUE else vk.FALSE,
+                .src_color_blend_factor = desc.src_color.toVulkan(),
+                .dst_color_blend_factor = desc.dst_color.toVulkan(),
+                .color_blend_op = desc.color_op.toVulkan(),
+                .src_alpha_blend_factor = desc.src_alpha.toVulkan(),
+                .dst_alpha_blend_factor = desc.dst_alpha.toVulkan(),
+                .alpha_blend_op = desc.alpha_op.toVulkan(),
+                .color_write_mask = .{
+                    .r_bit = desc.color_mask.r,
+                    .g_bit = desc.color_mask.g,
+                    .b_bit = desc.color_mask.b,
+                    .a_bit = desc.color_mask.a,
+                },
             };
         }
 
-        const color_formats = try ally.alloc(vk.Format, info.rendering.attachments.len);
+        const color_formats = try ally.alloc(vk.Format, options.rendering.descriptions.len);
         defer ally.free(color_formats);
-        for (color_formats, info.rendering.attachments) |*vk_fmt, fmt| {
-            vk_fmt.* = fmt.getSurfaceFormat(gpu.*);
+        for (color_formats, options.rendering.descriptions) |*vk_fmt, desc| {
+            vk_fmt.* = desc.format.getSurfaceFormat(gpu.*);
         }
-        const depth_format: ?vk.Format = if (info.rendering.depth) |fmt| fmt.getSurfaceFormat(gpu.*) else null;
+        const depth_format: ?vk.Format = if (options.rendering.depth) |depth| depth.format.getSurfaceFormat(gpu.*) else null;
 
         var vk_pipeline: vk.Pipeline = undefined;
         _ = try gpu.vkd.createGraphicsPipelines(
@@ -3077,7 +3373,7 @@ pub const RenderPipeline = struct {
                         .front_and_back => .{ .front_bit = true, .back_bit = true },
                         .none => .{},
                     },
-                    .front_face = if (info.flipped_z) .counter_clockwise else .clockwise,
+                    .front_face = if (options.flipped_z) .counter_clockwise else .clockwise,
                     .depth_bias_enable = vk.FALSE,
                     .depth_bias_constant_factor = 0,
                     .depth_bias_clamp = 0,
@@ -3085,7 +3381,7 @@ pub const RenderPipeline = struct {
                     .line_width = 1,
                 },
                 .p_multisample_state = &vk.PipelineMultisampleStateCreateInfo{
-                    //.rasterization_samples = if (info.render_pass.info.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
+                    //.rasterization_samples = if (options.render_pass.options.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
                     .rasterization_samples = .{ .@"1_bit" = true },
                     .sample_shading_enable = vk.FALSE,
                     .min_sample_shading = 1,
@@ -3094,8 +3390,8 @@ pub const RenderPipeline = struct {
                 },
                 .p_depth_stencil_state = &vk.PipelineDepthStencilStateCreateInfo{
                     .depth_test_enable = if (description.depth_test) vk.TRUE else vk.FALSE,
-                    .depth_write_enable = if (description.depth_test) vk.TRUE else vk.FALSE,
-                    .depth_compare_op = .less,
+                    .depth_write_enable = if (description.depth_write) vk.TRUE else vk.FALSE,
+                    .depth_compare_op = .less_or_equal,
                     .depth_bounds_test_enable = vk.FALSE,
                     .min_depth_bounds = 0,
                     .max_depth_bounds = 0,
@@ -3146,11 +3442,15 @@ pub const RenderPipeline = struct {
                 .set_bindings = set_bindings,
                 .type = .render,
                 .description = .{
-                    .constants_size = info.description.constants_size,
-                    .sets = info.description.sets,
-                    .global_ubo = info.description.global_ubo,
-                    .bindless = info.description.bindless,
+                    .constants_size = options.description.constants_size,
+                    .sets = options.description.sets,
+                    .global_ubo = options.description.global_ubo,
+                    .bindless = options.description.bindless,
                 },
+            },
+            .attachments = .{
+                .descriptions = try ally.dupe(AttachmentOptions.Description, options.rendering.descriptions),
+                .depth = options.rendering.depth,
             },
         };
     }
@@ -3457,14 +3757,15 @@ pub const BufferHandle = struct {
     }
 
     pub fn getData(buffer: BufferHandle, comptime self: DataDescription) *self.T {
-        return @alignCast(@ptrCast(buffer.data.?));
+        return @ptrCast(@alignCast(buffer.data.?));
     }
 
     pub fn setAsUniform(buffer: BufferHandle, comptime self: DataDescription, ubo: self.T) void {
-        @as(*self.T, @alignCast(@ptrCast(buffer.data.?))).* = ubo;
+        @as(*self.T, @ptrCast(@alignCast(buffer.data.?))).* = ubo;
     }
+
     pub fn setAsUniformField(buffer: BufferHandle, comptime self: DataDescription, comptime field: std.meta.FieldEnum(self.T), target: anytype) void {
-        @field(@as(*self.T, @alignCast(@ptrCast(buffer.data.?))), @tagName(field)) = target;
+        @field(@as(*self.T, @ptrCast(@alignCast(buffer.data.?))), @tagName(field)) = target;
     }
 };
 

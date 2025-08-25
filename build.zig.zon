@@ -9,17 +9,25 @@
     },
 
     .dependencies = .{
-        .vulkan_zig = .{
-            .url = "https://github.com/Snektron/vulkan-zig/archive/57d587c8a4b6ff5493613b1cf0c64ce34461696e.tar.gz",
-            .hash = "vulkan-0.0.0-r7Ytx5GAAwBIBpjW4Ipd81FiM24t7UxlVomrGkubzW3v",
-        },
         .zigimg = .{
-            .url = "git+https://github.com/zigimg/zigimg.git#b1c5beea3b200a949fe7edf15ba8317cb9253efe",
-            .hash = "zigimg-0.1.0-8_eo2lrXEgBlEihqJdiw_ZtxgL-vO72ajJpmOdO59qxp",
+            .url = "git+https://github.com/Facecommie/zigimg#33df1c045ca3449980a6aac3c2b34365f688109a",
+            .hash = "zigimg-0.1.0-8_eo2sJJEwBZmVxXejvdn_ohZGehx3c4Eg_L3727H0Bn",
         },
         .box2c = .{
             .url = "https://github.com/erincatto/box2c/archive/7fdd976d91330e3c0e1009820ae9539fb51a7b6c.tar.gz",
             .hash = "12201d6b6f306309346f3a31b5a04446135b1b408a052b933f456f034c20acecb774",
+        },
+        .vulkan_zig = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig#93bc6f1ac3e13dd98d918e242dc892f179a0d0f5",
+            .hash = "vulkan-0.0.0-r7YtxwA_AwAU4rmOITZD_KJs11Kie1sv0t-pcMDQGIqw",
+        },
+        .@"spirv-reflect" = .{
+            .url = "git+https://github.com/KhronosGroup/SPIRV-Reflect#94e1c5ea4ffe4a4c951b322c6217cb822876de14",
+            .hash = "N-V-__8AAKyILAA1R-aAQ83l1NLNJaw9DLcBnM-E2wtvxMOn",
+        },
+        .vulkan = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig#8322c9593fc2115156ec8743ba4f3b4547e5eb24",
+            .hash = "vulkan-0.0.0-r7Ytx6o-AwBxVL-ZhD8ng7s23CaiQYV4GxOVzkmGdltw",
         },
     },
 }

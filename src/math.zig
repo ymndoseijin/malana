@@ -96,6 +96,15 @@ pub fn Vec(comptime T: type, comptime size: usize) type {
         pub fn crossn(a: Vec3, b: Vec3) Vec3 {
             return Vec3.norm(Vec3.cross(a, b));
         }
+
+        pub fn cast(a: VecN, comptime cast_size: usize) Vec(T, cast_size) {
+            std.debug.assert(cast_size <= size);
+            var v: Vec(T, cast_size) = .splat(0);
+            for (a.val[0..cast_size], &v.val) |a_val, *v_val| {
+                v_val.* = a_val;
+            }
+            return v;
+        }
     };
 }
 
@@ -262,6 +271,14 @@ pub fn Mat(comptime T: type, comptime width: usize, comptime height: usize) type
             }
 
             return res;
+        }
+
+        pub fn getColumn(mat: @This(), i: usize) Vec(T, height) {
+            var vec: Vec(T, height) = undefined;
+            for (&vec.val, mat.columns[i]) |*val, m_val| {
+                val.* = m_val;
+            }
+            return vec;
         }
     };
 }

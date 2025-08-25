@@ -1,9 +1,15 @@
 const std = @import("std");
-pub const ShaderCompileStep = @import("shader_build.zig");
 
 const Build = std.Build;
 
 //const zilliam = @import("zilliam");
+
+pub fn addShader(b: *std.Build, module: *std.Build.Module, cmd: []const []const u8, comptime name: []const u8, path: []const u8) void {
+    const shader_command = b.addSystemCommand(cmd);
+    const spv = shader_command.addOutputFileArg(name ++ ".spv");
+    shader_command.addFileArg(b.path(path));
+    module.addAnonymousImport(name, .{ .root_source_file = spv });
+}
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -48,12 +54,6 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const elem_shaders = ShaderCompileStep.create(
-        b,
-        &[_][]const u8{ "glslc", "-g", "--target-env=vulkan1.2" },
-        "-o",
-    );
-
     const shader_list = .{
         .{ "sprite_frag", "src/graphics/elems/shaders/sprite/shader.frag" },
         .{ "sprite_vert", "src/graphics/elems/shaders/sprite/shader.vert" },
@@ -70,13 +70,41 @@ pub fn build(b: *std.Build) void {
         .{ "line_frag", "src/graphics/elems/shaders/line/shader.frag" },
         .{ "line_vert", "src/graphics/elems/shaders/line/shader.vert" },
     };
-    inline for (shader_list) |shader| {
-        elem_shaders.add(shader[0], shader[1], .{});
-    }
 
     const vulkan = b.dependency("vulkan_zig", .{
         .registry = b.path("vk.xml"),
     }).module("vulkan-zig");
+
+    const spirv_reflect = b.dependency("spirv-reflect", .{});
+    const spirv_reflect_import = b.addTranslateC(.{
+        .root_source_file = spirv_reflect.path("spirv_reflect.h"),
+        .link_libc = true,
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const glfw_import = b.addTranslateC(.{
+        .root_source_file = b.path("src/glfw.h"),
+        .link_libc = true,
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const freetype_import = b.addTranslateC(.{
+        .root_source_file = b.path("src/freetype.h"),
+        .link_libc = true,
+        .target = target,
+        .optimize = optimize,
+    });
+
+    freetype_import.addIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
+
+    const stb_image_import = b.addTranslateC(.{
+        .root_source_file = b.path("src/stb_image.h"),
+        .link_libc = true,
+        .target = target,
+        .optimize = optimize,
+    });
 
     const graphics = b.createModule(.{
         .root_source_file = b.path("src/graphics/graphics.zig"),
@@ -87,11 +115,20 @@ pub fn build(b: *std.Build) void {
             .{ .name = "parsing", .module = parsing },
             .{ .name = "geometry", .module = geometry },
             .{ .name = "img", .module = zigimg_dep.module("zigimg") },
-            .{ .name = "elem_shaders", .module = elem_shaders.getModule() },
             .{ .name = "vulkan", .module = vulkan },
+            .{ .name = "glfw", .module = glfw_import.createModule() },
+            .{ .name = "freetype", .module = freetype_import.createModule() },
+            .{ .name = "stb_image", .module = stb_image_import.createModule() },
+            .{ .name = "spirv_reflect", .module = spirv_reflect_import.createModule() },
         },
     });
-    graphics.addIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
+
+    graphics.addCSourceFile(.{ .file = b.path("src/stb_image.c") });
+    graphics.addCSourceFile(.{ .file = spirv_reflect.path("spirv_reflect.c") });
+
+    inline for (shader_list) |shader| {
+        addShader(b, graphics, &.{ "glslangValidator", "-e", "main", "-gVS", "-V", "-o" }, shader[0], shader[1]);
+    }
 
     const numericals = b.createModule(.{
         .root_source_file = b.path("src/numericals.zig"),
@@ -124,35 +161,71 @@ pub fn build(b: *std.Build) void {
 
     const App = struct {
         name: []const u8,
-        shaders: []const struct { []const u8, []const u8, ShaderCompileStep.ShaderOptions },
+        shaders: []const struct { []const u8, []const u8 },
     };
 
     const apps: []const App = &.{
         .{
             .name = "simplest",
             .shaders = &.{
-                .{ "vert", "shaders/shader.vert", .{} },
-                .{ "frag", "shaders/shader.frag", .{} },
+                .{
+                    "vert",
+                    "shaders/shader.vert",
+                },
+                .{
+                    "frag",
+                    "shaders/shader.frag",
+                },
             },
         },
         .{
             .name = "wave",
             .shaders = &.{
-                .{ "vert", "shaders/shader.vert", .{} },
-                .{ "frag", "shaders/shader.frag", .{} },
-                .{ "image_vert", "shaders/image.vert", .{} },
-                .{ "image_frag", "shaders/image.frag", .{} },
-                .{ "compute", "shaders/compute.comp", .{} },
+                .{
+                    "vert",
+                    "shaders/shader.vert",
+                },
+                .{
+                    "frag",
+                    "shaders/shader.frag",
+                },
+                .{
+                    "image_vert",
+                    "shaders/image.vert",
+                },
+                .{
+                    "image_frag",
+                    "shaders/image.frag",
+                },
+                .{
+                    "compute",
+                    "shaders/compute.comp",
+                },
             },
         },
         .{
             .name = "gravity",
             .shaders = &.{
-                .{ "vert", "shaders/shader.vert", .{} },
-                .{ "frag", "shaders/shader.frag", .{} },
-                .{ "compute", "shaders/compute.comp", .{} },
-                .{ "points_vert", "shaders/point.vert", .{} },
-                .{ "points_frag", "shaders/point.frag", .{} },
+                .{
+                    "vert",
+                    "shaders/shader.vert",
+                },
+                .{
+                    "frag",
+                    "shaders/shader.frag",
+                },
+                .{
+                    "compute",
+                    "shaders/compute.comp",
+                },
+                .{
+                    "points_vert",
+                    "shaders/point.vert",
+                },
+                .{
+                    "points_frag",
+                    "shaders/point.frag",
+                },
             },
         },
         .{
@@ -162,19 +235,43 @@ pub fn build(b: *std.Build) void {
         .{
             .name = "base3d",
             .shaders = &.{
-                .{ "vert", "shaders/shader.vert", .{} },
-                .{ "frag", "shaders/shader.frag", .{} },
-                .{ "shadow_vert", "shaders/shadow.vert", .{} },
-                .{ "shadow_frag", "shaders/shadow.frag", .{} },
-                .{ "line_vert", "shaders/line.vert", .{} },
-                .{ "line_frag", "shaders/line.frag", .{} },
+                .{
+                    "vert",
+                    "shaders/shader.vert",
+                },
+                .{
+                    "frag",
+                    "shaders/shader.frag",
+                },
+                .{
+                    "shadow_vert",
+                    "shaders/shadow.vert",
+                },
+                .{
+                    "shadow_frag",
+                    "shaders/shadow.frag",
+                },
+                .{
+                    "line_vert",
+                    "shaders/line.vert",
+                },
+                .{
+                    "line_frag",
+                    "shaders/line.frag",
+                },
             },
         },
         .{
             .name = "astro",
             .shaders = &.{
-                .{ "vert", "shaders/shader.vert", .{} },
-                .{ "frag", "shaders/shader.frag", .{} },
+                .{
+                    "vert",
+                    "shaders/shader.vert",
+                },
+                .{
+                    "frag",
+                    "shaders/shader.frag",
+                },
             },
         },
         .{
@@ -184,7 +281,10 @@ pub fn build(b: *std.Build) void {
         .{
             .name = "shadertoy",
             .shaders = &.{
-                .{ "vert", "shaders/shader.vert", .{} },
+                .{
+                    "vert",
+                    "shaders/shader.vert",
+                },
             },
         },
     };
@@ -194,9 +294,11 @@ pub fn build(b: *std.Build) void {
     inline for (apps) |app| {
         const exe = b.addExecutable(.{
             .name = app.name,
-            .root_source_file = b.path("examples/" ++ app.name ++ "/main.zig"),
-            .target = target,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("examples/" ++ app.name ++ "/main.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
             //.use_llvm = false,
             //.use_lld = false,
         });
@@ -276,15 +378,9 @@ pub fn build(b: *std.Build) void {
 
         exe.root_module.addImport("ui", ui);
 
-        const shaders = ShaderCompileStep.create(
-            b,
-            &[_][]const u8{ "glslc", "--target-env=vulkan1.2" },
-            "-o",
-        );
         inline for (app.shaders) |shader| {
-            shaders.add(shader[0], "examples/" ++ app.name ++ "/" ++ shader[1], shader[2]);
+            addShader(b, exe.root_module, &.{ "glslangValidator", "-e", "main", "-gVS", "-V", "-o" }, shader[0], shader[1]);
         }
-        exe.root_module.addImport("shaders", shaders.getModule());
 
         exe.linkSystemLibrary("glfw3");
         exe.linkSystemLibrary("freetype2");
@@ -310,9 +406,11 @@ pub fn build(b: *std.Build) void {
     }
 
     const unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/ui/box.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/ui/box.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     unit_tests.root_module.addImport("img", zigimg_dep.module("zigimg"));

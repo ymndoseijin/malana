@@ -22,10 +22,7 @@ const trace = @import("../tracy.zig").trace;
 
 const fs = 15;
 
-const freetype = @cImport({
-    @cInclude("ft2build.h");
-    @cInclude("freetype/freetype.h");
-});
+const freetype = @import("freetype");
 
 pub fn bdfToRgba(res: []bool) ![fs * fs]img.color.Rgba32 {
     var buf: [fs * fs]img.color.Rgba32 = undefined;
@@ -94,6 +91,7 @@ pub const Text = struct {
         },
         .render_type = .triangle,
         .depth_test = false,
+        .depth_write = false,
         .sets = &.{
             .{
                 .bindings = &.{
@@ -142,7 +140,7 @@ pub const Text = struct {
                 const bitmap = glyph.*.bitmap;
 
                 var image: Image = .{
-                    .data = try ally.alloc(img.color.Rgba32, bitmap.rows * bitmap.width),
+                    .data = try ally.alloc(graphics.Texture.Rgba32, bitmap.rows * bitmap.width),
                     .width = bitmap.width,
                     .height = bitmap.rows,
                 };
@@ -160,7 +158,7 @@ pub const Text = struct {
                     .min_filter = .linear,
                     .texture_type = .flat,
                 });
-                try new_tex.setFromRgba(image, parent.scene.flip_z);
+                try new_tex.setFromRgba(image.data, parent.scene.flip_z);
                 try parent.codepoint_table.put(info.char, .{ .tex = new_tex, .metrics = glyph.*.metrics });
                 break :blk .{ .tex = new_tex, .metrics = glyph.*.metrics };
             };
@@ -279,7 +277,7 @@ pub const Text = struct {
                 });
                 const color = .{ 1.0, 1.0, 1.0 };
                 char.sprite.getUniformOr(text.batch, 1).?.setAsUniformField(CharacterUniform, .color, .{ color[0], color[1], color[2], 0.0 });
-                try text.characters.append(char);
+                try text.characters.append(ally, char);
             }
             for (text.characters.items) |char| {
                 char.sprite.getUniformOr(text.batch, 1).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(text.codepoints.items.len)));
@@ -358,7 +356,7 @@ pub const Text = struct {
     }
 
     pub fn deinit(self: *Text, ally: std.mem.Allocator, gpu: graphics.Gpu) void {
-        self.characters.deinit();
+        self.characters.deinit(ally);
         self.codepoints.deinit(ally);
         for (self.codepoint_table.values()) |v| {
             v.tex.deinit();
@@ -392,7 +390,7 @@ pub const Text = struct {
             .face = face,
             .size = info.size,
             .line_spacing = info.size * info.line_spacing,
-            .characters = std.ArrayList(Character).init(ally),
+            .characters = .empty,
             .codepoints = .empty,
             .codepoint_table = std.AutoArrayHashMap(u32, CodepointQuery).init(ally),
             .batch = try graphics.CustomSpriteBatch(CharacterUniform).init(info.scene, .{

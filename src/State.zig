@@ -178,6 +178,7 @@ pub const post_description = graphics.PipelineDescription{
     },
     .render_type = .triangle,
     .depth_test = false,
+    .depth_write = false,
     .sets = &.{.{ .bindings = &.{
         .{ .uniform = .{
             .size = graphics.GlobalUniform.getSize(),
@@ -209,7 +210,7 @@ pub fn init(ally: std.mem.Allocator, info: struct {
     main_win.setCursorCallback(cursorFunc);
     main_win.setMouseButtonCallback(mouseFunc);
 
-    var cam = try Camera.init(0.6, 1, 0.1, 2048);
+    var cam = try Camera.init(1.0, 1, 0.1, 2048);
     cam.move = Vec3.init(.{ 0, 0, 0 });
     try cam.updateMat();
     const swapchain = main_win.swapchain;
@@ -241,7 +242,7 @@ pub fn init(ally: std.mem.Allocator, info: struct {
     const post_pipeline = try graphics.RenderPipeline.init(ally, .{
         .description = post_description,
         .shaders = &main_win.default_shaders.post_shaders,
-        .rendering = .{ .attachments = &.{.swapchain}, .depth = .depth },
+        .rendering = .{ .descriptions = &.{.{ .format = .swapchain }}, .depth = null },
         .gpu = gpu,
         .flipped_z = scene.flip_z,
     });
@@ -270,8 +271,8 @@ pub fn init(ally: std.mem.Allocator, info: struct {
         .cam = cam,
         .time = 0,
         .dt = 0,
-        .command_builder = try graphics.CommandBuilder.init(&main_win.gpu, main_win.pool, ally),
-        .compute_builder = try graphics.CommandBuilder.init(&main_win.gpu, main_win.pool, ally),
+        .command_builder = try graphics.CommandBuilder.init(&main_win.gpu, main_win.pool, ally, 1),
+        .compute_builder = try graphics.CommandBuilder.init(&main_win.gpu, main_win.pool, ally, 1),
         .multisampling_tex = multisampling_tex,
 
         .post_color_tex = post_tex,
@@ -428,7 +429,7 @@ fn frameFunc(ptr: *anyopaque, width: i32, height: i32) !void {
 
     const w: f32 = @floatFromInt(width);
     const h: f32 = @floatFromInt(height);
-    try state.cam.setParameters(0.6, w / h, 0.1, 2048);
+    try state.cam.setParameters(1.0, w / h, 0.1, 2048);
 
     state.post_color_tex.deinit();
     state.multisampling_tex.deinit();
