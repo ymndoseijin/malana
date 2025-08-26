@@ -503,7 +503,7 @@ pub fn createIndexBuffer(
     return index_buffer;
 }
 
-pub fn waitIdle(gpu: *Gpu) !void {
+pub fn waitIdle(gpu: *const Gpu) !void {
     try gpu.vkd.deviceWaitIdle(gpu.dev);
 }
 

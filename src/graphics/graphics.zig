@@ -396,83 +396,53 @@ fn findActualExtent(caps: vk.SurfaceCapabilitiesKHR, extent: vk.Extent2D) vk.Ext
 pub const CommandMode = union(enum) {
     queue: CommandBuilder,
     immediate: void,
+
+    pub fn getBuilder(mode: CommandMode, gpu: *const Gpu, pool: vk.CommandPool, ally: std.mem.Allocator) !CommandBuilder {
+        if (mode == .immediate) {
+            return try CommandBuilder.init(gpu, pool, ally, 1);
+        } else {
+            return mode.queue;
+        }
+    }
+    pub fn deinitBuilder(mode: CommandMode, builder: *CommandBuilder, gpu: *const Gpu, pool: vk.CommandPool, ally: std.mem.Allocator) void {
+        if (mode == .immediate) {
+            builder.deinit(gpu, pool, ally);
+        }
+    }
+
+    pub fn beginBuilder(mode: CommandMode, builder: *CommandBuilder, gpu: *const Gpu) !void {
+        if (mode == .immediate) {
+            try builder.beginCommand(gpu);
+        }
+    }
+    pub fn endBuilder(mode: CommandMode, builder: *CommandBuilder, gpu: *const Gpu, ally: std.mem.Allocator) !void {
+        if (mode == .immediate) {
+            try builder.endCommand(gpu);
+            try builder.queueSubmit(gpu, ally, .{ .queue = gpu.graphics_queue });
+            try gpu.waitIdle();
+        }
+    }
 };
-
-// eventually make a helper struct for any sized command buffers
-pub fn createSingleCommandBuffer(gpu: *const Gpu, pool: vk.CommandPool) !vk.CommandBuffer {
-    var cmdbuf: vk.CommandBuffer = undefined;
-    try gpu.vkd.allocateCommandBuffers(gpu.dev, &.{
-        .command_pool = pool,
-        .level = .primary,
-        .command_buffer_count = 1,
-    }, @ptrCast(&cmdbuf));
-    try gpu.vkd.beginCommandBuffer(cmdbuf, &.{
-        .flags = .{ .one_time_submit_bit = true },
-    });
-    return cmdbuf;
-}
-
-pub fn freeSingleCommandBuffer(cmdbuf: vk.CommandBuffer, gpu: *const Gpu, pool: vk.CommandPool) void {
-    gpu.vkd.freeCommandBuffers(gpu.dev, pool, 1, @ptrCast(&cmdbuf));
-}
-
-pub fn finishSingleCommandBuffer(cmdbuf: vk.CommandBuffer, gpu: *const Gpu) !void {
-    try gpu.vkd.endCommandBuffer(cmdbuf);
-
-    const si = vk.SubmitInfo{
-        .command_buffer_count = 1,
-        .p_command_buffers = @ptrCast(&cmdbuf),
-        .p_wait_dst_stage_mask = undefined,
-    };
-    try gpu.vkd.queueSubmit(gpu.graphics_queue.handle, 1, @ptrCast(&si), .null_handle);
-
-    // TODO: make a system that signals a fence (or a timeline semaphore?!) instead, at least optionally
-    try gpu.vkd.queueWaitIdle(gpu.graphics_queue.handle);
-}
 
 pub fn copyBuffer(
     gpu: *const Gpu,
     pool: vk.CommandPool,
-    dst: vk.Buffer,
-    src: vk.Buffer,
-    size: vk.DeviceSize,
+    dst: BufferMemory,
+    src: BufferMemory,
+    size: u64,
     mode: CommandMode,
 ) !void {
-    const cmdbuf = if (mode == .immediate) try createSingleCommandBuffer(gpu, pool) else mode.queue.getCurrent();
-    defer switch (mode) {
-        .immediate => |_| freeSingleCommandBuffer(cmdbuf, gpu, pool),
-        else => {},
-    };
+    // TODO: remove, pass ally normally
+    const ally = std.heap.page_allocator;
+    var builder = try mode.getBuilder(gpu, pool, ally);
+    defer mode.deinitBuilder(&builder, gpu, pool, ally);
 
-    const region = vk.BufferCopy{
-        .src_offset = 0,
-        .dst_offset = 0,
-        .size = size,
-    };
-    gpu.vkd.cmdCopyBuffer(cmdbuf, src, dst, 1, @ptrCast(&region));
+    try mode.beginBuilder(&builder, gpu);
 
-    // Access info (
-    // usage: SYNC_INDEX_INPUT_INDEX_READ,
-    // prior_usage: SYNC_COPY_TRANSFER_WRITE,
-    // write_barriers: SYNC_VERTEX_ATTRIBUTE_INPUT_VERTEX_ATTRIBUTE_READ, command: vkCmdCopyBuffer, seq_no: 3, reset_no: 2)
+    builder.copyBuffer(gpu, src, dst, size);
+    builder.transferVertBarrier(gpu);
 
-    switch (mode) {
-        .queue => |builder| {
-            builder.pipelineBarrier(gpu, .{
-                .src_stage = .{ .transfer_bit = true },
-                .dst_stage = .{ .vertex_input_bit = true },
-                .memory_barriers = &.{
-                    .{
-                        .src_access = .{ .transfer_write_bit = true },
-                        .dst_access = .{ .vertex_attribute_read_bit = true, .index_read_bit = true },
-                    },
-                },
-            });
-        },
-        else => {},
-    }
-
-    if (mode == .immediate) try finishSingleCommandBuffer(cmdbuf, gpu);
+    try mode.endBuilder(&builder, gpu, ally);
 }
 
 // end
@@ -594,12 +564,18 @@ pub fn recordTransitionImageLayout(gpu: *const Gpu, cmdbuf: vk.CommandBuffer, im
 }
 
 pub fn transitionImageLayout(gpu: *const Gpu, pool: vk.CommandPool, image: vk.Image, options: TransitionOptions) !void {
-    const cmdbuf = try createSingleCommandBuffer(gpu, pool);
-    defer freeSingleCommandBuffer(cmdbuf, gpu, pool);
+    // TODO: remove, pass ally normally
+    const ally = std.heap.page_allocator;
+    var builder = try CommandBuilder.init(gpu, pool, ally, 1);
+    defer builder.deinit(gpu, pool, ally);
 
-    try recordTransitionImageLayout(gpu, cmdbuf, image, options);
+    try builder.beginCommand(gpu);
 
-    try finishSingleCommandBuffer(cmdbuf, gpu);
+    try builder.transitionLayout(gpu, image, options);
+
+    try builder.endCommand(gpu);
+    try builder.queueSubmit(gpu, ally, .{ .queue = gpu.graphics_queue });
+    try gpu.waitIdle();
 }
 
 const ShaderType = enum {
@@ -1838,9 +1814,37 @@ pub const CommandBuilder = struct {
         flag: vk.PipelineStageFlags,
     };
 
+    pub fn transferVertBarrier(builder: CommandBuilder, gpu: *const Gpu) void {
+        builder.pipelineBarrier(gpu, .{
+            .src_stage = .{ .transfer_bit = true },
+            .dst_stage = .{ .vertex_input_bit = true },
+            .memory_barriers = &.{
+                .{
+                    .src_access = .{ .transfer_write_bit = true },
+                    .dst_access = .{ .vertex_attribute_read_bit = true, .index_read_bit = true },
+                },
+            },
+        });
+    }
+
+    pub fn copyBuffer(
+        builder: CommandBuilder,
+        gpu: *const Gpu,
+        src: BufferMemory,
+        dst: BufferMemory,
+        size: u64,
+    ) void {
+        const region: vk.BufferCopy = .{
+            .src_offset = 0,
+            .dst_offset = 0,
+            .size = size,
+        };
+        gpu.vkd.cmdCopyBuffer(builder.getCurrent(), src.buffer, dst.buffer, 1, @ptrCast(&region));
+    }
+
     pub fn queueSubmit(
         builder: CommandBuilder,
-        gpu: *Gpu,
+        gpu: *const Gpu,
         ally: std.mem.Allocator,
         options: struct {
             queue: Gpu.Queue,
@@ -1937,6 +1941,7 @@ pub const CommandBuilder = struct {
                     \\        old_layout: {any},
                     \\        new_layout: {any},
                     \\        layer_count: {},
+                    \\        level_count: {},
                     \\
                     \\        src_acces: {f},
                     \\        dst_access: {f},
@@ -1946,6 +1951,7 @@ pub const CommandBuilder = struct {
                     barrier.old_layout,
                     barrier.new_layout,
                     barrier.layer_count,
+                    barrier.level_count,
                     barrier.src_access,
                     barrier.dst_access,
                     barrier.image,
@@ -2009,7 +2015,7 @@ pub const CommandBuilder = struct {
         );
     }
 
-    pub fn transitionSwapimage(builder: *CommandBuilder, gpu: *Gpu, swapimage: vk.Image) void {
+    pub fn transitionSwapimage(builder: *CommandBuilder, gpu: *const Gpu, swapimage: vk.Image) void {
         builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .color_attachment_output_bit = true },
             .dst_stage = .{ .bottom_of_pipe_bit = true },
@@ -2029,7 +2035,7 @@ pub const CommandBuilder = struct {
 
     pub fn beginRendering(
         builder: CommandBuilder,
-        gpu: *Gpu,
+        gpu: *const Gpu,
         options: struct {
             region: RenderRegion,
             // get from a function
@@ -2071,12 +2077,12 @@ pub const CommandBuilder = struct {
         });
     }
 
-    pub fn endRendering(builder: *CommandBuilder, gpu: *Gpu) void {
+    pub fn endRendering(builder: *CommandBuilder, gpu: *const Gpu) void {
         const cmdbuf = builder.getCurrent();
         gpu.vkd.cmdEndRendering(cmdbuf);
     }
 
-    pub fn beginRenderPass(builder: CommandBuilder, gpu: *Gpu, render_pass: RenderPass, framebuffer: Framebuffer, region: RenderRegion) void {
+    pub fn beginRenderPass(builder: CommandBuilder, gpu: *const Gpu, render_pass: RenderPass, framebuffer: Framebuffer, region: RenderRegion) void {
         const cmdbuf = builder.getCurrent();
 
         const clear_color = vk.ClearValue{
@@ -2108,19 +2114,19 @@ pub const CommandBuilder = struct {
         }, .@"inline");
     }
 
-    pub fn transitionLayoutTexture(builder: *CommandBuilder, gpu: *Gpu, tex: *Texture, options: TransitionOptions) !void {
+    pub fn transitionLayoutTexture(builder: *CommandBuilder, gpu: *const Gpu, tex: *Texture, options: TransitionOptions) !void {
         const cmdbuf = builder.getCurrent();
         try recordTransitionImageLayout(gpu, cmdbuf, tex.image, options);
 
         tex.current_layout = options.new_layout;
     }
 
-    pub fn transitionLayout(builder: *CommandBuilder, gpu: *Gpu, image: vk.Image, options: TransitionOptions) !void {
+    pub fn transitionLayout(builder: *CommandBuilder, gpu: *const Gpu, image: vk.Image, options: TransitionOptions) !void {
         const cmdbuf = builder.getCurrent();
         try recordTransitionImageLayout(gpu, cmdbuf, image, options);
     }
 
-    pub fn setViewport(builder: *CommandBuilder, gpu: *Gpu, info: struct { flip_z: bool, width: u32, height: u32 }) !void {
+    pub fn setViewport(builder: *CommandBuilder, gpu: *const Gpu, info: struct { flip_z: bool, width: u32, height: u32 }) !void {
         if (debug_command_builder) {
             std.debug.print("{any}\n", .{info});
         }
@@ -2151,7 +2157,7 @@ pub const CommandBuilder = struct {
         }));
     }
 
-    pub fn push(builder: *CommandBuilder, comptime self: DataDescription, gpu: *Gpu, pipeline: Pipeline, constants: *const self.T) void {
+    pub fn push(builder: *CommandBuilder, comptime self: DataDescription, gpu: *const Gpu, pipeline: Pipeline, constants: *const self.T) void {
         const cmdbuf = builder.getCurrent();
         gpu.vkd.cmdPushConstants(
             cmdbuf,
@@ -2166,18 +2172,18 @@ pub const CommandBuilder = struct {
         );
     }
 
-    pub fn beginCommand(builder: *CommandBuilder, gpu: *Gpu) !void {
+    pub fn beginCommand(builder: *CommandBuilder, gpu: *const Gpu) !void {
         const cmdbuf = builder.getCurrent();
         try gpu.vkd.resetCommandBuffer(cmdbuf, .{});
         try gpu.vkd.beginCommandBuffer(cmdbuf, &.{});
     }
 
-    pub fn endRenderPass(builder: *CommandBuilder, gpu: *Gpu) void {
+    pub fn endRenderPass(builder: *CommandBuilder, gpu: *const Gpu) void {
         const cmdbuf = builder.getCurrent();
         gpu.vkd.cmdEndRenderPass(cmdbuf);
     }
 
-    pub fn endCommand(builder: *CommandBuilder, gpu: *Gpu) !void {
+    pub fn endCommand(builder: *CommandBuilder, gpu: *const Gpu) !void {
         const cmdbuf = builder.getCurrent();
 
         //if (builder.current_rendering != null) builder.endRendering(gpu);
@@ -2196,7 +2202,7 @@ pub const CommandBuilder = struct {
         builder.frame_id = 0;
     }
 
-    pub fn init(gpu: *Gpu, pool: vk.CommandPool, ally: std.mem.Allocator, count: usize) !CommandBuilder {
+    pub fn init(gpu: *const Gpu, pool: vk.CommandPool, ally: std.mem.Allocator, count: usize) !CommandBuilder {
         const cmd_buffs = try ally.alloc(vk.CommandBuffer, count);
 
         try gpu.vkd.allocateCommandBuffers(gpu.dev, &.{
@@ -2211,7 +2217,7 @@ pub const CommandBuilder = struct {
         };
     }
 
-    pub fn deinit(builder: CommandBuilder, gpu: *Gpu, pool: vk.CommandPool, ally: std.mem.Allocator) void {
+    pub fn deinit(builder: CommandBuilder, gpu: *const Gpu, pool: vk.CommandPool, ally: std.mem.Allocator) void {
         gpu.vkd.freeCommandBuffers(gpu.dev, pool, @intCast(builder.buffers.len), builder.buffers.ptr);
         ally.free(builder.buffers);
     }
@@ -3161,6 +3167,7 @@ pub const RenderPipeline = struct {
         // our code's side. for some reason, the following doesn't work for slang shaders and has differing behavior from
         // the x86 backend to the llvm one
         for (shaders) |shader| {
+            if (true) break;
             var module: spirv.SpvReflectShaderModule = undefined;
             var result = spirv.spvReflectCreateShaderModule(
                 shader.file_src.len * @sizeOf(u32) / @sizeOf(u8),
@@ -3212,7 +3219,7 @@ pub const RenderPipeline = struct {
             }
             for (descriptor_sets, description.sets[0..descriptor_sets.len], 0..) |spv_set, set, set_i| {
                 const spv_bindings = spv_set.bindings[0..spv_set.binding_count];
-                if (descriptor_sets.len > description.sets.len) {
+                if (spv_set.binding_count > set.bindings.len) {
                     std.log.warn("{[p]s}Warning:{[s]s} Set {[i]} in shader {[module]any} has {[spv_len]} bindings but PipelineDescription only has {[desc_len]}. Will skip this one.{[r]s}", .{
                         .module = shader.module,
                         .desc_len = set.bindings.len,
@@ -3635,7 +3642,7 @@ pub const BufferHandle = struct {
             }
         }
 
-        try copyBuffer(gpu, pool, buffer.mem.buffer, staging_buff.buffer, self.getVertexSize() * vertices.len, mode);
+        try copyBuffer(gpu, pool, buffer.mem, staging_buff, self.getVertexSize() * vertices.len, mode);
     }
 
     pub fn setIndices(
@@ -3661,7 +3668,7 @@ pub const BufferHandle = struct {
             }
         }
 
-        try copyBuffer(gpu, pool, buffer.mem.buffer, staging_buff.buffer, @sizeOf(u32) * indices.len, mode);
+        try copyBuffer(gpu, pool, buffer.mem, staging_buff, @sizeOf(u32) * indices.len, mode);
     }
 
     // TODO: whats up with this BufferMemory, BufferHandle, Buffer nonsense?? ren
@@ -3699,7 +3706,7 @@ pub const BufferHandle = struct {
         }
 
         // TODO: pass mode
-        try copyBuffer(gpu, pool, buffer.mem.buffer, staging_buff.buffer, size, .immediate);
+        try copyBuffer(gpu, pool, buffer.mem, staging_buff, size, .immediate);
     }
 
     // NOTE: needs to deinit returned buffer
@@ -3725,7 +3732,7 @@ pub const BufferHandle = struct {
         const staging_buff = try gpu.createStagingBuffer(size, .dst);
 
         // TODO: pass mode
-        try copyBuffer(gpu, pool, staging_buff.buffer, buffer.mem.buffer, size, .immediate);
+        try copyBuffer(gpu, pool, staging_buff, buffer.mem, size, .immediate);
 
         const storage_ptr: *data.T = @ptrCast(@alignCast(try staging_buff.map(gpu.*)));
         const many_ptr: [*]data.lastField() = @ptrCast(@alignCast(&@field(storage_ptr, data.lastFieldName())));
@@ -3753,7 +3760,7 @@ pub const BufferHandle = struct {
         }
 
         // TODO: pass mode
-        try copyBuffer(gpu, pool, buffer.mem.buffer, staging_buff.buffer, bytes.len, .immediate);
+        try copyBuffer(gpu, pool, buffer.mem, staging_buff, bytes.len, .immediate);
     }
 
     pub fn getData(buffer: BufferHandle, comptime self: DataDescription) *self.T {

@@ -11,15 +11,21 @@ current_rendering: ?struct {
     pipeline: graphics.RenderPipeline,
 },
 textures: std.AutoHashMap(u64, TextureInfo),
-last_pipeline: ?u64,
+last_pipeline: ?graphics.Pipeline,
 
 // gpu allocation handling
 buffers: std.ArrayList(graphics.BufferMemory),
 
 // basically, we're going to buffer all drawings in a same beginRendering pass here
-drawing_batch: std.ArrayListUnmanaged(struct {
-    draw: *graphics.Drawing,
-    debug_info: []const u8,
+// ok we are officially screwed yay
+command_batch: std.ArrayListUnmanaged(union(enum) {
+    draw: struct {
+        draw: *graphics.Drawing,
+    },
+    push: struct {
+        constant: *const anyopaque,
+        size: u32,
+    },
 }) = .empty,
 
 frame_arena: std.heap.ArenaAllocator,
@@ -157,9 +163,11 @@ pub fn putTextureInfo(scene: *Scene, tex: graphics.Texture, info: TextureInfo) !
     try scene.textures.put(@intFromEnum(tex.image), info);
 }
 
-pub fn isCurrentRendering(scene: *Scene, target: graphics.RenderTarget) bool {
+pub fn isCurrentRendering(scene: *Scene, target: graphics.RenderTarget, options: ?graphics.RenderingOptions) bool {
     if (scene.current_rendering) |current| {
-        return current.target.eql(target);
+        if (!current.target.eql(target)) return false;
+
+        return std.meta.eql(options, current.options);
     } else {
         return false;
     }
@@ -321,11 +329,12 @@ pub fn end(scene: *Scene, builder: *graphics.CommandBuilder, image_index: graphi
     const gpu = &scene.window.gpu;
 
     if (scene.current_rendering != null) {
-        try scene.flushBatch(builder, image_index);
+        try scene.flushBatch(builder, image_index, null);
         builder.endRendering(gpu);
     }
     scene.current_rendering = null;
     _ = scene.frame_arena.reset(.retain_capacity);
+    scene.command_batch = .empty;
 }
 
 pub fn dispatch(scene: *Scene, builder: *graphics.CommandBuilder, elem: *graphics.Compute) !void {
@@ -333,16 +342,38 @@ pub fn dispatch(scene: *Scene, builder: *graphics.CommandBuilder, elem: *graphic
     try elem.dispatch(builder.getCurrent(), .{ .bind_pipeline = true, .frame_id = 0 });
 }
 
-pub fn flushBatch(scene: *Scene, builder: *graphics.CommandBuilder, image_index: graphics.Swapchain.ImageIndex) !void {
+pub fn flushBatch(
+    scene: *Scene,
+    builder: *graphics.CommandBuilder,
+    image_index: graphics.Swapchain.ImageIndex,
+    flush_from_pipeline: ?graphics.Pipeline,
+) !void {
     var swapchain = scene.window.swapchain;
     const gpu = &scene.window.gpu;
 
     // set dependencies barriers to the shader read only optimal layout
-    for (scene.drawing_batch.items) |elem| try scene.textureBarriers(builder, elem.draw.descriptor);
+    for (scene.command_batch.items) |elem| {
+        switch (elem) {
+            .draw => |draw_cmd| try scene.textureBarriers(builder, draw_cmd.draw.descriptor),
+            else => {},
+        }
+    }
 
     const current_rendering = scene.current_rendering.?;
 
-    const temp_elem = scene.drawing_batch.items[0].draw;
+    const temp_flip_z = blk: {
+        for (scene.command_batch.items) |elem| {
+            switch (elem) {
+                .draw => |draw_cmd| break :blk switch (draw_cmd.draw.flip_z) {
+                    .auto => scene.flip_z,
+                    .true => true,
+                    .false => false,
+                },
+                else => {},
+            }
+        }
+        return error.NoFlipZ;
+    };
     const rendering_options = current_rendering.options;
 
     switch (current_rendering.target) {
@@ -350,11 +381,7 @@ pub fn flushBatch(scene: *Scene, builder: *graphics.CommandBuilder, image_index:
             const render_region = try scene.renderingBarriers(
                 builder,
                 target,
-                switch (temp_elem.flip_z) {
-                    .auto => scene.flip_z,
-                    .true => true,
-                    .false => false,
-                },
+                temp_flip_z,
             );
             var color_buf: [256]vk.RenderingAttachmentInfo = undefined;
 
@@ -362,6 +389,7 @@ pub fn flushBatch(scene: *Scene, builder: *graphics.CommandBuilder, image_index:
                 std.debug.assert(options.descriptions.len == target.color_textures.len);
                 for (target.color_textures, color_buf[0..target.color_textures.len], options.descriptions) |tex, *ptr, attachment| {
                     ptr.* = try tex.getAttachment(.color_attachment_optimal, attachment.clear, attachment.view);
+                    //std.debug.print("attachment is {any} with {any}\n", .{ptr.*, attachments});
                 }
             } else {
                 for (target.color_textures, color_buf[0..target.color_textures.len]) |tex, *ptr| {
@@ -370,6 +398,7 @@ pub fn flushBatch(scene: *Scene, builder: *graphics.CommandBuilder, image_index:
                         .{ .color = .init(.{ 0.0, 0.0, 0.0, 1.0 }) },
                         .{ .layer_count = 1, .layer_index = 0 },
                     );
+                    //std.debug.print("lone attachment is {any}\n", .{ptr.*});
                 }
             }
 
@@ -409,11 +438,7 @@ pub fn flushBatch(scene: *Scene, builder: *graphics.CommandBuilder, image_index:
             var render_region: ?graphics.RenderRegion = null;
 
             try builder.setViewport(gpu, .{
-                .flip_z = switch (temp_elem.flip_z) {
-                    .auto => scene.flip_z,
-                    .true => true,
-                    .false => false,
-                },
+                .flip_z = temp_flip_z,
                 .width = extent.width,
                 .height = extent.height,
             });
@@ -447,14 +472,54 @@ pub fn flushBatch(scene: *Scene, builder: *graphics.CommandBuilder, image_index:
             });
         },
     }
-    for (scene.drawing_batch.items) |elem| {
-        try elem.draw.draw(gpu, builder.getCurrent(), .{
-            .swapchain = swapchain,
-            .frame_id = builder.frame_id,
-            .bind_pipeline = if (scene.last_pipeline) |pipeline| pipeline != @intFromEnum(elem.draw.descriptor.pipeline.vk_pipeline) else true,
-        });
+
+    for (scene.command_batch.items, 0..) |elem, i| {
+        switch (elem) {
+            .draw => |draw_cmd| {
+                try draw_cmd.draw.draw(gpu, builder.getCurrent(), .{
+                    .swapchain = swapchain,
+                    .frame_id = builder.frame_id,
+                    .bind_pipeline = blk: {
+                        if (scene.last_pipeline) |pipeline| {
+                            scene.last_pipeline = draw_cmd.draw.descriptor.pipeline;
+                            break :blk pipeline.vk_pipeline != draw_cmd.draw.descriptor.pipeline.vk_pipeline;
+                        } else {
+                            scene.last_pipeline = draw_cmd.draw.descriptor.pipeline;
+                            break :blk true;
+                        }
+                    },
+                });
+            },
+            .push => |push_cmd| {
+                const cmdbuf = builder.getCurrent();
+                const pipeline = blk: {
+                    for (scene.command_batch.items[i + 1 ..]) |cmd| {
+                        switch (cmd) {
+                            .draw => |draw_cmd| {
+                                break :blk draw_cmd.draw.descriptor.pipeline;
+                            },
+                            else => {},
+                        }
+                    } else {
+                        if (i != scene.command_batch.items.len - 1 or flush_from_pipeline == null) return error.NoPipelineForPush;
+                        break :blk flush_from_pipeline.?;
+                    }
+                };
+                gpu.vkd.cmdPushConstants(
+                    cmdbuf,
+                    pipeline.layout,
+                    switch (pipeline.type) {
+                        .compute => .{ .compute_bit = true },
+                        .render => .{ .vertex_bit = true, .fragment_bit = true },
+                    },
+                    0,
+                    push_cmd.size,
+                    @ptrCast(@alignCast(push_cmd.constant)),
+                );
+            },
+        }
     }
-    scene.drawing_batch.clearRetainingCapacity();
+    scene.command_batch.clearRetainingCapacity();
 }
 
 pub fn draw(
@@ -467,11 +532,12 @@ pub fn draw(
     },
 ) !void {
     const gpu = &scene.window.gpu;
+    const ally = scene.frame_arena.allocator();
 
-    if (!scene.isCurrentRendering(elem.render_target)) {
+    if (!scene.isCurrentRendering(elem.render_target, options.rendering_options)) {
         // end rendering if drawing render target isn't the current one
         if (scene.current_rendering != null) {
-            try scene.flushBatch(builder, options.image_index);
+            try scene.flushBatch(builder, options.image_index, elem.descriptor.pipeline);
             builder.endRendering(gpu);
         }
 
@@ -479,15 +545,24 @@ pub fn draw(
             .target = elem.render_target,
             .pipeline = elem.pipeline,
             .options = if (options.rendering_options) |rendering| .{
-                .descriptions = try scene.frame_arena.allocator().dupe(graphics.RenderingOptions.Description, rendering.descriptions),
+                .descriptions = try ally.dupe(graphics.RenderingOptions.Description, rendering.descriptions),
                 .depth = rendering.depth,
             } else null,
         };
     }
 
     //const debug_line = try graphics.getLineString(scene.window.ally, "idk");
-    const debug_line = "hii (:";
-    try scene.drawing_batch.append(scene.window.ally, .{ .draw = elem, .debug_info = debug_line });
+    try scene.command_batch.append(ally, .{ .draw = .{ .draw = elem } });
+}
+
+pub fn push(scene: *Scene, comptime self: graphics.DataDescription, constants: *const self.T) !void {
+    const ally = scene.frame_arena.allocator();
+    const ptr = try ally.create(self.T);
+    ptr.* = constants.*;
+    try scene.command_batch.append(ally, .{ .push = .{
+        .size = @intCast(self.getSize()),
+        .constant = @ptrCast(@alignCast(ptr)),
+    } });
 }
 
 // should be allocator-esque implementation, eventually decouple this from Scene

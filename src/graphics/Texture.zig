@@ -211,6 +211,7 @@ pub fn getReadDesc(tex: Texture) ViewDescription {
     return .{
         .layer_index = 0,
         .layer_count = tex.info.layer_count,
+        .level_count = tex.info.level_count,
     };
 }
 // always has it, as it's created in the imageview
@@ -241,7 +242,7 @@ fn createTextureSampler(tex: *Texture, reuse: bool) !void {
         .mipmap_mode = .linear,
         .mip_lod_bias = 0,
         .min_lod = 0,
-        .max_lod = 0,
+        .max_lod = 1000.0,
     };
 
     const win = tex.window;
@@ -298,10 +299,7 @@ fn createImageView(tex: *Texture, view_desc: ViewDescription, is_attachment: boo
     return view;
 }
 
-fn copyBufferToImage(tex: Texture, buffer: vk.Buffer) !void {
-    const cmdbuf = try graphics.createSingleCommandBuffer(&tex.window.gpu, tex.window.pool);
-    defer graphics.freeSingleCommandBuffer(cmdbuf, &tex.window.gpu, tex.window.pool);
-
+fn copyBufferToImage(tex: Texture, buffer: vk.Buffer, cmdbuf: vk.CommandBuffer) !void {
     const region: vk.BufferImageCopy = .{
         .buffer_offset = 0,
         .buffer_row_length = 0,
@@ -317,8 +315,6 @@ fn copyBufferToImage(tex: Texture, buffer: vk.Buffer) !void {
     };
 
     tex.window.gpu.vkd.cmdCopyBufferToImage(cmdbuf, buffer, tex.image, .transfer_dst_optimal, 1, @ptrCast(&region));
-
-    try graphics.finishSingleCommandBuffer(cmdbuf, &tex.window.gpu);
 }
 
 pub fn setCube(tex: Texture, ally: std.mem.Allocator, paths: [6][]const u8) !void {
@@ -396,6 +392,7 @@ pub fn createImage(tex: Texture, input: []const u8, flip: bool) !void {
     //    .r32_sfloat => @sizeOf(f32),
     //    else => return error.UnhandledFormat,
     //};
+    const ally = tex.window.ally;
 
     // thus the staging_buff is just input up to rearranging
     const staging_buff = try tex.window.gpu.createStagingBuffer(input.len * @sizeOf(u8), .src);
@@ -431,19 +428,29 @@ pub fn createImage(tex: Texture, input: []const u8, flip: bool) !void {
         }
     }
 
-    try graphics.transitionImageLayout(&tex.window.gpu, tex.window.pool, tex.image, .{
+    const gpu = &tex.window.gpu;
+    var builder = try graphics.CommandBuilder.init(gpu, tex.window.pool, ally, 1);
+    defer builder.deinit(gpu, tex.window.pool, ally);
+
+    try builder.beginCommand(gpu);
+
+    try builder.transitionLayout(gpu, tex.image, .{
         .old_layout = .undefined,
         .new_layout = .transfer_dst_optimal,
         .layer_count = tex.info.layer_count,
         .level_count = tex.info.level_count,
     });
-    try tex.copyBufferToImage(staging_buff.buffer);
-    try graphics.transitionImageLayout(&tex.window.gpu, tex.window.pool, tex.image, .{
+    try tex.copyBufferToImage(staging_buff.buffer, builder.getCurrent());
+    try builder.transitionLayout(gpu, tex.image, .{
         .old_layout = .transfer_dst_optimal,
         .new_layout = tex.getIdealLayout(),
         .layer_count = tex.info.layer_count,
         .level_count = tex.info.level_count,
     });
+
+    try builder.endCommand(gpu);
+    try builder.queueSubmit(gpu, ally, .{ .queue = gpu.graphics_queue });
+    try gpu.waitIdle();
 }
 
 pub fn getIdealLayout(texture: Texture) vk.ImageLayout {
@@ -455,9 +462,9 @@ pub fn getIdealLayout(texture: Texture) vk.ImageLayout {
 }
 
 // TODO: assert
-pub fn setFromRgba(self: *Texture, input: anytype, flip: bool) !void {
+pub fn setFromRgba(tex: *Texture, input: anytype, flip: bool) !void {
     const ptr: [*]const u8 = @ptrCast(@alignCast(input.ptr));
-    return self.setFromBuffer(ptr[0 .. input.len * 4], flip);
+    return tex.setFromBuffer(ptr[0 .. input.len * 4], flip);
 }
 
 pub fn eraseViews(tex: *Texture) void {
@@ -468,12 +475,17 @@ pub fn eraseViews(tex: *Texture) void {
     tex.view_table.clearRetainingCapacity();
 }
 
-pub fn setFromBuffer(self: *Texture, input: []const u8, flip: bool) !void {
-    self.eraseViews();
-    try self.createImage(input, flip);
-    _ = try self.createImageView(self.getReadDesc(), false);
-    try self.createTextureSampler(true);
+pub fn setFromBuffer(tex: *Texture, input: []const u8, flip: bool) !void {
+    tex.eraseViews();
+    try tex.createImage(input, flip);
+    _ = try tex.createImageView(tex.getReadDesc(), false);
+    try tex.createTextureSampler(true);
 }
+
+//pub fn generateCubemaps(tex: *Texture) !void {
+//    for (tex.info.level_count) |i| {
+//    }
+//}
 
 // eventually remove
 pub const Image = struct {
