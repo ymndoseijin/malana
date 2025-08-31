@@ -151,11 +151,13 @@ pub fn init(ally: std.mem.Allocator, win: *graphics.Window, width: u32, height: 
     return tex;
 }
 
-pub fn deinit(tex: Texture, gpu: graphics.Gpu) void {
+pub fn deinit(tex: *Texture, ally: std.mem.Allocator, gpu: graphics.Gpu) void {
     gpu.vkd.destroySampler(gpu.dev, tex.sampler, null);
     for (tex.view_table.values()) |oldest_view| {
         gpu.vkd.destroyImageView(gpu.dev, oldest_view, null);
     }
+
+    tex.view_table.deinit(ally);
     gpu.vkd.destroyImage(gpu.dev, tex.image, null);
     gpu.vkd.freeMemory(gpu.dev, tex.memory, null);
 }

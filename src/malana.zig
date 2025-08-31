@@ -1,6 +1,5 @@
 pub const std = @import("std");
 pub const math = @import("math");
-pub const gl = @import("gl");
 pub const numericals = @import("numericals");
 pub const img = @import("img");
 pub const geometry = @import("geometry");
@@ -343,7 +342,7 @@ pub const Button = struct {
     }
 
     fn mouseButton(button_ptr: *anyopaque, callback: *Callback, button_clicked: i32, action: graphics.Action, _: i32) !void {
-        const button: *Button = @alignCast(@ptrCast(button_ptr));
+        const button: *Button = @ptrCast(@alignCast(button_ptr));
 
         if (button_clicked == 0) {
             if (action == .press) {
@@ -454,7 +453,7 @@ pub const InputBox = struct {
     fn keyInput(input_ptr: *anyopaque, _: *Callback, key: i32, scancode: i32, action: graphics.Action, mods: i32) !void {
         _ = scancode;
         _ = mods;
-        const input: *InputBox = @alignCast(@ptrCast(input_ptr));
+        const input: *InputBox = @ptrCast(@alignCast(input_ptr));
 
         if (key == graphics.glfw.GLFW_KEY_ENTER and action == .press) {
             if (input.on_send) |on_send| try on_send.func(on_send.ptr, input, input.text.items);
@@ -478,7 +477,7 @@ pub const InputBox = struct {
     }
 
     fn textInput(input_ptr: *anyopaque, _: *Callback, codepoint: u32) !void {
-        const input: *InputBox = @alignCast(@ptrCast(input_ptr));
+        const input: *InputBox = @ptrCast(@alignCast(input_ptr));
 
         var buf: [4]u8 = undefined;
         const string = buf[0..try std.unicode.utf8Encode(@intCast(codepoint), &buf)];
@@ -486,23 +485,3 @@ pub const InputBox = struct {
         try input.text_box.content.print(input.scene, input.ally, .{ .text = string, .color = .{ 0.0, 0.0, 0.0 } });
     }
 };
-
-pub const Mesh = geometry.Mesh;
-pub const Vertex = geometry.Vertex;
-pub const HalfEdge = geometry.HalfEdge;
-
-pub const Drawing = graphics.Drawing;
-pub const glfw = graphics.glfw;
-
-pub const Camera = graphics.Camera;
-pub const Cube = graphics.Cube;
-pub const Line = graphics.Line;
-pub const MeshBuilder = graphics.MeshBuilder;
-
-pub const Mat4 = math.Mat4;
-pub const Vec2 = math.Vec2;
-pub const Vec3 = math.Vec3;
-pub const Vec4 = math.Vec4;
-pub const Vec3Utils = math.Vec3Utils;
-
-pub const SpatialPipeline = graphics.SpatialPipeline;

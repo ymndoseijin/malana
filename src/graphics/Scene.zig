@@ -82,11 +82,11 @@ const DefaultPipelines = struct {
         };
     }
 
-    pub fn deinit(pipelines: *DefaultPipelines, gpu: graphics.Gpu) void {
-        pipelines.color.deinit(gpu);
-        pipelines.sprite.deinit(gpu);
-        pipelines.sprite_batch.deinit(gpu);
-        pipelines.textft.deinit(gpu);
+    pub fn deinit(pipelines: *DefaultPipelines, ally: std.mem.Allocator, gpu: graphics.Gpu) void {
+        pipelines.color.deinit(ally, gpu);
+        pipelines.sprite.deinit(ally, gpu);
+        pipelines.sprite_batch.deinit(ally, gpu);
+        pipelines.textft.deinit(ally, gpu);
         //pipelines.line.deinit(gpu);
     }
 };
@@ -111,9 +111,10 @@ pub fn init(win: *graphics.Window, options: SceneOptions) !Scene {
 pub fn deinit(scene: *Scene) void {
     scene.queue.deinit();
     scene.textures.deinit();
-    scene.default_pipelines.deinit(scene.window.gpu);
+    scene.default_pipelines.deinit(scene.window.ally, scene.window.gpu);
     scene.clearBuffers();
     scene.buffers.deinit(scene.window.ally);
+    scene.frame_arena.deinit();
 }
 
 pub fn clearBuffers(scene: *Scene) void {

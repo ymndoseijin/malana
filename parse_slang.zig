@@ -598,7 +598,7 @@ pub fn main() !void {
                 spv_path,
             });
         }
-        try output.print("const graphics = @import(\"ui\").graphics;", .{});
+        try output.print("const graphics = @import(\"malana\").graphics;", .{});
 
         try output.flush();
     }

@@ -448,7 +448,7 @@ fn debugCallback(
     }
 
     if (message_severity.error_bit_ext) {
-        @breakpoint();
+        //@breakpoint();
     }
 
     return vk.FALSE;

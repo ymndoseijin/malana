@@ -131,7 +131,6 @@ pub const Description = struct {
             depth: ?graphics.AttachmentOptions.DepthDescription,
         },
     ) !graphics.RenderPipeline {
-        std.debug.print("{} and {}\n", .{ desc.attachments.len, options.attachments.len });
         std.debug.assert(desc.attachments.len == options.attachments.len);
         return graphics.RenderPipeline.init(ally, .{
             .description = desc.getRenderDescription(.{

@@ -462,7 +462,7 @@ pub fn getLineString(ally: std.mem.Allocator, name: []const u8) ![]const u8 {
     _ = it.next();
     var count: usize = 0;
     while (it.next()) |return_address| {
-        if (count == 10) break;
+        if (count == 3) break;
         const address = if (return_address == 0) return_address else return_address - 1;
 
         const module = debug_info.getModuleForAddress(address) catch break;
@@ -481,7 +481,7 @@ pub fn getLineString(ally: std.mem.Allocator, name: []const u8) ![]const u8 {
 
 pub fn addDebugMark(gpu: Gpu, object_type: vk.ObjectType, handle: u64, name: []const u8) !void {
     //try global_object_map.put(handle, image_name.items);
-    if (true) return;
+    //if (true) return;
     const ally = std.heap.page_allocator;
     const string = try getLineString(ally, name);
     defer ally.free(string);
@@ -584,7 +584,7 @@ pub fn transitionImageLayout(gpu: Gpu, pool: vk.CommandPool, image: vk.Image, op
     try gpu.waitIdle();
 }
 
-const ShaderType = enum {
+pub const ShaderType = enum {
     vertex,
     fragment,
     compute,
@@ -971,7 +971,6 @@ pub const Descriptor = struct {
                 .offset = 0,
                 .range = uniform.buffer.mem.size,
             };
-            std.debug.print("vsf {any}\n", .{uniform});
 
             try descriptor_writes.append(descriptor.ally, .{
                 .dst_set = descriptor.descriptor_sets[uniform.set],
@@ -1215,6 +1214,26 @@ pub const RenderTarget = union(enum) {
         }
     };
 
+    pub fn dupe(target: RenderTarget, ally: std.mem.Allocator) !RenderTarget {
+        switch (target) {
+            .texture => |tex| return .{
+                .texture = .{
+                    .region = tex.region,
+                    .depth_texture = tex.depth_texture,
+                    .color_textures = try ally.dupe(*Texture, tex.color_textures),
+                },
+            },
+            .swapchain => return .{ .swapchain = {} },
+        }
+    }
+
+    pub fn deinit(target: RenderTarget, ally: std.mem.Allocator) void {
+        switch (target) {
+            .texture => |tex| ally.free(tex.color_textures),
+            else => {},
+        }
+    }
+
     pub fn eql(a: RenderTarget, b: RenderTarget) bool {
         if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
         return switch (a) {
@@ -1252,7 +1271,8 @@ pub const Drawing = struct {
 
     pub fn init(ally: std.mem.Allocator, gpu: Gpu, options: Options) !Drawing {
         // check if pipeline and targets match
-        switch (options.target) {
+        const target = try options.target.dupe(ally);
+        switch (target) {
             .texture => |textures| {
                 std.debug.assert((textures.depth_texture == null and options.pipeline.attachments.depth == null) or
                     (textures.depth_texture != null and options.pipeline.attachments.depth != null));
@@ -1268,7 +1288,7 @@ pub const Drawing = struct {
             .descriptor = try Descriptor.init(ally, gpu, .{ .pipeline = options.pipeline.pipeline, .queue = options.queue }),
             .vertex_buffer = null,
             .index_buffer = null,
-            .render_target = options.target,
+            .render_target = target,
             .flip_z = options.flip_z,
             .pipeline = options.pipeline,
         };
@@ -1281,8 +1301,9 @@ pub const Drawing = struct {
         //}
     }
 
-    pub fn deinit(self: *Drawing, ally: std.mem.Allocator, gpu: Gpu) void {
-        self.descriptor.deinit(ally, gpu);
+    pub fn deinit(drawing: *Drawing, ally: std.mem.Allocator, gpu: Gpu) void {
+        drawing.descriptor.deinit(ally, gpu);
+        drawing.render_target.deinit(ally);
 
         //if (self.index_buffer) |ib| ib.deinit(&win.gpu);
         //if (self.vertex_buffer) |vb| vb.deinit(&win.gpu);
@@ -3248,101 +3269,6 @@ pub const RenderPipeline = struct {
         const description = options.description;
         const gpu = options.gpu;
 
-        // verify using reflect, eventually make something that **optionally** makes a PipelineDescription from it instead
-        // this is going to be somewhat interesting, as it would require you to convert something over from the vulkan side to
-        // our code's side. for some reason, the following doesn't work for slang shaders and has differing behavior from
-        // the x86 backend to the llvm one
-        for (shaders) |shader| {
-            //if (true) break;
-            var module: spirv.SpvReflectShaderModule = undefined;
-            var result = spirv.spvReflectCreateShaderModule(
-                shader.file_src.len * @sizeOf(u32) / @sizeOf(u8),
-                @ptrCast(@alignCast(shader.file_src)),
-                &module,
-            );
-            if (result != spirv.SPV_REFLECT_RESULT_SUCCESS) {
-                std.log.warn("{[p]s}Warning:{[s]s} couldn't read shader {[module]any} reflection, failed with {[result]d}. Will skip this one.{[r]s}", .{
-                    .result = result,
-                    .module = shader.module,
-                    .p = "\u{001b}[0;93m",
-                    .s = "\u{001b}[0;90m",
-                    .r = "\u{001b}[0m",
-                });
-                continue;
-            }
-
-            var input_var_count: u32 = 0;
-            var descriptor_set_count: u32 = 0;
-
-            result = spirv.spvReflectEnumerateInputVariables(&module, &input_var_count, null);
-            std.debug.assert(result == spirv.SPV_REFLECT_RESULT_SUCCESS);
-
-            result = spirv.spvReflectEnumerateDescriptorSets(&module, &descriptor_set_count, null);
-            std.debug.assert(result == spirv.SPV_REFLECT_RESULT_SUCCESS);
-
-            const input_vars = try ally.alloc(*spirv.SpvReflectInterfaceVariable, input_var_count);
-            defer ally.free(input_vars);
-
-            const descriptor_sets = try ally.alloc(*spirv.SpvReflectDescriptorSet, descriptor_set_count);
-            defer ally.free(descriptor_sets);
-
-            result = spirv.spvReflectEnumerateInputVariables(&module, &input_var_count, @ptrCast(input_vars.ptr));
-            std.debug.assert(result == spirv.SPV_REFLECT_RESULT_SUCCESS);
-
-            result = spirv.spvReflectEnumerateDescriptorSets(&module, &descriptor_set_count, @ptrCast(descriptor_sets.ptr));
-            std.debug.assert(result == spirv.SPV_REFLECT_RESULT_SUCCESS);
-
-            if (descriptor_sets.len > description.sets.len) {
-                std.log.warn("{[p]s}Warning:{[s]s} shader {[module]any} has {[spv_len]} sets but PipelineDescription only has {[desc_len]}. Will skip this one.{[r]s}", .{
-                    .module = shader.module,
-                    .desc_len = description.sets.len,
-                    .spv_len = descriptor_sets.len,
-                    .p = "\u{001b}[0;93m",
-                    .s = "\u{001b}[0;90m",
-                    .r = "\u{001b}[0m",
-                });
-                continue;
-            }
-            for (descriptor_sets, description.sets[0..descriptor_sets.len], 0..) |spv_set, set, set_i| {
-                const spv_bindings = spv_set.bindings[0..spv_set.binding_count];
-                if (spv_set.binding_count > set.bindings.len) {
-                    std.log.warn("{[p]s}Warning:{[s]s} Set {[i]} in shader {[module]any} has {[spv_len]} bindings but PipelineDescription only has {[desc_len]}. Will skip this one.{[r]s}", .{
-                        .module = shader.module,
-                        .desc_len = set.bindings.len,
-                        .spv_len = spv_set.binding_count,
-                        .i = set_i,
-                        .p = "\u{001b}[0;93m",
-                        .s = "\u{001b}[0;90m",
-                        .r = "\u{001b}[0m",
-                    });
-                    continue;
-                }
-                for (spv_bindings, set.bindings[0..spv_set.binding_count]) |spv_binding, binding| {
-                    const desc_type: vk.DescriptorType = @enumFromInt(spv_binding.*.descriptor_type);
-                    if (binding.getDescriptorType() != desc_type) {
-                        std.log.warn("{[p]s}Warning:{[s]s} descriptor type is not the same in {[module]any} ({[desc_type]}) and PipelineDescription ({[spv_type]}).{[r]s}", .{
-                            .module = shader.module,
-                            .spv_type = binding.getDescriptorType(),
-                            .desc_type = desc_type,
-                            .p = "\u{001b}[0;93m",
-                            .s = "\u{001b}[0;90m",
-                            .r = "\u{001b}[0m",
-                        });
-                    }
-                    if (binding.getDescriptorCount() orelse 0 != spv_binding.*.count) {
-                        std.log.warn("{[p]s}Warning:{[s]s} descriptor count is not the same in {[module]any} and PipelineDescription. Values are {[desc_count]d} and {[spv_count]d}.{[r]s}", .{
-                            .module = shader.module,
-                            .desc_count = binding.getDescriptorCount() orelse 0,
-                            .spv_count = spv_binding.*.count,
-                            .p = "\u{001b}[0;93m",
-                            .s = "\u{001b}[0;90m",
-                            .r = "\u{001b}[0m",
-                        });
-                    }
-                }
-            }
-        }
-
         const set_bindings, const layouts = try createBindingsFromSets(ally, gpu, .{
             .sets = description.sets,
             .bindless = description.bindless,
@@ -3558,8 +3484,9 @@ pub const RenderPipeline = struct {
         };
     }
 
-    pub fn deinit(render: *RenderPipeline, gpu: Gpu) void {
+    pub fn deinit(render: RenderPipeline, ally: std.mem.Allocator, gpu: Gpu) void {
         render.pipeline.deinit(gpu);
+        ally.free(render.attachments.descriptions);
     }
 };
 
@@ -3592,7 +3519,7 @@ pub const Pipeline = struct {
         compute,
     },
 
-    pub fn deinit(render: *Pipeline, gpu: Gpu) void {
+    pub fn deinit(render: Pipeline, gpu: Gpu) void {
         for (render.set_bindings) |bindings| render.ally.free(bindings);
         render.ally.free(render.set_bindings);
 
@@ -3919,6 +3846,26 @@ pub const DataDescription = struct {
 
     pub fn createBuffer(comptime self: DataDescription, gpu: Gpu, buffer_type: BufferHandle.BufferType, count: usize) !BufferHandle {
         return BufferHandle.init(gpu, .{ .size = self.getSize() * count, .buffer_type = buffer_type });
+    }
+};
+
+pub const ShaderManager = struct {
+    shaders: std.ArrayList(Shader),
+    ally: std.mem.Allocator,
+    pub fn initShader(
+        manager: *ShaderManager,
+        gpu: Gpu,
+        file_src: []align(@alignOf(u32)) const u8,
+        shader_enum: ShaderType,
+    ) !Shader {
+        const shader = try Shader.init(gpu, file_src, shader_enum);
+        try manager.shaders.append(manager.ally, shader);
+        return shader;
+    }
+
+    pub fn deinit(manager: *ShaderManager, gpu: Gpu) void {
+        for (manager.shaders.items) |shader| shader.deinit(gpu);
+        manager.shaders.deinit(manager.ally);
     }
 };
 

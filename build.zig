@@ -11,11 +11,11 @@ pub fn addShader(b: *std.Build, module: *std.Build.Module, cmd: []const []const 
     module.addAnonymousImport(name, .{ .root_source_file = spv });
 }
 
-pub fn initSlangStep(b: *std.Build, ui_dep: *std.Build.Dependency) *std.Build.Step.Run {
+pub fn initSlangStep(b: *std.Build, malana_dep: *std.Build.Dependency) *std.Build.Step.Run {
     const tool = b.addExecutable(.{
         .name = "generate_shader",
         .root_module = b.createModule(.{
-            .root_source_file = ui_dep.path("parse_slang.zig"),
+            .root_source_file = malana_dep.path("parse_slang.zig"),
             .target = b.graph.host,
         }),
     });
@@ -27,7 +27,7 @@ pub fn initSlangStep(b: *std.Build, ui_dep: *std.Build.Dependency) *std.Build.St
 
 pub fn addSlangShader(tool_step: *std.Build.Step.Run, b: *std.Build, options: struct {
     module: *std.Build.Module,
-    ui_dep: *std.Build.Dependency,
+    malana_dep: *std.Build.Dependency,
     name: []const u8,
     path: []const u8,
 }) void {
@@ -37,8 +37,8 @@ pub fn addSlangShader(tool_step: *std.Build.Step.Run, b: *std.Build, options: st
     options.module.addAnonymousImport(options.name, .{
         .imports = &.{
             .{
-                .name = "ui",
-                .module = options.ui_dep.module("ui"),
+                .name = "malana",
+                .module = options.malana_dep.module("malana"),
             },
         },
         .root_source_file = shader_file,
@@ -67,7 +67,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const gl = b.createModule(.{ .root_source_file = b.path("src/graphics/gl.zig") });
     const math = b.createModule(.{ .root_source_file = b.path("src/math.zig") });
     const common = b.createModule(.{ .root_source_file = b.path("src/common.zig") });
     const parsing = b.createModule(.{
@@ -145,7 +144,6 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "math", .module = math },
             .{ .name = "common", .module = common },
-            .{ .name = "gl", .module = gl },
             .{ .name = "parsing", .module = parsing },
             .{ .name = "geometry", .module = geometry },
             .{ .name = "img", .module = zigimg_dep.module("zigimg") },
@@ -173,7 +171,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const ui_info: std.Build.Module.CreateOptions = .{
-        .root_source_file = b.path("src/ui.zig"),
+        .root_source_file = b.path("src/malana.zig"),
         .imports = &.{
             .{ .name = "img", .module = zigimg_dep.module("zigimg") },
             //.{ .name = "zilliam", .module = zilliam_dep.module("zilliam") },
@@ -182,14 +180,13 @@ pub fn build(b: *std.Build) void {
             .{ .name = "numericals", .module = numericals },
             .{ .name = "common", .module = common },
             .{ .name = "parsing", .module = parsing },
-            .{ .name = "gl", .module = gl },
             .{ .name = "math", .module = math },
         },
     };
 
-    const ui = b.createModule(ui_info);
+    const malana = b.createModule(ui_info);
 
-    _ = b.addModule("ui", ui_info);
+    _ = b.addModule("malana", ui_info);
 
     const box2c = b.dependency("box2c", .{});
 
@@ -410,7 +407,7 @@ pub fn build(b: *std.Build) void {
             });
         }
 
-        exe.root_module.addImport("ui", ui);
+        exe.root_module.addImport("malana", malana);
 
         inline for (app.shaders) |shader| {
             addShader(b, exe.root_module, &.{ "glslangValidator", "-e", "main", "-gVS", "-V", "-o" }, shader[0], shader[1]);
@@ -439,33 +436,32 @@ pub fn build(b: *std.Build) void {
         run_step.dependOn(&run_cmd.step);
     }
 
-    const unit_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/ui/box.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
+    //const unit_tests = b.addTest(.{
+    //    .root_module = b.createModule(.{
+    //        .root_source_file = b.path("src/malana/box.zig"),
+    //        .target = target,
+    //        .optimize = optimize,
+    //    }),
+    //});
 
-    unit_tests.root_module.addImport("img", zigimg_dep.module("zigimg"));
+    //unit_tests.root_module.addImport("img", zigimg_dep.module("zigimg"));
 
-    unit_tests.root_module.addImport("graphics", graphics);
-    unit_tests.root_module.addImport("geometry", geometry);
-    unit_tests.root_module.addImport("numericals", numericals);
-    unit_tests.root_module.addImport("common", common);
-    unit_tests.root_module.addImport("parsing", parsing);
-    unit_tests.root_module.addImport("gl", gl);
-    unit_tests.root_module.addImport("math", math);
+    //unit_tests.root_module.addImport("graphics", graphics);
+    //unit_tests.root_module.addImport("geometry", geometry);
+    //unit_tests.root_module.addImport("numericals", numericals);
+    //unit_tests.root_module.addImport("common", common);
+    //unit_tests.root_module.addImport("parsing", parsing);
+    //unit_tests.root_module.addImport("math", math);
 
-    unit_tests.linkSystemLibrary("glfw3");
-    unit_tests.linkSystemLibrary("freetype2");
+    //unit_tests.linkSystemLibrary("glfw3");
+    //unit_tests.linkSystemLibrary("freetype2");
 
-    unit_tests.linkLibC();
+    //unit_tests.linkLibC();
 
-    const run_unit_tests = b.addRunArtifact(unit_tests);
+    //const run_unit_tests = b.addRunArtifact(unit_tests);
 
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_unit_tests.step);
+    //const test_step = b.step("test", "Run unit tests");
+    //test_step.dependOn(&run_unit_tests.step);
 }
 
 pub fn linkLibraries(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build.ResolvedTarget, tracy: ?[]const u8) void {

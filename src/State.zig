@@ -36,6 +36,8 @@ cursor_func_manager: SubscriptionManager(CursorFunction) = .{},
 frame_func_manager: SubscriptionManager(FrameFunction) = .{},
 key_func_manager: SubscriptionManager(KeyFunction) = .{},
 
+shader_manager: graphics.ShaderManager,
+
 ally: std.mem.Allocator,
 
 pub const Context = struct {
@@ -295,6 +297,10 @@ pub fn init(ally: std.mem.Allocator, options: struct {
         .post_pipeline = post_pipeline,
         .last_time = @as(f32, @floatCast(graphics.glfw.glfwGetTime())),
         .callback = try Callback.init(ally, main_win),
+        .shader_manager = .{
+            .shaders = .empty,
+            .ally = ally,
+        },
         .ally = ally,
     };
 
@@ -398,12 +404,13 @@ pub fn deinit(state: *State, ally: std.mem.Allocator) void {
 
     const gpu = state.main_win.gpu;
 
-    state.post_color_tex.deinit(gpu);
+    state.shader_manager.deinit(gpu);
+    state.post_color_tex.deinit(ally, gpu);
     ally.free(state.color_depth_target.texture.color_textures);
-    state.multisampling_tex.deinit(gpu);
-    state.post_depth_tex.deinit(gpu);
+    state.multisampling_tex.deinit(ally, gpu);
+    state.post_depth_tex.deinit(ally, gpu);
     state.first_pass.deinit(gpu);
-    state.post_pipeline.deinit(gpu);
+    state.post_pipeline.deinit(ally, gpu);
 
     state.post_drawing.deinitAllBuffers(ally, gpu);
 
@@ -435,9 +442,9 @@ fn frameFunc(ptr: *anyopaque, width: i32, height: i32) !void {
     const h: f32 = @floatFromInt(height);
     try state.cam.setParameters(1.0, w / h, 0.1, 2048);
 
-    state.post_color_tex.deinit(state.main_win.gpu);
-    state.multisampling_tex.deinit(state.main_win.gpu);
-    state.post_depth_tex.deinit(state.main_win.gpu);
+    state.post_color_tex.deinit(ally, state.main_win.gpu);
+    state.multisampling_tex.deinit(ally, state.main_win.gpu);
+    state.post_depth_tex.deinit(ally, state.main_win.gpu);
 
     state.multisampling_tex = try graphics.Texture.init(ally, state.main_win, @intCast(width), @intCast(height), .{
         //.multisampling = true,

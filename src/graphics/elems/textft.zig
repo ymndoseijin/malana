@@ -358,8 +358,8 @@ pub const Text = struct {
     pub fn deinit(self: *Text, ally: std.mem.Allocator, gpu: graphics.Gpu) void {
         self.characters.deinit(ally);
         self.codepoints.deinit(ally);
-        for (self.codepoint_table.values()) |v| {
-            v.tex.deinit(gpu);
+        for (self.codepoint_table.values()) |*v| {
+            v.tex.deinit(ally, gpu);
         }
         self.codepoint_table.deinit();
         self.batch.deinit(ally, gpu);
