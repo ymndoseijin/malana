@@ -44,6 +44,13 @@ const DefaultPipelines = struct {
         const shaders = win.default_shaders;
 
         return .{
+            .sprite_batch = try graphics.RenderPipeline.init(win.ally, .{
+                .description = graphics.SpriteBatch.description,
+                .shaders = &shaders.sprite_batch_shaders,
+                .gpu = win.gpu,
+                .flipped_z = flip_z,
+                .rendering = default_rendering,
+            }),
             .color = try graphics.RenderPipeline.init(win.ally, .{
                 .description = graphics.ColorRect.description,
                 .shaders = &shaders.color_shaders,
@@ -54,13 +61,6 @@ const DefaultPipelines = struct {
             .sprite = try graphics.RenderPipeline.init(win.ally, .{
                 .description = graphics.Sprite.description,
                 .shaders = &shaders.sprite_shaders,
-                .gpu = win.gpu,
-                .flipped_z = flip_z,
-                .rendering = default_rendering,
-            }),
-            .sprite_batch = try graphics.RenderPipeline.init(win.ally, .{
-                .description = graphics.SpriteBatch.description,
-                .shaders = &shaders.sprite_batch_shaders,
                 .gpu = win.gpu,
                 .flipped_z = flip_z,
                 .rendering = default_rendering,

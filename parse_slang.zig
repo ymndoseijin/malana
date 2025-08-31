@@ -457,7 +457,7 @@ pub fn main() !void {
         }
 
         try output.print("    .sets = &.{{\n", .{});
-        var seen_boundless = false;
+        var seen_bindless = false;
         var push_constants: ?SlangType = null;
         if (parsed.parameters.len > 0) {
             var last_set: u32 = 0;
@@ -494,8 +494,8 @@ pub fn main() !void {
                                 // TODO: what if elementType is not a struct?
                                 try output.print("                .{{ .storage = .{{ .size = ", .{});
                                 try res.resultType.writeZigIdentifier(output, null);
-                                try output.print(".getSize(), .boundless = true }} }},\n", .{});
-                                seen_boundless = true;
+                                try output.print(".getSize(), .bindless = true }} }},\n", .{});
+                                seen_bindless = true;
                             },
                             .texture2D, .textureCube => {
                                 try output.print("                .{{ .sampler = .{{}}}},\n", .{});
@@ -508,16 +508,16 @@ pub fn main() !void {
                             .resource => |res| {
                                 std.debug.assert(res.baseShape == .texture2D or
                                     res.baseShape == .textureCube);
-                                try output.print("                .{{ .sampler = .{{ .boundless = true }} }},\n", .{});
+                                try output.print("                .{{ .sampler = .{{ .bindless = true }} }},\n", .{});
                             },
                             .constantBuffer => |cb| {
                                 try output.print("                .{{ .uniform = .{{ .size = ", .{});
                                 try cb.elementType.writeZigIdentifier(output, null);
-                                try output.print(".getSize(), .boundless = true }} }},\n", .{});
+                                try output.print(".getSize(), .bindless = true }} }},\n", .{});
                             },
                             else => return error.UnhandledArray,
                         }
-                        seen_boundless = true;
+                        seen_bindless = true;
                     },
                     else => return error.InvalidParameter,
                 }
@@ -580,11 +580,6 @@ pub fn main() !void {
         }
         try output.print("    }},\n", .{});
 
-        if (seen_boundless) {
-            try output.print("    .bindless = true,\n", .{});
-        } else {
-            try output.print("    .bindless = false,\n", .{});
-        }
         try output.print("}};\n\n", .{});
 
         for (parsed.entryPoints) |entry| {

@@ -27,23 +27,17 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             .sets = &.{
                 .{
                     .bindings = &.{
-                        .{ .uniform = .{
-                            .size = graphics.GlobalUniform.getSize(),
-                        } },
-                        .{ .uniform = .{
-                            .size = SpriteUniform.getSize(),
-                            .boundless = true,
-                        } },
+                        .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
+                        .{ .uniform = .{ .size = SpriteUniform.getSize(), .bindless = true } },
                     },
                 },
                 .{
                     .bindings = &.{
-                        .{ .sampler = .{ .boundless = true } },
+                        .{ .sampler = .{ .bindless = true } },
                     },
                 },
             },
             .global_ubo = true,
-            .bindless = true,
         };
 
         pub const ThisBatch = @This();

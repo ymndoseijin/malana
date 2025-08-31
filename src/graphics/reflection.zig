@@ -8,7 +8,6 @@ pub const Description = struct {
     vertex_description: graphics.VertexDescription,
     constants_size: ?usize = null,
     sets: []const graphics.Set = &.{},
-    bindless: bool,
     attachments: []const struct {},
     entry_names: []const []const u8,
     binding_rfl: []const BindingReflection,
@@ -23,14 +22,14 @@ pub const Description = struct {
             const binding = desc.sets[rfl.set].bindings[rfl.idx];
             const binding_type = switch (binding) {
                 .uniform, .storage => ?graphics.BufferHandle,
-                .sampler => |samp| if (!samp.boundless) ?graphics.Texture else ?[]graphics.Texture,
+                .sampler => |samp| if (!samp.bindless) ?graphics.Texture else ?[]graphics.Texture,
             };
             f.* = .{
                 .name = rfl.name,
                 .type = binding_type,
                 .default_value_ptr = @ptrCast(@alignCast(switch (binding) {
                     .uniform, .storage => &default_buff,
-                    .sampler => |samp| if (!samp.boundless) &default_tex_single else &default_tex,
+                    .sampler => |samp| if (!samp.bindless) &default_tex_single else &default_tex,
                 })),
                 .is_comptime = false,
                 .alignment = @alignOf(binding_type),
@@ -111,7 +110,6 @@ pub const Description = struct {
             .depth_test = options.depth_test,
             .depth_write = options.depth_write,
             .cull_type = options.cull_type,
-            .bindless = desc.bindless,
         };
     }
 

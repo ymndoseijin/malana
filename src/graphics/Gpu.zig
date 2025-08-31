@@ -34,7 +34,6 @@ const DeviceDispatch = vk.DeviceWrapper;
 /// the center of the API
 /// WARNING: swapchain_format is left **undefined** by default, and is instead defined at the Window
 pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.GLFWwindow) !Gpu {
-    //@breakpoint();
     std.debug.print("Vulkan support: {}\n", .{glfw.glfwVulkanSupported()});
     var gpu: Gpu = undefined;
     gpu.vkb = BaseDispatch.load(glfwGetInstanceProcAddress);
@@ -448,7 +447,7 @@ fn debugCallback(
     }
 
     if (message_severity.error_bit_ext) {
-        //@breakpoint();
+        @breakpoint();
     }
 
     return vk.FALSE;

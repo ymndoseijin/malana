@@ -95,23 +95,17 @@ pub const Text = struct {
         .sets = &.{
             .{
                 .bindings = &.{
-                    .{ .uniform = .{
-                        .size = graphics.GlobalUniform.getSize(),
-                    } },
-                    .{ .uniform = .{
-                        .size = CharacterUniform.getSize(),
-                        .boundless = true,
-                    } },
+                    .{ .uniform = .{ .size = graphics.GlobalUniform.getSize() } },
+                    .{ .uniform = .{ .size = CharacterUniform.getSize(), .bindless = true } },
                 },
             },
             .{
                 .bindings = &.{
-                    .{ .sampler = .{ .boundless = true } },
+                    .{ .sampler = .{ .bindless = true } },
                 },
             },
         },
         .global_ubo = true,
-        .bindless = true,
     };
 
     pub const Character = struct {

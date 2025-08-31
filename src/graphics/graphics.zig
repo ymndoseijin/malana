@@ -681,7 +681,7 @@ pub const Semaphore = struct {
 };
 
 // maximum amount of bindings of a bindless descriptor
-const max_boundless = 2560;
+const max_bindless = 2560;
 
 pub const Descriptor = struct {
     descriptor_sets: []vk.DescriptorSet,
@@ -879,7 +879,7 @@ pub const Descriptor = struct {
                     array.* = .empty;
                     uniform_i += 1;
 
-                    if (!description.boundless) {
+                    if (!description.bindless) {
                         try array.append(ally, .{ .idx = 0, .buffer = try BufferHandle.init(gpu, .{
                             .size = description.size,
                             .buffer_type = .uniform,
@@ -933,7 +933,7 @@ pub const Descriptor = struct {
             const counts = try ally.create(u32);
             defer ally.destroy(counts);
 
-            counts.* = if (pipeline.bindless) max_boundless else 1;
+            counts.* = if (pipeline.bindless) max_bindless else 1;
 
             const variable_counts: vk.DescriptorSetVariableDescriptorCountAllocateInfo = .{
                 .descriptor_set_count = 1,
@@ -2881,7 +2881,7 @@ pub const CullType = enum {
 
 pub const SamplerDescription = struct {
     count: u32 = 1,
-    boundless: bool = false,
+    bindless: bool = false,
     type: enum {
         storage,
         combined,
@@ -2890,12 +2890,12 @@ pub const SamplerDescription = struct {
 
 pub const UniformDescription = struct {
     size: usize,
-    boundless: bool = false,
+    bindless: bool = false,
 };
 
 pub const BufferDescription = struct {
     size: usize,
-    boundless: bool = false,
+    bindless: bool = false,
 };
 
 pub const Binding = union(enum) {
@@ -2906,13 +2906,13 @@ pub const Binding = union(enum) {
     pub fn getDescriptorCount(binding: Binding) ?u32 {
         switch (binding) {
             .uniform => |binding_desc| {
-                return if (binding_desc.boundless) null else 1;
+                return if (binding_desc.bindless) null else 1;
             },
             .storage => |binding_desc| {
-                return if (binding_desc.boundless) null else 1;
+                return if (binding_desc.bindless) null else 1;
             },
             .sampler => |binding_desc| {
-                return if (binding_desc.boundless) null else binding_desc.count;
+                return if (binding_desc.bindless) null else binding_desc.count;
             },
         }
     }
@@ -2935,7 +2935,7 @@ pub const Binding = union(enum) {
     pub fn getFlags(binding: Binding) vk.DescriptorBindingFlags {
         switch (binding) {
             inline else => |binding_desc| {
-                return if (binding_desc.boundless) .{
+                return if (binding_desc.bindless) .{
                     .variable_descriptor_count_bit = true,
                     .partially_bound_bit = true,
                     .update_after_bind_bit = true,
@@ -2963,7 +2963,6 @@ pub const PipelineDescription = struct {
 
     // assume DefaultUbo at index 0
     global_ubo: bool = false,
-    bindless: bool = false,
 
     pub fn getBindingDescription(pipeline: PipelineDescription) vk.VertexInputBindingDescription {
         return .{
@@ -3000,7 +2999,7 @@ pub fn createBindingsFromSets(ally: std.mem.Allocator, gpu: Gpu, options: struct
 
             bindings.*[idx] = .{
                 .binding = @intCast(idx),
-                .descriptor_count = binding.getDescriptorCount() orelse max_boundless,
+                .descriptor_count = binding.getDescriptorCount() orelse max_bindless,
                 .descriptor_type = binding.getDescriptorType(),
                 .p_immutable_samplers = null,
                 .stage_flags = stage_flags,
@@ -3269,9 +3268,20 @@ pub const RenderPipeline = struct {
         const description = options.description;
         const gpu = options.gpu;
 
+        const is_bindless = blk: {
+            for (description.sets) |set| {
+                for (set.bindings) |binding| {
+                    switch (binding) {
+                        inline else => |b| if (b.bindless) break :blk true,
+                    }
+                }
+            }
+            break :blk false;
+        };
+
         const set_bindings, const layouts = try createBindingsFromSets(ally, gpu, .{
             .sets = description.sets,
-            .bindless = description.bindless,
+            .bindless = is_bindless,
             .type = .drawing,
         });
 
@@ -3474,7 +3484,7 @@ pub const RenderPipeline = struct {
                     .constants_size = options.description.constants_size,
                     .sets = options.description.sets,
                     .global_ubo = options.description.global_ubo,
-                    .bindless = options.description.bindless,
+                    .bindless = is_bindless,
                 },
             },
             .attachments = .{
