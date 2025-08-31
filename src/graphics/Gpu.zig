@@ -23,9 +23,6 @@ const required_device_extensions = [_][*:0]const u8{
     vk.extensions.khr_swapchain.name,
     vk.extensions.khr_dynamic_rendering.name,
     vk.extensions.khr_shader_draw_parameters.name,
-    // required if exporting slang with -fspv-reflect!!!
-    vk.extensions.google_hlsl_functionality_1.name,
-    vk.extensions.google_user_type.name,
 };
 
 const BaseDispatch = vk.BaseWrapper;
@@ -34,6 +31,8 @@ const InstanceDispatch = vk.InstanceWrapper;
 
 const DeviceDispatch = vk.DeviceWrapper;
 
+/// the center of the API
+/// WARNING: swapchain_format is left **undefined** by default, and is instead defined at the Window
 pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.GLFWwindow) !Gpu {
     //@breakpoint();
     std.debug.print("Vulkan support: {}\n", .{glfw.glfwVulkanSupported()});
@@ -56,7 +55,7 @@ pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.
     const app_info: vk.ApplicationInfo = .{
         .p_application_name = app_name,
         .application_version = @bitCast(vk.makeApiVersion(0, 0, 0, 0)),
-        .p_engine_name = app_name,
+        .p_engine_name = "Malana",
         .engine_version = @bitCast(vk.makeApiVersion(0, 0, 0, 0)),
         .api_version = @bitCast(vk.API_VERSION_1_3),
     };
@@ -96,9 +95,8 @@ pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.
     gpu.mem_props = gpu.vki.getPhysicalDeviceMemoryProperties(gpu.pdev);
     gpu.depth_format = try gpu.findDepthFormat();
 
-    // TODO: as we don't actually know what the format is before creating the window, right now we just take a guess instead of leaving it undefined
-    // this isn't ideal
-    gpu.swapchain_format = .b8g8r8a8_srgb;
+    // WARNING: left undefined
+    gpu.swapchain_format = undefined;
 
     gpu.graphics_pool = try gpu.vkd.createCommandPool(gpu.dev, &.{
         .queue_family_index = gpu.graphics_queue.family,
@@ -457,7 +455,7 @@ fn debugCallback(
 }
 
 pub fn createStagingBuffer(
-    gpu: *Gpu,
+    gpu: Gpu,
     size: usize,
     usage: enum {
         src,
@@ -474,7 +472,7 @@ pub fn createStagingBuffer(
     }, null);
 
     if (builtin.mode == .Debug) {
-        try graphics.addDebugMark(gpu.*, .buffer, @intFromEnum(staging_buffer), "staging buffer");
+        try graphics.addDebugMark(gpu, .buffer, @intFromEnum(staging_buffer), "staging buffer");
     }
 
     const staging_mem_reqs = gpu.vkd.getBufferMemoryRequirements(gpu.dev, staging_buffer);
@@ -490,12 +488,12 @@ pub fn createStagingBuffer(
 }
 
 pub fn createIndexBuffer(
-    gpu: *Gpu,
+    gpu: Gpu,
     indices: []const u32,
     mode: graphics.CommandMode,
 ) !graphics.BufferHandle {
     const index_buff = try gpu.createStagingBuffer(@sizeOf(u32) * indices.len, .src);
-    defer index_buff.deinit(gpu.*);
+    defer index_buff.deinit(gpu);
 
     const index_buffer = try graphics.BufferHandle.init(gpu, .{ .size = @sizeOf(u32) * indices.len, .buffer_type = .index });
     try index_buffer.setIndices(gpu, gpu.graphics_pool, indices, index_buff, mode);

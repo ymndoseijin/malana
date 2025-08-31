@@ -42,17 +42,15 @@ pub const ColorRect = struct {
     };
 
     pub fn init(scene: *graphics.Scene, info: Info) !ColorRect {
-        var drawing = try scene.new();
+        const gpu = scene.window.gpu;
 
-        const gpu = &scene.window.gpu;
-
-        try drawing.init(scene.window.ally, gpu, .{
+        var drawing: graphics.Drawing = try .init(scene.window.ally, gpu, .{
             .pipeline = scene.default_pipelines.color,
             .queue = &scene.queue,
             .target = info.target,
         });
 
-        try description.vertex_description.bindVertex(drawing, gpu, &.{
+        try description.vertex_description.bindVertex(&drawing, gpu, &.{
             .{ .{ 0, 0, 1 }, .{ 0, 0 } },
             .{ .{ 1, 0, 1 }, .{ 1, 0 } },
             .{ .{ 1, 1, 1 }, .{ 1, 1 } },
@@ -70,8 +68,7 @@ pub const ColorRect = struct {
 
         rect.drawing.descriptor.deinitAllUniforms(gpu);
         rect.drawing.deinit(ally, gpu);
-        ally.destroy(rect.drawing);
     }
 
-    drawing: *Drawing,
+    drawing: Drawing,
 };

@@ -126,7 +126,7 @@ pub const Text = struct {
             self.sprite.setOpacity(opacity);
         }
 
-        pub fn init(ally: std.mem.Allocator, gpu: *graphics.Gpu, parent: *Text, info: CharacterInfo) !Character {
+        pub fn init(ally: std.mem.Allocator, gpu: graphics.Gpu, parent: *Text, info: CharacterInfo) !Character {
             const tracy = trace(@src());
             defer tracy.end();
 
@@ -153,12 +153,12 @@ pub const Text = struct {
                     }
                 }
 
-                var new_tex = try graphics.Texture.init(parent.scene.window, image.width, image.height, .{
+                var new_tex = try graphics.Texture.init(ally, parent.scene.window, image.width, image.height, .{
                     .mag_filter = .linear,
                     .min_filter = .linear,
                     .texture_type = .flat,
                 });
-                try new_tex.setFromRgba(image.data, parent.scene.flip_z);
+                try new_tex.setFromRgba(ally, gpu, image.data, parent.scene.flip_z);
                 try parent.codepoint_table.put(info.char, .{ .tex = new_tex, .metrics = glyph.*.metrics });
                 break :blk .{ .tex = new_tex, .metrics = glyph.*.metrics };
             };
@@ -248,7 +248,7 @@ pub const Text = struct {
         }
     }
 
-    pub fn update(text: *Text, ally: std.mem.Allocator, gpu: *graphics.Gpu) !void {
+    pub fn update(text: *Text, ally: std.mem.Allocator, gpu: graphics.Gpu) !void {
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -276,11 +276,11 @@ pub const Text = struct {
                     .index = index,
                 });
                 const color = .{ 1.0, 1.0, 1.0 };
-                char.sprite.getUniformOr(text.batch, 1).?.setAsUniformField(CharacterUniform, .color, .{ color[0], color[1], color[2], 0.0 });
+                char.sprite.getUniformOr(&text.batch, 1).?.setAsUniformField(CharacterUniform, .color, .{ color[0], color[1], color[2], 0.0 });
                 try text.characters.append(ally, char);
             }
             for (text.characters.items) |char| {
-                char.sprite.getUniformOr(text.batch, 1).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(text.codepoints.items.len)));
+                char.sprite.getUniformOr(&text.batch, 1).?.setAsUniformField(CharacterUniform, .count, @as(u32, @intCast(text.codepoints.items.len)));
             }
         }
 
@@ -341,7 +341,7 @@ pub const Text = struct {
                     }));
                 }
                 char.sprite.transform.scale = math.Vec2.init(.{ @floatFromInt(char.tex.width), @floatFromInt(char.tex.height) });
-                char.sprite.updateTransform(text.batch);
+                char.sprite.updateTransform(&text.batch);
 
                 text.width = @max(text.width + char.advance, text.width);
                 start.val[0] += char.advance;
@@ -359,7 +359,7 @@ pub const Text = struct {
         self.characters.deinit(ally);
         self.codepoints.deinit(ally);
         for (self.codepoint_table.values()) |v| {
-            v.tex.deinit();
+            v.tex.deinit(gpu);
         }
         self.codepoint_table.deinit();
         self.batch.deinit(ally, gpu);

@@ -39,6 +39,8 @@ pub const SpatialMesh = @import("elems/spatialmesh.zig").SpatialMesh;
 pub const ObjParse = @import("obj.zig").ObjParse;
 pub const ComptimeMeshBuilder = @import("comptime_meshbuilder.zig").ComptimeMeshBuilder;
 
+pub const reflection = @import("reflection.zig");
+
 const Vec2 = math.Vec2;
 const Vec3 = math.Vec3;
 const Vec4 = math.Vec3;
@@ -72,12 +74,12 @@ pub const Swapchain = struct {
 
     pub const ImageIndex = enum(u32) { _ };
 
-    pub fn init(gpu: *const Gpu, ally: Allocator, extent: vk.Extent2D, format: PreferredFormat) !Swapchain {
+    pub fn init(gpu: Gpu, ally: Allocator, extent: vk.Extent2D, format: PreferredFormat) !Swapchain {
         const image = try ally.alloc(vk.Semaphore, frames_in_flight);
         for (image) |*f| {
             f.* = try gpu.vkd.createSemaphore(gpu.dev, &.{}, null);
             if (builtin.mode == .Debug) {
-                try addDebugMark(gpu.*, .semaphore, @intFromEnum(f.*), "swapchain acquire semaphore");
+                try addDebugMark(gpu, .semaphore, @intFromEnum(f.*), "swapchain acquire semaphore");
             }
         }
 
@@ -85,7 +87,7 @@ pub const Swapchain = struct {
         for (frame_fence) |*f| {
             f.* = try gpu.vkd.createFence(gpu.dev, &.{ .flags = .{ .signaled_bit = true } }, null);
             if (builtin.mode == .Debug) {
-                try addDebugMark(gpu.*, .fence, @intFromEnum(f.*), "swapchain frame fence");
+                try addDebugMark(gpu, .fence, @intFromEnum(f.*), "swapchain frame fence");
             }
         }
 
@@ -98,7 +100,7 @@ pub const Swapchain = struct {
         });
     }
 
-    pub fn initRecycle(gpu: *const Gpu, ally: Allocator, options: struct {
+    pub fn initRecycle(gpu: Gpu, ally: Allocator, options: struct {
         extent: vk.Extent2D,
         old_handle: vk.SwapchainKHR,
         format: PreferredFormat,
@@ -145,7 +147,7 @@ pub const Swapchain = struct {
         errdefer gpu.vkd.destroySwapchainKHR(gpu.dev, handle, null);
 
         if (builtin.mode == .Debug) {
-            try addDebugMark(gpu.*, .swapchain_khr, @intFromEnum(handle), "swapchain");
+            try addDebugMark(gpu, .swapchain_khr, @intFromEnum(handle), "swapchain");
         }
 
         if (options.old_handle != .null_handle) {
@@ -171,12 +173,12 @@ pub const Swapchain = struct {
         };
     }
 
-    fn deinitExceptSwapchain(self: Swapchain, gpu: *Gpu) void {
+    fn deinitExceptSwapchain(self: Swapchain, gpu: Gpu) void {
         for (self.swap_images) |si| si.deinit(gpu);
         self.ally.free(self.swap_images);
     }
 
-    pub fn deinit(self: Swapchain, gpu: *Gpu) void {
+    pub fn deinit(self: Swapchain, gpu: Gpu) void {
         self.deinitExceptSwapchain(gpu);
         gpu.vkd.destroySwapchainKHR(gpu.dev, self.handle, null);
 
@@ -187,7 +189,7 @@ pub const Swapchain = struct {
         self.ally.free(self.frame_fence);
     }
 
-    pub fn recreate(self: *Swapchain, gpu: *Gpu, new_extent: vk.Extent2D, format: PreferredFormat) !void {
+    pub fn recreate(self: *Swapchain, gpu: Gpu, new_extent: vk.Extent2D, format: PreferredFormat) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
 
@@ -203,12 +205,12 @@ pub const Swapchain = struct {
         });
     }
 
-    pub fn wait(swapchain: *Swapchain, gpu: *Gpu, frame_id: usize) !void {
+    pub fn wait(swapchain: *Swapchain, gpu: Gpu, frame_id: usize) !void {
         _ = try gpu.vkd.waitForFences(gpu.dev, 1, @ptrCast(&swapchain.frame_fence[frame_id]), vk.TRUE, std.math.maxInt(u64));
         try gpu.vkd.resetFences(gpu.dev, 1, @ptrCast(&swapchain.frame_fence[frame_id]));
     }
 
-    pub fn acquireImage(swapchain: *Swapchain, gpu: *Gpu, frame_id: usize) !ImageIndex {
+    pub fn acquireImage(swapchain: *Swapchain, gpu: Gpu, frame_id: usize) !ImageIndex {
         return @enumFromInt((try gpu.vkd.acquireNextImageKHR(
             gpu.dev,
             swapchain.handle,
@@ -243,7 +245,7 @@ pub const Swapchain = struct {
         };
     }
 
-    pub fn submit(swapchain: *Swapchain, gpu: *Gpu, builder: CommandBuilder, options: struct {
+    pub fn submit(swapchain: *Swapchain, gpu: Gpu, builder: CommandBuilder, options: struct {
         wait: []const CommandBuilder.WaitSemaphore,
         image_index: ImageIndex,
     }) !void {
@@ -258,7 +260,7 @@ pub const Swapchain = struct {
         });
     }
 
-    pub fn present(swapchain: *Swapchain, gpu: *Gpu, options: struct {
+    pub fn present(swapchain: *Swapchain, gpu: Gpu, options: struct {
         wait: []const vk.Semaphore,
         image_index: ImageIndex,
     }) !void {
@@ -280,7 +282,7 @@ const SwapImage = struct {
     view: vk.ImageView,
     submit_semaphore: vk.Semaphore,
 
-    fn init(gpu: *const Gpu, image: vk.Image, format: vk.Format) !SwapImage {
+    fn init(gpu: Gpu, image: vk.Image, format: vk.Format) !SwapImage {
         const view = try gpu.vkd.createImageView(gpu.dev, &.{
             .image = image,
             .view_type = .@"2d",
@@ -297,8 +299,8 @@ const SwapImage = struct {
         errdefer gpu.vkd.destroyImageView(gpu.dev, view, null);
 
         if (builtin.mode == .Debug) {
-            try addDebugMark(gpu.*, .image_view, @intFromEnum(view), "swapchain image view");
-            try addDebugMark(gpu.*, .image, @intFromEnum(image), "swapchain image");
+            try addDebugMark(gpu, .image_view, @intFromEnum(view), "swapchain image view");
+            try addDebugMark(gpu, .image, @intFromEnum(image), "swapchain image");
         }
 
         const semaphore = try gpu.vkd.createSemaphore(gpu.dev, &.{}, null);
@@ -311,14 +313,14 @@ const SwapImage = struct {
         };
     }
 
-    fn deinit(self: SwapImage, gpu: *const Gpu) void {
+    fn deinit(self: SwapImage, gpu: Gpu) void {
         //self.waitForFence(gpu) catch return;
         gpu.vkd.destroyImageView(gpu.dev, self.view, null);
         gpu.vkd.destroySemaphore(gpu.dev, self.submit_semaphore, null);
     }
 };
 
-fn initSwapchainImages(gpu: *const Gpu, swapchain: vk.SwapchainKHR, format: vk.Format, allocator: Allocator) ![]SwapImage {
+fn initSwapchainImages(gpu: Gpu, swapchain: vk.SwapchainKHR, format: vk.Format, allocator: Allocator) ![]SwapImage {
     var count: u32 = undefined;
     _ = try gpu.vkd.getSwapchainImagesKHR(gpu.dev, swapchain, &count, null);
     const images = try allocator.alloc(vk.Image, count);
@@ -339,9 +341,9 @@ fn initSwapchainImages(gpu: *const Gpu, swapchain: vk.SwapchainKHR, format: vk.F
     return swap_images;
 }
 
-fn findSurfaceFormat(gpu: *const Gpu, allocator: Allocator, format: PreferredFormat) !vk.SurfaceFormatKHR {
+fn findSurfaceFormat(gpu: Gpu, allocator: Allocator, format: PreferredFormat) !vk.SurfaceFormatKHR {
     const preferred = vk.SurfaceFormatKHR{
-        .format = format.getSurfaceFormat(gpu.*),
+        .format = format.getSurfaceFormat(gpu),
         .color_space = .srgb_nonlinear_khr,
     };
 
@@ -360,7 +362,7 @@ fn findSurfaceFormat(gpu: *const Gpu, allocator: Allocator, format: PreferredFor
     return surface_formats[0];
 }
 
-fn findPresentMode(gpu: *const Gpu, allocator: Allocator) !vk.PresentModeKHR {
+fn findPresentMode(gpu: Gpu, allocator: Allocator) !vk.PresentModeKHR {
     var count: u32 = undefined;
     _ = try gpu.vki.getPhysicalDeviceSurfacePresentModesKHR(gpu.pdev, gpu.surface.?, &count, null);
     const present_modes = try allocator.alloc(vk.PresentModeKHR, count);
@@ -397,25 +399,25 @@ pub const CommandMode = union(enum) {
     queue: CommandBuilder,
     immediate: void,
 
-    pub fn getBuilder(mode: CommandMode, gpu: *const Gpu, pool: vk.CommandPool, ally: std.mem.Allocator) !CommandBuilder {
+    pub fn getBuilder(mode: CommandMode, gpu: Gpu, pool: vk.CommandPool, ally: std.mem.Allocator) !CommandBuilder {
         if (mode == .immediate) {
             return try CommandBuilder.init(gpu, pool, ally, 1);
         } else {
             return mode.queue;
         }
     }
-    pub fn deinitBuilder(mode: CommandMode, builder: *CommandBuilder, gpu: *const Gpu, pool: vk.CommandPool, ally: std.mem.Allocator) void {
+    pub fn deinitBuilder(mode: CommandMode, builder: *CommandBuilder, gpu: Gpu, pool: vk.CommandPool, ally: std.mem.Allocator) void {
         if (mode == .immediate) {
             builder.deinit(gpu, pool, ally);
         }
     }
 
-    pub fn beginBuilder(mode: CommandMode, builder: *CommandBuilder, gpu: *const Gpu) !void {
+    pub fn beginBuilder(mode: CommandMode, builder: *CommandBuilder, gpu: Gpu) !void {
         if (mode == .immediate) {
             try builder.beginCommand(gpu);
         }
     }
-    pub fn endBuilder(mode: CommandMode, builder: *CommandBuilder, gpu: *const Gpu, ally: std.mem.Allocator) !void {
+    pub fn endBuilder(mode: CommandMode, builder: *CommandBuilder, gpu: Gpu, ally: std.mem.Allocator) !void {
         if (mode == .immediate) {
             try builder.endCommand(gpu);
             try builder.queueSubmit(gpu, ally, .{ .queue = gpu.graphics_queue });
@@ -425,7 +427,7 @@ pub const CommandMode = union(enum) {
 };
 
 pub fn copyBuffer(
-    gpu: *const Gpu,
+    gpu: Gpu,
     pool: vk.CommandPool,
     dst: BufferMemory,
     src: BufferMemory,
@@ -498,9 +500,11 @@ const TransitionOptions = struct {
     new_layout: vk.ImageLayout,
     layer_count: u32 = 1,
     level_count: u32 = 1,
+    layer_index: u32 = 0,
+    level_index: u32 = 0,
 };
 
-pub fn recordTransitionImageLayout(gpu: *const Gpu, cmdbuf: vk.CommandBuffer, image: vk.Image, options: TransitionOptions) !void {
+pub fn recordTransitionImageLayout(gpu: Gpu, cmdbuf: vk.CommandBuffer, image: vk.Image, options: TransitionOptions) !void {
     const barrier: vk.ImageMemoryBarrier = .{
         .old_layout = options.old_layout,
         .new_layout = options.new_layout,
@@ -516,20 +520,22 @@ pub fn recordTransitionImageLayout(gpu: *const Gpu, cmdbuf: vk.CommandBuffer, im
                     break :blk .{ .color_bit = true };
                 }
             },
-            .base_mip_level = 0,
+            .base_mip_level = options.level_index,
             .level_count = options.level_count,
-            .base_array_layer = 0,
+            .base_array_layer = options.layer_index,
             .layer_count = options.layer_count,
         },
         .src_access_mask = switch (options.old_layout) {
             .undefined => .{},
             .depth_stencil_attachment_optimal => .{ .depth_stencil_attachment_write_bit = true },
             .general, .transfer_dst_optimal => .{ .transfer_write_bit = true },
+            .transfer_src_optimal => .{ .transfer_read_bit = true },
             .color_attachment_optimal => .{ .color_attachment_write_bit = true },
             else => return error.InvalidOldLayout,
         },
         .dst_access_mask = switch (options.new_layout) {
             .general, .transfer_dst_optimal => .{ .transfer_write_bit = true },
+            .transfer_src_optimal => .{ .transfer_read_bit = true },
             .color_attachment_optimal, .shader_read_only_optimal => .{ .shader_read_bit = true },
             .depth_stencil_attachment_optimal => .{ .depth_stencil_attachment_read_bit = true, .depth_stencil_attachment_write_bit = true },
             .present_src_khr => .{},
@@ -542,12 +548,12 @@ pub fn recordTransitionImageLayout(gpu: *const Gpu, cmdbuf: vk.CommandBuffer, im
         switch (options.old_layout) {
             .undefined => .{ .top_of_pipe_bit = true },
             .depth_stencil_attachment_optimal => .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
-            .general, .transfer_dst_optimal => .{ .transfer_bit = true },
+            .general, .transfer_dst_optimal, .transfer_src_optimal => .{ .transfer_bit = true },
             .color_attachment_optimal => .{ .color_attachment_output_bit = true },
             else => return error.InvalidOldLayout,
         },
         switch (options.new_layout) {
-            .general, .transfer_dst_optimal => .{ .transfer_bit = true },
+            .general, .transfer_dst_optimal, .transfer_src_optimal => .{ .transfer_bit = true },
             .color_attachment_optimal, .shader_read_only_optimal => .{ .fragment_shader_bit = true },
             .depth_stencil_attachment_optimal => .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
             .present_src_khr => .{ .bottom_of_pipe_bit = true },
@@ -563,7 +569,7 @@ pub fn recordTransitionImageLayout(gpu: *const Gpu, cmdbuf: vk.CommandBuffer, im
     );
 }
 
-pub fn transitionImageLayout(gpu: *const Gpu, pool: vk.CommandPool, image: vk.Image, options: TransitionOptions) !void {
+pub fn transitionImageLayout(gpu: Gpu, pool: vk.CommandPool, image: vk.Image, options: TransitionOptions) !void {
     // TODO: remove, pass ally normally
     const ally = std.heap.page_allocator;
     var builder = try CommandBuilder.init(gpu, pool, ally, 1);
@@ -598,7 +604,7 @@ pub const Shader = struct {
         if (builtin.mode == .Debug) {
             try addDebugMark(gpu, .shader_module, @intFromEnum(module), "shader");
         }
-        return Shader{
+        return .{
             .module = module,
             .type = shader_enum,
             .file_src = file_src,
@@ -618,7 +624,7 @@ pub const OpQueue = struct {
     set_update: std.ArrayList(SetUpdate),
     buffer_deletion: std.ArrayList(BufferHandle),
 
-    gpu: *Gpu,
+    gpu: Gpu,
     ally: std.mem.Allocator,
 
     pub fn deinit(queue: *OpQueue) void {
@@ -656,11 +662,11 @@ pub const OpQueue = struct {
         }
 
         while (queue.buffer_deletion.pop()) |buffer| {
-            buffer.deinit(queue.gpu.*);
+            buffer.deinit(queue.gpu);
         }
     }
 
-    pub fn init(ally: std.mem.Allocator, gpu: *Gpu) OpQueue {
+    pub fn init(ally: std.mem.Allocator, gpu: Gpu) OpQueue {
         return .{
             .set_update = .empty,
             .buffer_deletion = .empty,
@@ -715,10 +721,10 @@ pub const Descriptor = struct {
     };
 
     pub const UniformWrite = struct {
-        dst: u32 = 0,
+        dst: u32,
         // binding index
         idx: u32,
-        set: u32 = 0,
+        set: u32,
         buffer: BufferHandle,
     };
 
@@ -743,12 +749,12 @@ pub const Descriptor = struct {
         set: u32 = 0,
     };
 
-    pub const Info = struct {
+    pub const Options = struct {
         pipeline: Pipeline,
         queue: ?*OpQueue,
     };
 
-    pub fn init(ally: std.mem.Allocator, gpu: *Gpu, options: Info) !Descriptor {
+    pub fn init(ally: std.mem.Allocator, gpu: Gpu, options: Options) !Descriptor {
         const pipeline = options.pipeline;
         const description = options.pipeline.description;
 
@@ -773,7 +779,7 @@ pub const Descriptor = struct {
             };
             pool.* = try gpu.vkd.createDescriptorPool(gpu.dev, &pool_info, null);
             if (builtin.mode == .Debug) {
-                try addDebugMark(gpu.*, .descriptor_pool, @intFromEnum(pool.*), "pool");
+                try addDebugMark(gpu, .descriptor_pool, @intFromEnum(pool.*), "pool");
             }
         }
 
@@ -804,7 +810,7 @@ pub const Descriptor = struct {
         return null;
     }
 
-    pub fn getUniformOrCreate(descriptor: *Descriptor, gpu: *Gpu, set: u32, binding: u32, dst: u32) !BufferHandle {
+    pub fn getUniformOrCreate(descriptor: *Descriptor, gpu: Gpu, set: u32, binding: u32, dst: u32) !BufferHandle {
         const pipeline_description = descriptor.pipeline.description;
         for (descriptor.uniform_buffers[set][binding].items) |uniform| {
             if (uniform.idx == dst) return uniform.buffer;
@@ -821,6 +827,7 @@ pub const Descriptor = struct {
         try descriptor.updateDescriptorSets(gpu, .{ .uniforms = &.{.{
             .dst = dst,
             .idx = binding,
+            .set = set,
             .buffer = buffer.buffer,
         }} });
 
@@ -830,7 +837,7 @@ pub const Descriptor = struct {
     pub fn setUniformOrCreate(
         descriptor: *Descriptor,
         comptime Data: DataDescription,
-        gpu: *Gpu,
+        gpu: Gpu,
         set: u32,
         binding: u32,
         dst: u32,
@@ -842,17 +849,17 @@ pub const Descriptor = struct {
     pub fn setUniformSliceOrCreate(
         descriptor: *Descriptor,
         comptime Data: DataDescription,
-        gpu: *Gpu,
+        gpu: Gpu,
         set: u32,
         binding: u32,
         slice: []Data.T,
     ) !void {
         for (slice, 0..) |value, i| {
-            (try descriptor.getUniformOrCreate(gpu, set, binding, i)).setAsUniform(Data, value);
+            (try descriptor.getUniformOrCreate(gpu, set, binding, @intCast(i))).setAsUniform(Data, value);
         }
     }
 
-    pub fn createUniformBuffers(descriptor: *Descriptor, ally: std.mem.Allocator, gpu: *Gpu) !void {
+    pub fn createUniformBuffers(descriptor: *Descriptor, ally: std.mem.Allocator, gpu: Gpu) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
 
@@ -877,7 +884,12 @@ pub const Descriptor = struct {
                             .size = description.size,
                             .buffer_type = .uniform,
                         }) });
-                        try descriptor.updateDescriptorSets(gpu, .{ .uniforms = &.{.{ .idx = @intCast(i), .buffer = array.items[0].buffer }} });
+                        try descriptor.updateDescriptorSets(gpu, .{ .uniforms = &.{.{
+                            .idx = @intCast(i),
+                            .set = @intCast(set_i),
+                            .dst = 0,
+                            .buffer = array.items[0].buffer,
+                        }} });
                     }
                 }
             }
@@ -914,7 +926,7 @@ pub const Descriptor = struct {
         ally.free(descriptor.descriptor_sets);
     }
 
-    pub fn createDescriptorSets(descriptor: *Descriptor, ally: std.mem.Allocator, gpu: *Gpu) !void {
+    pub fn createDescriptorSets(descriptor: *Descriptor, ally: std.mem.Allocator, gpu: Gpu) !void {
         const pipeline = descriptor.pipeline.description;
 
         for (descriptor.descriptor_sets, descriptor.descriptor_pools, descriptor.pipeline.layouts) |*set, pool, *layout| {
@@ -939,7 +951,7 @@ pub const Descriptor = struct {
         }
     }
 
-    pub fn updateSets(descriptor: *Descriptor, gpu: *Gpu, options: WriteOptions) !void {
+    pub fn updateSets(descriptor: *Descriptor, gpu: Gpu, options: WriteOptions) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
 
@@ -959,6 +971,7 @@ pub const Descriptor = struct {
                 .offset = 0,
                 .range = uniform.buffer.mem.size,
             };
+            std.debug.print("vsf {any}\n", .{uniform});
 
             try descriptor_writes.append(descriptor.ally, .{
                 .dst_set = descriptor.descriptor_sets[uniform.set],
@@ -1033,7 +1046,7 @@ pub const Descriptor = struct {
         gpu.vkd.updateDescriptorSets(gpu.dev, @intCast(descriptor_writes.items.len), descriptor_writes.items.ptr, 0, null);
     }
 
-    pub fn updateDescriptorSets(descriptor: *Descriptor, gpu: *Gpu, options: WriteOptions) !void {
+    pub fn updateDescriptorSets(descriptor: *Descriptor, gpu: Gpu, options: WriteOptions) !void {
         if (descriptor.queue) |queue| {
             try queue.appendSet(options, descriptor);
         } else {
@@ -1047,7 +1060,7 @@ pub const Compute = struct {
     global_ubo: bool,
 
     descriptor: Descriptor,
-    gpu: *Gpu,
+    gpu: Gpu,
 
     compute_semaphores: []vk.Semaphore,
     compute_fences: []vk.Fence,
@@ -1067,13 +1080,13 @@ pub const Compute = struct {
         compute: ComputePipeline,
         queue: ?*OpQueue = null,
     }) !Compute {
-        const gpu = &options.win.gpu;
+        const gpu = options.win.gpu;
 
         const compute_semaphores = try ally.alloc(vk.Semaphore, frames_in_flight);
         for (compute_semaphores) |*f| {
             f.* = try gpu.vkd.createSemaphore(gpu.dev, &.{}, null);
             if (builtin.mode == .Debug) {
-                try addDebugMark(gpu.*, .semaphore, @intFromEnum(f.*), "compute semaphore");
+                try addDebugMark(gpu, .semaphore, @intFromEnum(f.*), "compute semaphore");
             }
         }
 
@@ -1081,7 +1094,7 @@ pub const Compute = struct {
         for (compute_fences) |*f| {
             f.* = try gpu.vkd.createFence(gpu.dev, &.{ .flags = .{ .signaled_bit = true } }, null);
             if (builtin.mode == .Debug) {
-                try addDebugMark(gpu.*, .fence, @intFromEnum(f.*), "compute fence");
+                try addDebugMark(gpu, .fence, @intFromEnum(f.*), "compute fence");
             }
         }
 
@@ -1108,7 +1121,7 @@ pub const Compute = struct {
         for (compute.compute_fences) |f| gpu.vkd.destroyFence(gpu.dev, f, null);
         ally.free(compute.compute_fences);
 
-        compute.descriptor.deinit(ally, gpu.*);
+        compute.descriptor.deinit(ally, gpu);
     }
 
     pub fn wait(compute: *Compute, frame_id: usize) !void {
@@ -1212,7 +1225,7 @@ pub const RenderTarget = union(enum) {
 };
 
 pub const Drawing = struct {
-    vert_count: usize,
+    vert_count: u32,
     instances: u32 = 1,
     global_ubo: bool,
 
@@ -1230,26 +1243,26 @@ pub const Drawing = struct {
         auto,
     };
 
-    pub const Info = struct {
+    pub const Options = struct {
         pipeline: RenderPipeline,
         queue: ?*OpQueue = null,
         target: RenderTarget,
         flip_z: Flip = .auto,
     };
 
-    pub fn init(drawing: *Drawing, ally: std.mem.Allocator, gpu: *Gpu, options: Info) !void {
+    pub fn init(ally: std.mem.Allocator, gpu: Gpu, options: Options) !Drawing {
         // check if pipeline and targets match
         switch (options.target) {
             .texture => |textures| {
                 std.debug.assert((textures.depth_texture == null and options.pipeline.attachments.depth == null) or
                     (textures.depth_texture != null and options.pipeline.attachments.depth != null));
                 for (textures.color_textures) |tex| {
-                    std.debug.assert(tex.info.type == .render_target);
+                    std.debug.assert(tex.options.type == .render_target);
                 }
             },
             else => {},
         }
-        drawing.* = .{
+        return .{
             .vert_count = 0,
             .global_ubo = options.pipeline.pipeline.description.global_ubo,
             .descriptor = try Descriptor.init(ally, gpu, .{ .pipeline = options.pipeline.pipeline, .queue = options.queue }),
@@ -1260,12 +1273,12 @@ pub const Drawing = struct {
             .pipeline = options.pipeline,
         };
 
-        if (drawing.global_ubo) {
-            try drawing.descriptor.setUniformOrCreate(GlobalUniform, gpu, 0, 0, 0, .{
-                .time = 0,
-                .in_resolution = .{ 0, 0 },
-            });
-        }
+        //if (drawing.global_ubo) {
+        //    try drawing.descriptor.setUniformOrCreate(GlobalUniform, gpu, 0, 0, 0, .{
+        //        .time = 0,
+        //        .in_resolution = .{ 0, 0 },
+        //    });
+        //}
     }
 
     pub fn deinit(self: *Drawing, ally: std.mem.Allocator, gpu: Gpu) void {
@@ -1282,7 +1295,7 @@ pub const Drawing = struct {
         drawing.deinit(ally, gpu);
     }
 
-    pub fn draw(drawing: *Drawing, gpu: *Gpu, command_buffer: vk.CommandBuffer, options: struct {
+    pub fn draw(drawing: *Drawing, gpu: Gpu, command_buffer: vk.CommandBuffer, options: struct {
         swapchain: Swapchain,
         frame_id: usize,
         bind_pipeline: bool,
@@ -1317,13 +1330,13 @@ pub const Drawing = struct {
         } else gpu.vkd.cmdDraw(command_buffer, @intCast(drawing.vert_count), drawing.instances, 0, 0);
     }
 
-    pub fn destroyVertex(drawing: *Drawing, gpu: *Gpu) !void {
+    pub fn destroyVertex(drawing: *Drawing, gpu: Gpu) !void {
         if (drawing.vertex_buffer) |vb| {
             if (drawing.descriptor.queue) |queue| {
                 try queue.appendBufferDeletion(vb);
             } else {
                 try gpu.vkd.deviceWaitIdle(gpu.dev);
-                vb.deinit(gpu.*);
+                vb.deinit(gpu);
             }
         }
 
@@ -1332,7 +1345,7 @@ pub const Drawing = struct {
                 try queue.appendBufferDeletion(vb);
             } else {
                 try gpu.vkd.deviceWaitIdle(gpu.dev);
-                vb.deinit(gpu.*);
+                vb.deinit(gpu);
             }
         }
     }
@@ -1462,7 +1475,7 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, in_width: c_int, in_height:
             if (!win.size_dirty) return;
         }
 
-        swapchain.recreate(&win.gpu, .{ .width = @intCast(in_width), .height = @intCast(in_height) }, win.preferred_format) catch |err| {
+        swapchain.recreate(win.gpu, .{ .width = @intCast(in_width), .height = @intCast(in_height) }, win.preferred_format) catch |err| {
             printError(err);
         };
 
@@ -1470,12 +1483,12 @@ pub fn getFramebufferSize(win_or: ?*glfw.GLFWwindow, in_width: c_int, in_height:
         const height: i32 = @intCast(swapchain.extent.height);
 
         win.destroyFramebuffers();
-        win.depth_buffer.deinit(&win.gpu);
-        win.depth_buffer = Window.createDepthBuffer(&win.gpu, swapchain.*, win.pool) catch |err| {
+        win.depth_buffer.deinit(win.gpu);
+        win.depth_buffer = Window.createDepthBuffer(win.gpu, swapchain.*, win.pool) catch |err| {
             printError(err);
         };
 
-        win.framebuffers = Window.createFramebuffers(&win.gpu, win.ally, win.render_pass.pass, swapchain.*, win.depth_buffer) catch |err| {
+        win.framebuffers = Window.createFramebuffers(win.gpu, win.ally, win.render_pass.pass, swapchain.*, win.depth_buffer) catch |err| {
             printError(err);
         };
 
@@ -1567,7 +1580,7 @@ pub const PreferredFormat = enum {
     }
 };
 
-pub const WindowInfo = struct {
+pub const WindowOptions = struct {
     width: i32 = 256,
     height: i32 = 256,
     resizable: bool = true,
@@ -1577,7 +1590,7 @@ pub const WindowInfo = struct {
 };
 
 pub const Framebuffer = struct {
-    pub const FramebufferInfo = struct {
+    pub const FramebufferOptions = struct {
         // TODO: change this to a Texture instead
         attachments: []const vk.ImageView,
         render_pass: vk.RenderPass,
@@ -1591,7 +1604,7 @@ pub const Framebuffer = struct {
     pub fn deinit(fb: Framebuffer, gpu: Gpu) void {
         gpu.vkd.destroyFramebuffer(gpu.dev, fb.buffer, null);
     }
-    pub fn init(gpu: *const Gpu, options: FramebufferInfo) !Framebuffer {
+    pub fn init(gpu: Gpu, options: FramebufferOptions) !Framebuffer {
         const buffer = try gpu.vkd.createFramebuffer(gpu.dev, &.{
             .render_pass = options.render_pass,
             .attachment_count = @intCast(options.attachments.len),
@@ -1601,7 +1614,7 @@ pub const Framebuffer = struct {
             .layers = options.layers,
         }, null);
         if (builtin.mode == .Debug) {
-            try addDebugMark(gpu.*, .framebuffer, @intFromEnum(buffer), "framebuffer");
+            try addDebugMark(gpu, .framebuffer, @intFromEnum(buffer), "framebuffer");
         }
         return .{
             .buffer = buffer,
@@ -1611,9 +1624,9 @@ pub const Framebuffer = struct {
 
 pub const RenderPass = struct {
     pass: vk.RenderPass,
-    info: Info,
+    options: Options,
 
-    pub const Info = struct {
+    pub const Options = struct {
         format: vk.Format,
         color: bool = true,
         depth: bool = true,
@@ -1621,18 +1634,18 @@ pub const RenderPass = struct {
         target: bool = false,
     };
 
-    pub fn init(gpu: *const Gpu, info: Info) !RenderPass {
+    pub fn init(gpu: Gpu, options: Options) !RenderPass {
         const color_attachment: vk.AttachmentDescription = .{
-            .format = info.format,
-            .samples = if (info.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
+            .format = options.format,
+            .samples = if (options.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
             .load_op = .clear,
             .store_op = .store,
             .stencil_load_op = .dont_care,
             .stencil_store_op = .dont_care,
             .initial_layout = .undefined,
             .final_layout = blk: {
-                if (info.multisampling) break :blk .color_attachment_optimal;
-                if (info.target) {
+                if (options.multisampling) break :blk .color_attachment_optimal;
+                if (options.target) {
                     break :blk .shader_read_only_optimal;
                 } else {
                     break :blk .present_src_khr;
@@ -1647,7 +1660,7 @@ pub const RenderPass = struct {
 
         const depth_attachment: vk.AttachmentDescription = .{
             .format = try gpu.findDepthFormat(),
-            .samples = if (info.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
+            .samples = if (options.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
             .load_op = .clear,
             .store_op = .store,
             .stencil_load_op = .dont_care,
@@ -1662,7 +1675,7 @@ pub const RenderPass = struct {
         };
 
         const color_resolve_attachment: vk.AttachmentDescription = .{
-            .format = info.format,
+            .format = options.format,
             .samples = .{ .@"1_bit" = true },
             .load_op = .clear,
             .store_op = .store,
@@ -1670,7 +1683,7 @@ pub const RenderPass = struct {
             .stencil_store_op = .dont_care,
             .initial_layout = .undefined,
             .final_layout = blk: {
-                if (info.target) {
+                if (options.target) {
                     break :blk .shader_read_only_optimal;
                 } else {
                     break :blk .present_src_khr;
@@ -1723,16 +1736,16 @@ pub const RenderPass = struct {
         var attachment_buff: [8]vk.AttachmentDescription = undefined;
 
         const dependencies: []const vk.SubpassDependency = blk: {
-            if (info.target) {
+            if (options.target) {
                 break :blk &.{ target_first_dependency, target_second_dependency };
             } else {
                 var i: usize = 0;
-                if (info.color) {
+                if (options.color) {
                     dependency_buff[i] = color_dependency;
                     i += 1;
                 }
 
-                if (info.depth) {
+                if (options.depth) {
                     dependency_buff[i] = depth_dependency;
                     i += 1;
                 }
@@ -1742,19 +1755,19 @@ pub const RenderPass = struct {
 
         const attachments: []const vk.AttachmentDescription = blk: {
             var i: usize = 0;
-            if (info.color) {
+            if (options.color) {
                 color_attachment_ref.attachment = @intCast(i);
                 attachment_buff[i] = color_attachment;
                 i += 1;
             }
 
-            if (info.depth) {
+            if (options.depth) {
                 depth_attachment_ref.attachment = @intCast(i);
                 attachment_buff[i] = depth_attachment;
                 i += 1;
             }
 
-            if (info.multisampling) {
+            if (options.multisampling) {
                 color_resolve_attachment_ref.attachment = @intCast(i);
                 attachment_buff[i] = color_resolve_attachment;
                 i += 1;
@@ -1765,10 +1778,10 @@ pub const RenderPass = struct {
 
         const subpass: vk.SubpassDescription = .{
             .pipeline_bind_point = .graphics,
-            .color_attachment_count = if (info.color) 1 else 0,
-            .p_color_attachments = if (info.color) @ptrCast(&color_attachment_ref) else null,
-            .p_depth_stencil_attachment = if (info.depth) @ptrCast(&depth_attachment_ref) else null,
-            .p_resolve_attachments = if (info.multisampling) @ptrCast(&color_resolve_attachment_ref) else null,
+            .color_attachment_count = if (options.color) 1 else 0,
+            .p_color_attachments = if (options.color) @ptrCast(&color_attachment_ref) else null,
+            .p_depth_stencil_attachment = if (options.depth) @ptrCast(&depth_attachment_ref) else null,
+            .p_resolve_attachments = if (options.multisampling) @ptrCast(&color_resolve_attachment_ref) else null,
         };
 
         const pass = try gpu.vkd.createRenderPass(gpu.dev, &.{
@@ -1780,16 +1793,16 @@ pub const RenderPass = struct {
             .p_dependencies = dependencies.ptr,
         }, null);
         if (builtin.mode == .Debug) {
-            try addDebugMark(gpu.*, .render_pass, @intFromEnum(pass), "render pass");
+            try addDebugMark(gpu, .render_pass, @intFromEnum(pass), "render pass");
         }
 
         return .{
             .pass = pass,
-            .info = info,
+            .options = options,
         };
     }
 
-    pub fn deinit(pass: RenderPass, gpu: *const Gpu) void {
+    pub fn deinit(pass: RenderPass, gpu: Gpu) void {
         gpu.vkd.destroyRenderPass(gpu.dev, pass.pass, null);
     }
 };
@@ -1814,7 +1827,86 @@ pub const CommandBuilder = struct {
         flag: vk.PipelineStageFlags,
     };
 
-    pub fn transferVertBarrier(builder: CommandBuilder, gpu: *const Gpu) void {
+    pub const BlitSubresource = struct {
+        level_index: u32,
+        layer_index: u32,
+        layer_count: u32,
+    };
+
+    pub fn blitImage(
+        builder: *CommandBuilder,
+        gpu: Gpu,
+        src_image: vk.Image,
+        dst_image: vk.Image,
+        options: struct {
+            old_layout: vk.ImageLayout,
+            new_layout: vk.ImageLayout,
+            src_region: [2][3]i32,
+            dst_region: [2][3]i32,
+            filter: vk.Filter,
+
+            src_view: BlitSubresource,
+            dst_view: BlitSubresource,
+        },
+    ) void {
+        const cmdbuf = builder.getCurrent();
+
+        const src_subresource: vk.ImageSubresourceLayers = .{
+            .aspect_mask = .{ .color_bit = true },
+            .mip_level = options.src_view.level_index,
+            .base_array_layer = options.src_view.layer_index,
+            .layer_count = options.src_view.layer_count,
+        };
+
+        const dst_subresource: vk.ImageSubresourceLayers = .{
+            .aspect_mask = .{ .color_bit = true },
+            .mip_level = options.dst_view.level_index,
+            .base_array_layer = options.dst_view.layer_index,
+            .layer_count = options.dst_view.layer_count,
+        };
+
+        const region: vk.ImageBlit = .{
+            .src_subresource = src_subresource,
+            .src_offsets = .{
+                .{
+                    .x = options.src_region[0][0],
+                    .y = options.src_region[0][1],
+                    .z = options.src_region[0][2],
+                },
+                .{
+                    .x = options.src_region[1][0],
+                    .y = options.src_region[1][1],
+                    .z = options.src_region[1][2],
+                },
+            },
+            .dst_subresource = dst_subresource,
+            .dst_offsets = .{
+                .{
+                    .x = options.dst_region[0][0],
+                    .y = options.dst_region[0][1],
+                    .z = options.dst_region[0][2],
+                },
+                .{
+                    .x = options.dst_region[1][0],
+                    .y = options.dst_region[1][1],
+                    .z = options.dst_region[1][2],
+                },
+            },
+        };
+
+        gpu.vkd.cmdBlitImage(
+            cmdbuf,
+            src_image,
+            options.old_layout,
+            dst_image,
+            options.new_layout,
+            1,
+            @ptrCast(&region),
+            options.filter,
+        );
+    }
+
+    pub fn transferVertBarrier(builder: CommandBuilder, gpu: Gpu) void {
         builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .transfer_bit = true },
             .dst_stage = .{ .vertex_input_bit = true },
@@ -1829,7 +1921,7 @@ pub const CommandBuilder = struct {
 
     pub fn copyBuffer(
         builder: CommandBuilder,
-        gpu: *const Gpu,
+        gpu: Gpu,
         src: BufferMemory,
         dst: BufferMemory,
         size: u64,
@@ -1844,7 +1936,7 @@ pub const CommandBuilder = struct {
 
     pub fn queueSubmit(
         builder: CommandBuilder,
-        gpu: *const Gpu,
+        gpu: Gpu,
         ally: std.mem.Allocator,
         options: struct {
             queue: Gpu.Queue,
@@ -1899,7 +1991,7 @@ pub const CommandBuilder = struct {
 
     pub fn pipelineBarrier(
         builder: CommandBuilder,
-        gpu: *const Gpu,
+        gpu: Gpu,
         options: struct {
             src_stage: vk.PipelineStageFlags = .{},
             dst_stage: vk.PipelineStageFlags = .{},
@@ -2015,7 +2107,7 @@ pub const CommandBuilder = struct {
         );
     }
 
-    pub fn transitionSwapimage(builder: *CommandBuilder, gpu: *const Gpu, swapimage: vk.Image) void {
+    pub fn transitionSwapimage(builder: *CommandBuilder, gpu: Gpu, swapimage: vk.Image) void {
         builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .color_attachment_output_bit = true },
             .dst_stage = .{ .bottom_of_pipe_bit = true },
@@ -2035,7 +2127,7 @@ pub const CommandBuilder = struct {
 
     pub fn beginRendering(
         builder: CommandBuilder,
-        gpu: *const Gpu,
+        gpu: Gpu,
         options: struct {
             region: RenderRegion,
             // get from a function
@@ -2077,12 +2169,12 @@ pub const CommandBuilder = struct {
         });
     }
 
-    pub fn endRendering(builder: *CommandBuilder, gpu: *const Gpu) void {
+    pub fn endRendering(builder: *CommandBuilder, gpu: Gpu) void {
         const cmdbuf = builder.getCurrent();
         gpu.vkd.cmdEndRendering(cmdbuf);
     }
 
-    pub fn beginRenderPass(builder: CommandBuilder, gpu: *const Gpu, render_pass: RenderPass, framebuffer: Framebuffer, region: RenderRegion) void {
+    pub fn beginRenderPass(builder: CommandBuilder, gpu: Gpu, render_pass: RenderPass, framebuffer: Framebuffer, region: RenderRegion) void {
         const cmdbuf = builder.getCurrent();
 
         const clear_color = vk.ClearValue{
@@ -2098,7 +2190,7 @@ pub const CommandBuilder = struct {
         };
 
         const clear_values: []const vk.ClearValue = blk: {
-            if (render_pass.info.multisampling) {
+            if (render_pass.options.multisampling) {
                 break :blk &.{ clear_color, clear_depth, clear_color };
             } else {
                 break :blk &.{ clear_color, clear_depth };
@@ -2114,30 +2206,30 @@ pub const CommandBuilder = struct {
         }, .@"inline");
     }
 
-    pub fn transitionLayoutTexture(builder: *CommandBuilder, gpu: *const Gpu, tex: *Texture, options: TransitionOptions) !void {
+    pub fn transitionLayoutTexture(builder: *CommandBuilder, gpu: Gpu, tex: *Texture, options: TransitionOptions) !void {
         const cmdbuf = builder.getCurrent();
         try recordTransitionImageLayout(gpu, cmdbuf, tex.image, options);
 
         tex.current_layout = options.new_layout;
     }
 
-    pub fn transitionLayout(builder: *CommandBuilder, gpu: *const Gpu, image: vk.Image, options: TransitionOptions) !void {
+    pub fn transitionLayout(builder: *CommandBuilder, gpu: Gpu, image: vk.Image, options: TransitionOptions) !void {
         const cmdbuf = builder.getCurrent();
         try recordTransitionImageLayout(gpu, cmdbuf, image, options);
     }
 
-    pub fn setViewport(builder: *CommandBuilder, gpu: *const Gpu, info: struct { flip_z: bool, width: u32, height: u32 }) !void {
+    pub fn setViewport(builder: *CommandBuilder, gpu: Gpu, options: struct { flip_z: bool, width: u32, height: u32 }) !void {
         if (debug_command_builder) {
-            std.debug.print("{any}\n", .{info});
+            std.debug.print("{any}\n", .{options});
         }
 
         const cmdbuf = builder.getCurrent();
-        if (info.flip_z) {
+        if (options.flip_z) {
             gpu.vkd.cmdSetViewport(cmdbuf, 0, 1, @ptrCast(&vk.Viewport{
                 .x = 0,
-                .y = @as(f32, @floatFromInt(info.height)),
-                .width = @as(f32, @floatFromInt(info.width)),
-                .height = -@as(f32, @floatFromInt(info.height)),
+                .y = @as(f32, @floatFromInt(options.height)),
+                .width = @as(f32, @floatFromInt(options.width)),
+                .height = -@as(f32, @floatFromInt(options.height)),
                 .min_depth = 0,
                 .max_depth = 1,
             }));
@@ -2145,19 +2237,19 @@ pub const CommandBuilder = struct {
             gpu.vkd.cmdSetViewport(cmdbuf, 0, 1, @ptrCast(&vk.Viewport{
                 .x = 0,
                 .y = 0,
-                .width = @as(f32, @floatFromInt(info.width)),
-                .height = @as(f32, @floatFromInt(info.height)),
+                .width = @as(f32, @floatFromInt(options.width)),
+                .height = @as(f32, @floatFromInt(options.height)),
                 .min_depth = 0,
                 .max_depth = 1,
             }));
         }
         gpu.vkd.cmdSetScissor(cmdbuf, 0, 1, @ptrCast(&vk.Rect2D{
             .offset = .{ .x = 0, .y = 0 },
-            .extent = .{ .width = info.width, .height = info.height },
+            .extent = .{ .width = options.width, .height = options.height },
         }));
     }
 
-    pub fn push(builder: *CommandBuilder, comptime self: DataDescription, gpu: *const Gpu, pipeline: Pipeline, constants: *const self.T) void {
+    pub fn push(builder: *CommandBuilder, comptime self: DataDescription, gpu: Gpu, pipeline: Pipeline, constants: *const self.T) void {
         const cmdbuf = builder.getCurrent();
         gpu.vkd.cmdPushConstants(
             cmdbuf,
@@ -2172,18 +2264,18 @@ pub const CommandBuilder = struct {
         );
     }
 
-    pub fn beginCommand(builder: *CommandBuilder, gpu: *const Gpu) !void {
+    pub fn beginCommand(builder: *CommandBuilder, gpu: Gpu) !void {
         const cmdbuf = builder.getCurrent();
         try gpu.vkd.resetCommandBuffer(cmdbuf, .{});
         try gpu.vkd.beginCommandBuffer(cmdbuf, &.{});
     }
 
-    pub fn endRenderPass(builder: *CommandBuilder, gpu: *const Gpu) void {
+    pub fn endRenderPass(builder: *CommandBuilder, gpu: Gpu) void {
         const cmdbuf = builder.getCurrent();
         gpu.vkd.cmdEndRenderPass(cmdbuf);
     }
 
-    pub fn endCommand(builder: *CommandBuilder, gpu: *const Gpu) !void {
+    pub fn endCommand(builder: *CommandBuilder, gpu: Gpu) !void {
         const cmdbuf = builder.getCurrent();
 
         //if (builder.current_rendering != null) builder.endRendering(gpu);
@@ -2202,7 +2294,7 @@ pub const CommandBuilder = struct {
         builder.frame_id = 0;
     }
 
-    pub fn init(gpu: *const Gpu, pool: vk.CommandPool, ally: std.mem.Allocator, count: usize) !CommandBuilder {
+    pub fn init(gpu: Gpu, pool: vk.CommandPool, ally: std.mem.Allocator, count: usize) !CommandBuilder {
         const cmd_buffs = try ally.alloc(vk.CommandBuffer, count);
 
         try gpu.vkd.allocateCommandBuffers(gpu.dev, &.{
@@ -2217,7 +2309,7 @@ pub const CommandBuilder = struct {
         };
     }
 
-    pub fn deinit(builder: CommandBuilder, gpu: *const Gpu, pool: vk.CommandPool, ally: std.mem.Allocator) void {
+    pub fn deinit(builder: CommandBuilder, gpu: Gpu, pool: vk.CommandPool, ally: std.mem.Allocator) void {
         gpu.vkd.freeCommandBuffers(gpu.dev, pool, @intCast(builder.buffers.len), builder.buffers.ptr);
         ally.free(builder.buffers);
     }
@@ -2256,7 +2348,7 @@ pub const Window = struct {
         view: vk.ImageView,
         memory: vk.DeviceMemory,
 
-        pub fn deinit(buffer: DepthBuffer, gpu: *const Gpu) void {
+        pub fn deinit(buffer: DepthBuffer, gpu: Gpu) void {
             gpu.vkd.destroyImageView(gpu.dev, buffer.view, null);
             gpu.vkd.destroyImage(gpu.dev, buffer.image, null);
             gpu.vkd.freeMemory(gpu.dev, buffer.memory, null);
@@ -2381,7 +2473,7 @@ pub const Window = struct {
         self.ally.free(self.framebuffers);
     }
 
-    fn createFramebuffers(gpu: *Gpu, allocator: Allocator, render_pass: vk.RenderPass, swapchain: Swapchain, depth_image_or: ?DepthBuffer) ![]Framebuffer {
+    fn createFramebuffers(gpu: Gpu, allocator: Allocator, render_pass: vk.RenderPass, swapchain: Swapchain, depth_image_or: ?DepthBuffer) ![]Framebuffer {
         const framebuffers = try allocator.alloc(Framebuffer, swapchain.swap_images.len);
         errdefer allocator.free(framebuffers);
 
@@ -2410,7 +2502,7 @@ pub const Window = struct {
         return framebuffers;
     }
 
-    pub fn createDepthBuffer(gpu: *Gpu, swapchain: Swapchain, pool: vk.CommandPool) !DepthBuffer {
+    pub fn createDepthBuffer(gpu: Gpu, swapchain: Swapchain, pool: vk.CommandPool) !DepthBuffer {
         const format = try gpu.findDepthFormat();
 
         const width = swapchain.extent.width;
@@ -2431,7 +2523,7 @@ pub const Window = struct {
         const image = try gpu.vkd.createImage(gpu.dev, &image_info, null);
 
         if (builtin.mode == .Debug) {
-            try addDebugMark(gpu.*, .image, @intFromEnum(image), "depth image");
+            try addDebugMark(gpu, .image, @intFromEnum(image), "depth image");
         }
 
         const mem_reqs = gpu.vkd.getImageMemoryRequirements(gpu.dev, image);
@@ -2455,7 +2547,7 @@ pub const Window = struct {
 
         const depth_image_view = try gpu.vkd.createImageView(gpu.dev, &view_info, null);
         if (builtin.mode == .Debug) {
-            try addDebugMark(gpu.*, .image_view, @intFromEnum(depth_image_view), "depth image view");
+            try addDebugMark(gpu, .image_view, @intFromEnum(depth_image_view), "depth image view");
         }
         try transitionImageLayout(gpu, pool, image, .{
             .old_layout = .undefined,
@@ -2464,17 +2556,17 @@ pub const Window = struct {
 
         return .{ .view = depth_image_view, .image = image, .memory = image_memory };
     }
-    pub fn init(info: WindowInfo, ally: std.mem.Allocator) !*Window {
+    pub fn init(options: WindowOptions, ally: std.mem.Allocator) !*Window {
         var win = try ally.create(Window);
-        win.* = try initBare(info, ally);
+        win.* = try initBare(options, ally);
         try win.addToMap(win);
         return win;
     }
 
-    pub fn initBare(info: WindowInfo, ally: std.mem.Allocator) !Window {
-        glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, if (info.resizable) glfw.GLFW_TRUE else glfw.GLFW_FALSE);
+    pub fn initBare(options: WindowOptions, ally: std.mem.Allocator) !Window {
+        glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, if (options.resizable) glfw.GLFW_TRUE else glfw.GLFW_FALSE);
         glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
-        const win_or = glfw.glfwCreateWindow(info.width, info.height, info.name, null, null);
+        const win_or = glfw.glfwCreateWindow(options.width, options.height, options.name, null, null);
 
         const glfw_win = win_or orelse return GlfwError.FailedGlfwWindow;
 
@@ -2487,11 +2579,11 @@ pub const Window = struct {
         _ = glfw.glfwSetCursorPosCallback(glfw_win, getGlfwCursorPos);
         _ = glfw.glfwSetScrollCallback(glfw_win, getScroll);
 
-        var gpu = try Gpu.init(ally, info.name, glfw_win);
+        var gpu = try Gpu.init(ally, options.name, glfw_win);
 
-        const swapchain = try Swapchain.init(&gpu, ally, .{ .width = @intCast(info.width), .height = @intCast(info.height) }, info.preferred_format);
+        const swapchain = try Swapchain.init(gpu, ally, .{ .width = @intCast(options.width), .height = @intCast(options.height) }, options.preferred_format);
 
-        const render_pass = try RenderPass.init(&gpu, .{ .format = swapchain.surface_format.format });
+        const render_pass = try RenderPass.init(gpu, .{ .format = swapchain.surface_format.format });
 
         const pool = gpu.graphics_pool;
 
@@ -2499,9 +2591,9 @@ pub const Window = struct {
             try addDebugMark(gpu, .command_pool, @intFromEnum(pool), "command pool");
         }
 
-        const depth_buffer = try createDepthBuffer(&gpu, swapchain, pool);
+        const depth_buffer = try createDepthBuffer(gpu, swapchain, pool);
 
-        const framebuffers = try createFramebuffers(&gpu, ally, render_pass.pass, swapchain, depth_buffer);
+        const framebuffers = try createFramebuffers(gpu, ally, render_pass.pass, swapchain, depth_buffer);
 
         const events: EventTable = .{
             .key_func = null,
@@ -2519,14 +2611,14 @@ pub const Window = struct {
             .glfw_win = glfw_win,
             .events = events,
             .alive = true,
-            .viewport_width = info.width,
-            .frame_width = info.width,
-            .viewport_height = info.height,
-            .frame_height = info.height,
-            .fixed_size = !info.resizable,
+            .viewport_width = options.width,
+            .frame_width = options.width,
+            .viewport_height = options.height,
+            .frame_height = options.height,
+            .fixed_size = !options.resizable,
             .size_dirty = false,
             .ally = ally,
-            .preferred_format = info.preferred_format,
+            .preferred_format = options.preferred_format,
 
             // vulkan
             .gpu = gpu,
@@ -2538,7 +2630,7 @@ pub const Window = struct {
             .default_shaders = try DefaultShaders.init(gpu),
 
             // temporary
-            .flip_z = info.flip_z,
+            .flip_z = options.flip_z,
         };
     }
 
@@ -2549,10 +2641,10 @@ pub const Window = struct {
         for (win.framebuffers) |fb| fb.deinit(win.gpu);
         win.ally.free(win.framebuffers);
 
-        win.render_pass.deinit(&win.gpu);
-        win.depth_buffer.deinit(&win.gpu);
+        win.render_pass.deinit(win.gpu);
+        win.depth_buffer.deinit(win.gpu);
 
-        win.swapchain.deinit(&win.gpu);
+        win.swapchain.deinit(win.gpu);
         win.gpu.deinit();
         glfw.glfwDestroyWindow(win.glfw_win);
         //gl.makeDispatchTableCurrent(null);
@@ -2624,7 +2716,7 @@ pub fn getTime() f64 {
     return glfw.glfwGetTime();
 }
 
-const RenderType = enum {
+pub const RenderType = enum {
     line,
     point,
     triangle,
@@ -2715,18 +2807,18 @@ pub const VertexDescription = struct {
         return total;
     }
 
-    pub fn createBuffer(comptime description: VertexDescription, gpu: *Gpu, vert_count: usize) !BufferHandle {
+    pub fn createBuffer(comptime description: VertexDescription, gpu: Gpu, vert_count: usize) !BufferHandle {
         return BufferHandle.init(gpu, .{ .size = vert_count * description.getVertexSize(), .buffer_type = .vertex });
     }
 
     pub fn createVertexBuffer(
         comptime description: VertexDescription,
-        gpu: *Gpu,
+        gpu: Gpu,
         vertices: []const description.getAttributeType(),
         mode: CommandMode,
     ) !BufferHandle {
         const vertex_buff = try gpu.createStagingBuffer(description.getVertexSize() * vertices.len, .src);
-        defer vertex_buff.deinit(gpu.*);
+        defer vertex_buff.deinit(gpu);
 
         const vertex_buffer = try description.createBuffer(gpu, vertices.len);
         try vertex_buffer.setVertex(description, gpu, gpu.graphics_pool, vertices, vertex_buff, mode);
@@ -2737,7 +2829,7 @@ pub const VertexDescription = struct {
     pub fn bindVertex(
         comptime description: VertexDescription,
         draw: *Drawing,
-        gpu: *Gpu,
+        gpu: Gpu,
         vertices: []const description.getAttributeType(),
         indices: []const u32,
         mode: CommandMode,
@@ -2746,7 +2838,7 @@ pub const VertexDescription = struct {
         defer trace.end();
 
         // sets vert_count even if it's zero, although it's set again by Drawing.setVertex
-        draw.vert_count = indices.len;
+        draw.vert_count = @intCast(indices.len);
 
         if (indices.len == 0) return;
 
@@ -2759,7 +2851,7 @@ pub const VertexDescription = struct {
     }
 };
 
-const CullType = enum {
+pub const CullType = enum {
     front,
     back,
     front_and_back,
@@ -2848,9 +2940,6 @@ pub const PipelineDescription = struct {
 
     sets: []const Set = &.{},
 
-    // TODO: pass renderingoptions to here!!!!!! i guess
-    //attachment_descriptions: []const AttachmentDescription = &.{.{}},
-
     // assume DefaultUbo at index 0
     global_ubo: bool = false,
     bindless: bool = false,
@@ -2863,7 +2952,7 @@ pub const PipelineDescription = struct {
         };
     }
 };
-pub fn createBindingsFromSets(ally: std.mem.Allocator, gpu: *Gpu, options: struct {
+pub fn createBindingsFromSets(ally: std.mem.Allocator, gpu: Gpu, options: struct {
     sets: []const Set,
     bindless: bool,
     type: enum {
@@ -2912,7 +3001,7 @@ pub fn createBindingsFromSets(ally: std.mem.Allocator, gpu: *Gpu, options: struc
         descriptor_layout.* = try gpu.vkd.createDescriptorSetLayout(gpu.dev, &layout_info, null);
 
         if (builtin.mode == .Debug) {
-            try addDebugMark(gpu.*, .descriptor_set_layout, @intFromEnum(descriptor_layout.*), "descriptor layout");
+            try addDebugMark(gpu, .descriptor_set_layout, @intFromEnum(descriptor_layout.*), "descriptor layout");
         }
     }
     return .{ set_bindings, layouts };
@@ -2921,9 +3010,8 @@ pub fn createBindingsFromSets(ally: std.mem.Allocator, gpu: *Gpu, options: struc
 pub const ComputeDescription = struct {
     constants_size: ?usize = null,
     sets: []const Set = &.{},
-    // TODO: remove default val
-    attachment_count: u32 = 1,
-    global_ubo: bool = false,
+    attachment_count: u32,
+    global_ubo: bool,
     bindless: bool = false,
 };
 
@@ -2937,15 +3025,15 @@ pub const ComputePipeline = struct {
     layouts: []vk.DescriptorSetLayout,
     set_bindings: [][]vk.DescriptorSetLayoutBinding,
 
-    pub const Info = struct {
+    pub const Options = struct {
         description: ComputeDescription,
         shader: Shader,
-        gpu: *Gpu,
+        gpu: Gpu,
         flipped_z: bool = false,
     };
-    pub fn init(ally: std.mem.Allocator, info: Info) !ComputePipeline {
-        const description = info.description;
-        const gpu = info.gpu;
+    pub fn init(ally: std.mem.Allocator, options: Options) !ComputePipeline {
+        const description = options.description;
+        const gpu = options.gpu;
 
         const set_bindings, const layouts = try createBindingsFromSets(ally, gpu, .{
             .sets = description.sets,
@@ -2966,7 +3054,7 @@ pub const ComputePipeline = struct {
         }, null);
 
         if (builtin.mode == .Debug) {
-            try addDebugMark(gpu.*, .pipeline_layout, @intFromEnum(pipeline_layout), "compute pipeline layout");
+            try addDebugMark(gpu, .pipeline_layout, @intFromEnum(pipeline_layout), "compute pipeline layout");
         }
 
         // change shaders system for multiple compute pipelines
@@ -2974,7 +3062,7 @@ pub const ComputePipeline = struct {
             .stage = .{
                 .compute_bit = true,
             },
-            .module = info.shader.module,
+            .module = options.shader.module,
             .p_name = "main",
         };
 
@@ -2986,7 +3074,7 @@ pub const ComputePipeline = struct {
         }), null, @ptrCast(&pipeline));
 
         if (builtin.mode == .Debug) {
-            try addDebugMark(gpu.*, .pipeline, @intFromEnum(pipeline), "compute pipeline");
+            try addDebugMark(gpu, .pipeline, @intFromEnum(pipeline), "compute pipeline");
         }
 
         return .{
@@ -2996,10 +3084,10 @@ pub const ComputePipeline = struct {
             .ally = ally,
             .set_bindings = set_bindings,
             .description = .{
-                .constants_size = info.description.constants_size,
-                .sets = info.description.sets,
-                .global_ubo = info.description.global_ubo,
-                .bindless = info.description.bindless,
+                .constants_size = options.description.constants_size,
+                .sets = options.description.sets,
+                .global_ubo = options.description.global_ubo,
+                .bindless = options.description.bindless,
             },
             .pipeline = .{
                 .vk_pipeline = pipeline,
@@ -3009,10 +3097,10 @@ pub const ComputePipeline = struct {
                 .set_bindings = set_bindings,
                 .type = .compute,
                 .description = .{
-                    .constants_size = info.description.constants_size,
-                    .sets = info.description.sets,
-                    .global_ubo = info.description.global_ubo,
-                    .bindless = info.description.bindless,
+                    .constants_size = options.description.constants_size,
+                    .sets = options.description.sets,
+                    .global_ubo = options.description.global_ubo,
+                    .bindless = options.description.bindless,
                 },
             },
         };
@@ -3090,8 +3178,7 @@ pub const AttachmentOptions = struct {
 
     pub const Description = struct {
         format: PreferredFormat,
-        blending: struct {
-            will_blend: bool,
+        blending: ?struct {
             src_color: BlendFactor,
             dst_color: BlendFactor,
             color_op: BlendOp,
@@ -3102,7 +3189,6 @@ pub const AttachmentOptions = struct {
 
             color_mask: struct { r: bool, g: bool, b: bool, a: bool },
         } = .{
-            .will_blend = true,
             .src_color = .src_alpha,
             .dst_color = .one_minus_src_alpha,
             .color_op = .add,
@@ -3112,11 +3198,12 @@ pub const AttachmentOptions = struct {
             .color_mask = .{ .r = true, .g = true, .b = true, .a = true },
         },
     };
+    pub const DepthDescription = struct {
+        format: PreferredFormat,
+    };
 
     descriptions: []const Description,
-    depth: ?struct {
-        format: PreferredFormat,
-    },
+    depth: ?DepthDescription,
 };
 
 pub const RenderingOptions = struct {
@@ -3124,40 +3211,39 @@ pub const RenderingOptions = struct {
         color: math.Vec4,
         depth: f32,
         none: void,
+
+        pub const black: ClearValue = .{ .color = .init(.{ 0.0, 0.0, 0.0, 1.0 }) };
+        pub const far: ClearValue = .{ .depth = 1.0 };
+        pub const never: ClearValue = .{ .none = {} };
     };
 
     pub const Description = struct {
-        clear: ClearValue = .{ .color = .init(.{ 0.0, 0.0, 0.0, 1.0 }) },
-        view: Texture.ViewDescription = .{
-            .layer_index = 0,
-            .layer_count = 1,
-        },
+        clear: ClearValue,
+        view: Texture.ViewDescription,
     };
 
     descriptions: []const Description,
     depth: ?struct {
-        clear: ClearValue = .{ .depth = 1.0 },
-        view: Texture.ViewDescription = .{
-            .layer_index = 0,
-            .layer_count = 1,
-        },
-    } = .{},
+        clear: ClearValue,
+        view: Texture.ViewDescription,
+
+        pub const far: @This() = .{ .clear = .far, .view = .ones };
+    },
 };
 
 pub const RenderPipeline = struct {
     pipeline: Pipeline,
     attachments: AttachmentOptions,
 
-    pub const Info = struct {
+    pub const Options = struct {
         description: PipelineDescription,
-        // TODO: change to attachments instead
         rendering: AttachmentOptions,
         shaders: []const Shader,
-        gpu: *Gpu,
+        gpu: Gpu,
         flipped_z: bool = false,
     };
 
-    pub fn init(ally: std.mem.Allocator, options: Info) !RenderPipeline {
+    pub fn init(ally: std.mem.Allocator, options: Options) !RenderPipeline {
         const shaders = options.shaders;
         const description = options.description;
         const gpu = options.gpu;
@@ -3167,7 +3253,7 @@ pub const RenderPipeline = struct {
         // our code's side. for some reason, the following doesn't work for slang shaders and has differing behavior from
         // the x86 backend to the llvm one
         for (shaders) |shader| {
-            if (true) break;
+            //if (true) break;
             var module: spirv.SpvReflectShaderModule = undefined;
             var result = spirv.spvReflectCreateShaderModule(
                 shader.file_src.len * @sizeOf(u32) / @sizeOf(u8),
@@ -3276,7 +3362,7 @@ pub const RenderPipeline = struct {
         }, null);
 
         if (builtin.mode == .Debug) {
-            try addDebugMark(gpu.*, .pipeline_layout, @intFromEnum(pipeline_layout), "render pipeline layout");
+            try addDebugMark(gpu, .pipeline_layout, @intFromEnum(pipeline_layout), "render pipeline layout");
         }
 
         var pssci = try ally.alloc(vk.PipelineShaderStageCreateInfo, shaders.len);
@@ -3315,30 +3401,40 @@ pub const RenderPipeline = struct {
         const attachments = try ally.alloc(vk.PipelineColorBlendAttachmentState, options.rendering.descriptions.len);
         defer ally.free(attachments);
         for (attachments, options.rendering.descriptions) |*a, attach_desc| {
-            const desc = attach_desc.blending;
-            a.* = .{
-                .blend_enable = if (desc.will_blend) vk.TRUE else vk.FALSE,
-                .src_color_blend_factor = desc.src_color.toVulkan(),
-                .dst_color_blend_factor = desc.dst_color.toVulkan(),
-                .color_blend_op = desc.color_op.toVulkan(),
-                .src_alpha_blend_factor = desc.src_alpha.toVulkan(),
-                .dst_alpha_blend_factor = desc.dst_alpha.toVulkan(),
-                .alpha_blend_op = desc.alpha_op.toVulkan(),
-                .color_write_mask = .{
-                    .r_bit = desc.color_mask.r,
-                    .g_bit = desc.color_mask.g,
-                    .b_bit = desc.color_mask.b,
-                    .a_bit = desc.color_mask.a,
-                },
-            };
+            //a.* = std.mem.zeroes(vk.PipelineColorBlendAttachmentState);
+            if (attach_desc.blending) |desc| {
+                a.* = .{
+                    .blend_enable = vk.TRUE,
+                    .src_color_blend_factor = desc.src_color.toVulkan(),
+                    .dst_color_blend_factor = desc.dst_color.toVulkan(),
+                    .color_blend_op = desc.color_op.toVulkan(),
+                    .src_alpha_blend_factor = desc.src_alpha.toVulkan(),
+                    .dst_alpha_blend_factor = desc.dst_alpha.toVulkan(),
+                    .alpha_blend_op = desc.alpha_op.toVulkan(),
+                    .color_write_mask = .{
+                        .r_bit = desc.color_mask.r,
+                        .g_bit = desc.color_mask.g,
+                        .b_bit = desc.color_mask.b,
+                        .a_bit = desc.color_mask.a,
+                    },
+                };
+            } else {
+                a.blend_enable = vk.FALSE;
+                a.color_write_mask = .{
+                    .r_bit = true,
+                    .g_bit = true,
+                    .b_bit = true,
+                    .a_bit = true,
+                };
+            }
         }
 
         const color_formats = try ally.alloc(vk.Format, options.rendering.descriptions.len);
         defer ally.free(color_formats);
         for (color_formats, options.rendering.descriptions) |*vk_fmt, desc| {
-            vk_fmt.* = desc.format.getSurfaceFormat(gpu.*);
+            vk_fmt.* = desc.format.getSurfaceFormat(gpu);
         }
-        const depth_format: ?vk.Format = if (options.rendering.depth) |depth| depth.format.getSurfaceFormat(gpu.*) else null;
+        const depth_format: ?vk.Format = if (options.rendering.depth) |depth| depth.format.getSurfaceFormat(gpu) else null;
 
         var vk_pipeline: vk.Pipeline = undefined;
         _ = try gpu.vkd.createGraphicsPipelines(
@@ -3438,7 +3534,7 @@ pub const RenderPipeline = struct {
         );
 
         if (builtin.mode == .Debug) {
-            try addDebugMark(gpu.*, .pipeline, @intFromEnum(vk_pipeline), "render pipeline");
+            try addDebugMark(gpu, .pipeline, @intFromEnum(vk_pipeline), "render pipeline");
         }
         return .{
             .pipeline = .{
@@ -3554,7 +3650,7 @@ pub const BufferMemory = struct {
         }, null);
 
         if (builtin.mode == .Debug) {
-            try addDebugMark(gpu.*, .buffer, @intFromEnum(buffer), "sliced buffer");
+            try addDebugMark(gpu, .buffer, @intFromEnum(buffer), "sliced buffer");
         }
 
         try gpu.vkd.bindBufferMemory(gpu.dev, buffer, buff.memory, offset + buff.offset);
@@ -3572,14 +3668,16 @@ pub const BufferHandle = struct {
     mem: BufferMemory,
     data: ?*anyopaque,
 
-    pub fn init(gpu: *Gpu, options: struct {
+    pub const BufferType = enum {
+        uniform,
+        storage,
+        index,
+        vertex,
+    };
+
+    pub fn init(gpu: Gpu, options: struct {
         size: usize,
-        buffer_type: enum {
-            uniform,
-            storage,
-            index,
-            vertex,
-        },
+        buffer_type: BufferType,
     }) !BufferHandle {
         const buffer = try gpu.vkd.createBuffer(gpu.dev, &.{
             .size = options.size,
@@ -3593,7 +3691,7 @@ pub const BufferHandle = struct {
         }, null);
 
         if (builtin.mode == .Debug) {
-            try addDebugMark(gpu.*, .buffer, @intFromEnum(buffer), "buffer");
+            try addDebugMark(gpu, .buffer, @intFromEnum(buffer), "buffer");
         }
 
         const mem_reqs = gpu.vkd.getBufferMemoryRequirements(gpu.dev, buffer);
@@ -3621,7 +3719,7 @@ pub const BufferHandle = struct {
     pub fn setVertex(
         buffer: BufferHandle,
         comptime self: VertexDescription,
-        gpu: *Gpu,
+        gpu: Gpu,
         pool: vk.CommandPool,
         vertices: []const self.getAttributeType(),
         staging_buff: BufferMemory,
@@ -3633,8 +3731,8 @@ pub const BufferHandle = struct {
         if (vertices.len == 0) return;
 
         {
-            const data = try staging_buff.map(gpu.*);
-            defer staging_buff.unmap(gpu.*);
+            const data = try staging_buff.map(gpu);
+            defer staging_buff.unmap(gpu);
 
             const gpu_vertices: [*]self.getAttributeType() = @ptrCast(@alignCast(data));
             for (vertices, 0..) |vertex, i| {
@@ -3647,7 +3745,7 @@ pub const BufferHandle = struct {
 
     pub fn setIndices(
         buffer: BufferHandle,
-        gpu: *Gpu,
+        gpu: Gpu,
         pool: vk.CommandPool,
         indices: []const u32,
         staging_buff: BufferMemory,
@@ -3659,8 +3757,8 @@ pub const BufferHandle = struct {
         if (indices.len == 0) return;
 
         {
-            const data = try staging_buff.map(gpu.*);
-            defer staging_buff.unmap(gpu.*);
+            const data = try staging_buff.map(gpu);
+            defer staging_buff.unmap(gpu);
 
             const gpu_indices: [*]u32 = @ptrCast(@alignCast(data));
             for (indices, 0..) |index, i| {
@@ -3671,14 +3769,11 @@ pub const BufferHandle = struct {
         try copyBuffer(gpu, pool, buffer.mem, staging_buff, @sizeOf(u32) * indices.len, mode);
     }
 
-    // TODO: whats up with this BufferMemory, BufferHandle, Buffer nonsense?? ren
-    // seems like BufferMemory is like a fat pointer
-
     // TODO: pass offset to both set and get storage
     pub fn setStorage(
         buffer: BufferHandle,
         comptime data: DataDescription,
-        gpu: *Gpu,
+        gpu: Gpu,
         pool: vk.CommandPool,
         options: struct {
             data: []data.lastField(),
@@ -3687,15 +3782,19 @@ pub const BufferHandle = struct {
         const trace = tracy.trace(@src());
         defer trace.end();
 
+        //if (!comptime typeFieldEquality(@TypeOf(options.data), []data.lastField())) {
+        //    @compileError("Invalid \"data\" type");
+        //}
+
         if (options.data.len == 0) return;
 
         const size = data.getSize() + @sizeOf(data.lastField()) * (options.data.len - 1);
         const staging_buff = try gpu.createStagingBuffer(size, .src);
-        defer staging_buff.deinit(gpu.*);
+        defer staging_buff.deinit(gpu);
 
         {
-            const mem = try staging_buff.map(gpu.*);
-            defer staging_buff.unmap(gpu.*);
+            const mem = try staging_buff.map(gpu);
+            defer staging_buff.unmap(gpu);
 
             const storage_ptr: *data.T = @ptrCast(@alignCast(mem));
 
@@ -3713,7 +3812,7 @@ pub const BufferHandle = struct {
     pub fn getStorage(
         buffer: BufferHandle,
         comptime data: DataDescription,
-        gpu: *Gpu,
+        gpu: Gpu,
         pool: vk.CommandPool,
         options: struct {
             count: u32,
@@ -3734,7 +3833,7 @@ pub const BufferHandle = struct {
         // TODO: pass mode
         try copyBuffer(gpu, pool, staging_buff, buffer.mem, size, .immediate);
 
-        const storage_ptr: *data.T = @ptrCast(@alignCast(try staging_buff.map(gpu.*)));
+        const storage_ptr: *data.T = @ptrCast(@alignCast(try staging_buff.map(gpu)));
         const many_ptr: [*]data.lastField() = @ptrCast(@alignCast(&@field(storage_ptr, data.lastFieldName())));
 
         return .{
@@ -3744,7 +3843,7 @@ pub const BufferHandle = struct {
         };
     }
 
-    pub fn setBytesStaging(buffer: BufferHandle, gpu: *Gpu, pool: vk.CommandPool, bytes: []const u8) !void {
+    pub fn setBytesStaging(buffer: BufferHandle, gpu: Gpu, pool: vk.CommandPool, bytes: []const u8) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
 
@@ -3752,8 +3851,8 @@ pub const BufferHandle = struct {
         defer staging_buff.deinit(gpu);
 
         {
-            const data = try staging_buff.map(gpu.*);
-            defer staging_buff.unmap(gpu.*);
+            const data = try staging_buff.map(gpu);
+            defer staging_buff.unmap(gpu);
 
             const data_bytes: [*]u8 = @ptrCast(@alignCast(data));
             @memcpy(data_bytes, bytes);
@@ -3776,6 +3875,30 @@ pub const BufferHandle = struct {
     }
 };
 
+pub fn typeFieldEquality(comptime T1: type, comptime T2: type) bool {
+    if (std.meta.activeTag(@typeInfo(T1)) != std.meta.activeTag(@typeInfo(T2))) return false;
+
+    switch (@typeInfo(T1)) {
+        .@"struct", .@"union", .@"enum", .error_set => {
+            for (std.meta.fields(T1), std.meta.fields(T2)) |f1, f2| {
+                if (!typeFieldEquality(f1.type, f2.type)) return false;
+            }
+            return true;
+        },
+        .optional => |op| {
+            return typeFieldEquality(op.child, @typeInfo(T2).optional.child);
+        },
+        .pointer => |ptr1| {
+            const ptr2 = @typeInfo(T2).pointer;
+            //@compileLog(ptr1.size == ptr2.size and comptime typeFieldEquality(ptr1.child, ptr2.child));
+            return ptr1.size == ptr2.size and
+                typeFieldEquality(ptr1.child, ptr2.child);
+        },
+        else => {},
+    }
+    return T1 == T2;
+}
+
 pub const DataDescription = struct {
     T: type,
 
@@ -3794,8 +3917,8 @@ pub const DataDescription = struct {
         return @sizeOf(self.T);
     }
 
-    pub fn createBuffer(comptime self: DataDescription, gpu: *Gpu) !BufferHandle {
-        return BufferHandle.init(gpu, .{ .size = self.getSize() });
+    pub fn createBuffer(comptime self: DataDescription, gpu: Gpu, buffer_type: BufferHandle.BufferType, count: usize) !BufferHandle {
+        return BufferHandle.init(gpu, .{ .size = self.getSize() * count, .buffer_type = buffer_type });
     }
 };
 

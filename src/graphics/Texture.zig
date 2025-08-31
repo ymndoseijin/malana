@@ -1,4 +1,4 @@
-info: TextureInfo,
+options: Options,
 
 width: u32,
 height: u32,
@@ -7,21 +7,27 @@ height: u32,
 image: vk.Image,
 view_table: std.AutoArrayHashMapUnmanaged(ViewDescription, vk.ImageView),
 
-window: *graphics.Window,
 sampler: vk.Sampler,
 memory: vk.DeviceMemory,
 format: vk.Format,
 
 pub fn getStage(texture: Texture) vk.PipelineStageFlags {
-    return switch (texture.info.preferred_format orelse return .{ .color_attachment_output_bit = true }) {
+    return switch (texture.options.preferred_format orelse return .{ .color_attachment_output_bit = true }) {
         .depth => .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
         else => .{ .color_attachment_output_bit = true },
     };
 }
 
-pub fn getAttachment(texture: *Texture, current_layout: vk.ImageLayout, clear: graphics.RenderingOptions.ClearValue, view: ViewDescription) !vk.RenderingAttachmentInfoKHR {
+pub fn getAttachment(
+    texture: *Texture,
+    ally: std.mem.Allocator,
+    gpu: graphics.Gpu,
+    current_layout: vk.ImageLayout,
+    clear: graphics.RenderingOptions.ClearValue,
+    view: ViewDescription,
+) !vk.RenderingAttachmentInfoKHR {
     return .{
-        .image_view = try texture.getViewOrCreate(view, true),
+        .image_view = try texture.getViewOrCreate(ally, gpu, view, true),
         .image_layout = current_layout,
         .load_op = switch (clear) {
             .none => |_| .load,
@@ -47,26 +53,26 @@ pub fn getAttachment(texture: *Texture, current_layout: vk.ImageLayout, clear: g
     };
 }
 
-pub fn init(win: *graphics.Window, width: u32, height: u32, info: TextureInfo) !Texture {
-    const format = if (info.preferred_format) |f| f else win.preferred_format;
+pub fn init(ally: std.mem.Allocator, win: *graphics.Window, width: u32, height: u32, options: Options) !Texture {
+    const format = if (options.preferred_format) |f| f else win.preferred_format;
     const vk_format = blk: {
-        if (info.type == .multisampling) {
+        if (options.type == .multisampling) {
             break :blk win.preferred_format.getSurfaceFormat(win.gpu);
         } else {
             break :blk format.getSurfaceFormat(win.gpu);
         }
     };
 
-    if (info.cubemap) std.debug.assert(info.layer_count == 6);
+    if (options.cubemap) std.debug.assert(options.layer_count == 6);
 
-    const image_info: vk.ImageCreateInfo = .{
+    const image_options: vk.ImageCreateInfo = .{
         .image_type = .@"2d",
         .extent = .{ .width = width, .height = height, .depth = 1 },
-        .mip_levels = info.level_count,
-        .array_layers = info.layer_count,
+        .mip_levels = options.level_count,
+        .array_layers = options.layer_count,
         .format = vk_format,
         .tiling = blk: {
-            if (info.type == .render_target or info.type == .multisampling) {
+            if (options.type == .render_target or options.type == .multisampling) {
                 break :blk .optimal;
             } else {
                 break :blk switch (format) {
@@ -77,43 +83,51 @@ pub fn init(win: *graphics.Window, width: u32, height: u32, info: TextureInfo) !
         },
         .initial_layout = .undefined,
         .usage = blk: {
-            switch (info.type) {
+            switch (options.type) {
                 .multisampling => break :blk .{ .transient_attachment_bit = true, .color_attachment_bit = true },
-                .render_target => break :blk .{ .color_attachment_bit = true, .sampled_bit = true },
+                .render_target => break :blk .{
+                    .color_attachment_bit = true,
+                    .transfer_src_bit = true,
+                    .transfer_dst_bit = true,
+                    .sampled_bit = true,
+                },
                 .storage => break :blk .{ .transfer_dst_bit = true, .sampled_bit = true, .storage_bit = true },
                 .regular => break :blk switch (format) {
                     .depth => .{ .depth_stencil_attachment_bit = true, .sampled_bit = true },
-                    else => .{ .transfer_dst_bit = true, .sampled_bit = true },
+                    else => .{
+                        .transfer_src_bit = true,
+                        .transfer_dst_bit = true,
+                        .sampled_bit = true,
+                    },
                 },
             }
         },
-        .samples = if (info.type == .multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
+        .samples = if (options.type == .multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
         .sharing_mode = .exclusive,
-        .flags = if (info.cubemap) .{ .cube_compatible_bit = true } else .{},
+        .flags = if (options.cubemap) .{ .cube_compatible_bit = true } else .{},
     };
 
-    const image = try win.gpu.vkd.createImage(win.gpu.dev, &image_info, null);
+    const image = try win.gpu.vkd.createImage(win.gpu.dev, &image_options, null);
     const mem_reqs = win.gpu.vkd.getImageMemoryRequirements(win.gpu.dev, image);
     const image_memory = try win.gpu.allocate(mem_reqs, .{ .device_local_bit = true });
     try win.gpu.vkd.bindImageMemory(win.gpu.dev, image, image_memory, 0);
 
     if (format == .depth) {
-        try graphics.transitionImageLayout(&win.gpu, win.pool, image, .{
+        try graphics.transitionImageLayout(win.gpu, win.pool, image, .{
             .old_layout = .undefined,
             .new_layout = .depth_stencil_attachment_optimal,
         });
     }
-    if (info.type == .storage) {
-        try graphics.transitionImageLayout(&win.gpu, win.pool, image, .{
+    if (options.type == .storage) {
+        try graphics.transitionImageLayout(win.gpu, win.pool, image, .{
             .old_layout = .undefined,
             .new_layout = .general,
         });
     }
 
     var tex: Texture = .{
-        .info = info,
+        .options = options,
         .image = image,
-        .window = win,
 
         .width = width,
         .height = height,
@@ -125,8 +139,8 @@ pub fn init(win: *graphics.Window, width: u32, height: u32, info: TextureInfo) !
         .format = vk_format,
     };
 
-    _ = try tex.createImageView(tex.getReadDesc(), false);
-    try tex.createTextureSampler(false);
+    _ = try tex.createImageView(ally, win.gpu, tex.getReadDesc(), false);
+    try tex.createTextureSampler(win.gpu, false);
 
     if (builtin.mode == .Debug) {
         //std.debug.dumpCurrentStackTrace(null);
@@ -137,18 +151,16 @@ pub fn init(win: *graphics.Window, width: u32, height: u32, info: TextureInfo) !
     return tex;
 }
 
-pub fn deinit(tex: Texture) void {
-    const win = tex.window;
-    win.gpu.vkd.destroySampler(win.gpu.dev, tex.sampler, null);
+pub fn deinit(tex: Texture, gpu: graphics.Gpu) void {
+    gpu.vkd.destroySampler(gpu.dev, tex.sampler, null);
     for (tex.view_table.values()) |oldest_view| {
-        win.gpu.vkd.destroyImageView(win.gpu.dev, oldest_view, null);
+        gpu.vkd.destroyImageView(gpu.dev, oldest_view, null);
     }
-    win.gpu.vkd.destroyImage(win.gpu.dev, tex.image, null);
-    win.gpu.vkd.freeMemory(win.gpu.dev, tex.memory, null);
+    gpu.vkd.destroyImage(gpu.dev, tex.image, null);
+    gpu.vkd.freeMemory(gpu.dev, tex.memory, null);
 }
 
-pub fn initFromMemory(ally: std.mem.Allocator, win: *graphics.Window, buffer: []const u8, info: TextureInfo) !Texture {
-    _ = ally;
+pub fn initFromMemory(ally: std.mem.Allocator, win: *graphics.Window, buffer: []const u8, options: Options) !Texture {
     const trace = graphics.tracy.trace(@src());
     defer trace.end();
 
@@ -156,7 +168,7 @@ pub fn initFromMemory(ally: std.mem.Allocator, win: *graphics.Window, buffer: []
     var height_c: c_int = undefined;
     var channels: c_int = undefined;
 
-    switch (info.preferred_format orelse .unorm8_rgba) {
+    switch (options.preferred_format orelse .unorm8_rgba) {
         else => {
             const res = stb_image.stbi_load_from_memory(buffer.ptr, @intCast(buffer.len), &width_c, &height_c, &channels, 4);
             defer stb_image.stbi_image_free(res);
@@ -164,15 +176,14 @@ pub fn initFromMemory(ally: std.mem.Allocator, win: *graphics.Window, buffer: []
             const width: usize = @intCast(width_c);
             const height: usize = @intCast(height_c);
 
-            var tex = try Texture.init(win, @intCast(width), @intCast(height), info);
-            try tex.setFromBuffer(res[0 .. width * height * @sizeOf(Rgba32)], info.flip);
+            var tex = try Texture.init(ally, win, @intCast(width), @intCast(height), options);
+            try tex.setFromBuffer(ally, win.gpu, res[0 .. width * height * @sizeOf(Rgba32)], options.flip);
             return tex;
         },
     }
 }
 
-pub fn initFromPath(ally: std.mem.Allocator, win: *graphics.Window, path: []const u8, info: TextureInfo) !Texture {
-    _ = ally;
+pub fn initFromPath(ally: std.mem.Allocator, win: *graphics.Window, path: []const u8, options: Options) !Texture {
     const trace = graphics.tracy.trace(@src());
     defer trace.end();
 
@@ -180,7 +191,7 @@ pub fn initFromPath(ally: std.mem.Allocator, win: *graphics.Window, path: []cons
     var height_c: c_int = undefined;
     var channels: c_int = undefined;
 
-    switch (info.preferred_format orelse .unorm8_rgba) {
+    switch (options.preferred_format orelse .unorm8_rgba) {
         .f32_rgb => {
             const res = stb_image.stbi_loadf(path.ptr, &width_c, &height_c, &channels, 3);
             defer stb_image.stbi_image_free(res);
@@ -188,9 +199,9 @@ pub fn initFromPath(ally: std.mem.Allocator, win: *graphics.Window, path: []cons
             const width: usize = @intCast(width_c);
             const height: usize = @intCast(height_c);
 
-            var tex = try Texture.init(win, @intCast(width), @intCast(height), info);
+            var tex = try Texture.init(ally, win, @intCast(width), @intCast(height), options);
             const res_u8: []const u8 = @as([*]u8, @ptrCast(@alignCast(res)))[0 .. width * height * @sizeOf(FloatRgb)];
-            try tex.setFromBuffer(res_u8, info.flip);
+            try tex.setFromBuffer(ally, win.gpu, res_u8, options.flip);
             return tex;
         },
         else => {
@@ -200,8 +211,8 @@ pub fn initFromPath(ally: std.mem.Allocator, win: *graphics.Window, path: []cons
             const width: usize = @intCast(width_c);
             const height: usize = @intCast(height_c);
 
-            var tex = try Texture.init(win, @intCast(width), @intCast(height), info);
-            try tex.setFromBuffer(res[0 .. width * height * @sizeOf(Rgba32)], info.flip);
+            var tex = try Texture.init(ally, win, @intCast(width), @intCast(height), options);
+            try tex.setFromBuffer(ally, win.gpu, res[0 .. width * height * @sizeOf(Rgba32)], options.flip);
             return tex;
         },
     }
@@ -210,8 +221,9 @@ pub fn initFromPath(ally: std.mem.Allocator, win: *graphics.Window, path: []cons
 pub fn getReadDesc(tex: Texture) ViewDescription {
     return .{
         .layer_index = 0,
-        .layer_count = tex.info.layer_count,
-        .level_count = tex.info.level_count,
+        .layer_count = tex.options.layer_count,
+        .level_index = 0,
+        .level_count = tex.options.level_count,
     };
 }
 // always has it, as it's created in the imageview
@@ -219,17 +231,16 @@ pub fn getReadView(tex: Texture) vk.ImageView {
     return tex.view_table.get(tex.getReadDesc()).?;
 }
 
-pub fn getViewOrCreate(tex: *Texture, desc: ViewDescription, is_attachment: bool) !vk.ImageView {
-    return tex.view_table.get(desc) orelse try tex.createImageView(desc, is_attachment);
+pub fn getViewOrCreate(tex: *Texture, ally: std.mem.Allocator, gpu: graphics.Gpu, desc: ViewDescription, is_attachment: bool) !vk.ImageView {
+    return tex.view_table.get(desc) orelse try tex.createImageView(ally, gpu, desc, is_attachment);
 }
 
-fn createTextureSampler(tex: *Texture, reuse: bool) !void {
-    const gpu = &tex.window.gpu;
+fn createTextureSampler(tex: *Texture, gpu: graphics.Gpu, reuse: bool) !void {
     const properties = gpu.vki.getPhysicalDeviceProperties(gpu.pdev);
 
-    const sampler_info: vk.SamplerCreateInfo = .{
-        .mag_filter = tex.info.mag_filter.getVulkan(),
-        .min_filter = tex.info.min_filter.getVulkan(),
+    const sampler_options: vk.SamplerCreateInfo = .{
+        .mag_filter = tex.options.mag_filter.getVulkan(),
+        .min_filter = tex.options.min_filter.getVulkan(),
         .address_mode_u = .repeat,
         .address_mode_v = .repeat,
         .address_mode_w = .repeat,
@@ -245,29 +256,60 @@ fn createTextureSampler(tex: *Texture, reuse: bool) !void {
         .max_lod = 1000.0,
     };
 
-    const win = tex.window;
-    if (reuse) win.gpu.vkd.destroySampler(win.gpu.dev, tex.sampler, null);
-    tex.sampler = try gpu.vkd.createSampler(gpu.dev, &sampler_info, null);
+    if (reuse) gpu.vkd.destroySampler(gpu.dev, tex.sampler, null);
+    tex.sampler = try gpu.vkd.createSampler(gpu.dev, &sampler_options, null);
     if (builtin.mode == .Debug) {
-        try graphics.addDebugMark(win.gpu, .sampler, @intFromEnum(tex.sampler), "texture sampler");
+        try graphics.addDebugMark(gpu, .sampler, @intFromEnum(tex.sampler), "texture sampler");
     }
 }
 
 pub const ViewDescription = struct {
-    level_count: u32 = 1,
-    level_index: u32 = 0,
-    layer_count: u32 = 1,
+    level_count: u32,
+    level_index: u32,
+    layer_count: u32,
     layer_index: u32,
+
+    pub fn oneLayer(index: u32) ViewDescription {
+        return .{
+            .level_count = 1,
+            .level_index = 0,
+            .layer_count = 1,
+            .layer_index = index,
+        };
+    }
+
+    pub fn oneLevel(index: u32) ViewDescription {
+        return .{
+            .level_count = 1,
+            .level_index = index,
+            .layer_count = 1,
+            .layer_index = 0,
+        };
+    }
+
+    pub fn oneLayerLevel(layer: u32, level: u32) ViewDescription {
+        return .{
+            .level_count = 1,
+            .level_index = level,
+            .layer_count = 1,
+            .layer_index = layer,
+        };
+    }
+
+    pub const ones: ViewDescription = .{
+        .level_count = 1,
+        .level_index = 0,
+        .layer_count = 1,
+        .layer_index = 0,
+    };
 };
 
-fn createImageView(tex: *Texture, view_desc: ViewDescription, is_attachment: bool) !vk.ImageView {
-    const gpu = &tex.window.gpu;
-
-    const view_info: vk.ImageViewCreateInfo = .{
+fn createImageView(tex: *Texture, ally: std.mem.Allocator, gpu: graphics.Gpu, view_desc: ViewDescription, is_attachment: bool) !vk.ImageView {
+    const view_options: vk.ImageViewCreateInfo = .{
         .image = tex.image,
         .view_type = blk: {
             if (is_attachment) break :blk .@"2d";
-            if (tex.info.cubemap) {
+            if (tex.options.cubemap) {
                 break :blk .cube;
             } else {
                 break :blk .@"2d";
@@ -276,7 +318,7 @@ fn createImageView(tex: *Texture, view_desc: ViewDescription, is_attachment: boo
         .format = tex.format,
         .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
         .subresource_range = .{
-            .aspect_mask = if (tex.info.preferred_format == .depth) .{ .depth_bit = true } else .{ .color_bit = true },
+            .aspect_mask = if (tex.options.preferred_format == .depth) .{ .depth_bit = true } else .{ .color_bit = true },
             .base_mip_level = view_desc.level_index,
             .level_count = view_desc.level_count,
             .base_array_layer = view_desc.layer_index,
@@ -284,22 +326,22 @@ fn createImageView(tex: *Texture, view_desc: ViewDescription, is_attachment: boo
         },
     };
 
-    const win = tex.window;
     if (tex.view_table.get(view_desc)) |oldest_view| {
-        win.gpu.vkd.destroyImageView(win.gpu.dev, oldest_view, null);
+        gpu.vkd.destroyImageView(gpu.dev, oldest_view, null);
     }
 
-    const view = try gpu.vkd.createImageView(gpu.dev, &view_info, null);
-    try tex.view_table.put(tex.window.ally, view_desc, view);
+    const view = try gpu.vkd.createImageView(gpu.dev, &view_options, null);
+    try tex.view_table.put(ally, view_desc, view);
 
     if (builtin.mode == .Debug) {
-        try graphics.addDebugMark(win.gpu, .image_view, @intFromEnum(view), "texture image view");
+        try graphics.addDebugMark(gpu, .image_view, @intFromEnum(view), "texture image view");
     }
 
     return view;
 }
 
-fn copyBufferToImage(tex: Texture, buffer: vk.Buffer, cmdbuf: vk.CommandBuffer) !void {
+// TODO: move to commandbuilder
+fn copyBufferToImage(tex: Texture, gpu: graphics.Gpu, buffer: vk.Buffer, cmdbuf: vk.CommandBuffer) !void {
     const region: vk.BufferImageCopy = .{
         .buffer_offset = 0,
         .buffer_row_length = 0,
@@ -308,13 +350,13 @@ fn copyBufferToImage(tex: Texture, buffer: vk.Buffer, cmdbuf: vk.CommandBuffer) 
             .aspect_mask = .{ .color_bit = true },
             .mip_level = 0,
             .base_array_layer = 0,
-            .layer_count = if (tex.info.cubemap) 6 else 1,
+            .layer_count = if (tex.options.cubemap) 6 else 1,
         },
         .image_offset = .{ .x = 0, .y = 0, .z = 0 },
         .image_extent = .{ .width = tex.width, .height = tex.height, .depth = 1 },
     };
 
-    tex.window.gpu.vkd.cmdCopyBufferToImage(cmdbuf, buffer, tex.image, .transfer_dst_optimal, 1, @ptrCast(&region));
+    gpu.vkd.cmdCopyBufferToImage(cmdbuf, buffer, tex.image, .transfer_dst_optimal, 1, @ptrCast(&region));
 }
 
 pub fn setCube(tex: Texture, ally: std.mem.Allocator, paths: [6][]const u8) !void {
@@ -345,13 +387,13 @@ pub fn setCube(tex: Texture, ally: std.mem.Allocator, paths: [6][]const u8) !voi
         }
     }
 
-    try graphics.transitionImageLayout(&tex.window.gpu, tex.window.pool, tex.image, .{
+    try graphics.transitionImageLayout(tex.window.gpu, tex.window.pool, tex.image, .{
         .old_layout = .undefined,
         .new_layout = .transfer_dst_optimal,
         .layer_count = 6,
     });
     try tex.copyBufferToImage(staging_buff.buffer);
-    try graphics.transitionImageLayout(&tex.window.gpu, tex.window.pool, tex.image, .{
+    try graphics.transitionImageLayout(tex.window.gpu, tex.window.pool, tex.image, .{
         .old_layout = .transfer_dst_optimal,
         .new_layout = tex.getIdealLayout(),
         .layer_count = 6,
@@ -386,21 +428,15 @@ pub const Rgba32 = extern struct {
 };
 
 // currently assumes input is in the Texture format
-pub fn createImage(tex: Texture, input: []const u8, flip: bool) !void {
-    //const size: usize = switch (tex.format) {
-    //    .b8g8r8a8_srgb, .b8g8r8a8_unorm => @sizeOf(Bgra),
-    //    .r32_sfloat => @sizeOf(f32),
-    //    else => return error.UnhandledFormat,
-    //};
-    const ally = tex.window.ally;
-
+pub fn createImage(tex: Texture, ally: std.mem.Allocator, gpu: graphics.Gpu, input: []const u8, flip: bool) !void {
+    const pool = gpu.graphics_pool;
     // thus the staging_buff is just input up to rearranging
-    const staging_buff = try tex.window.gpu.createStagingBuffer(input.len * @sizeOf(u8), .src);
-    defer staging_buff.deinit(tex.window.gpu);
+    const staging_buff = try gpu.createStagingBuffer(input.len * @sizeOf(u8), .src);
+    defer staging_buff.deinit(gpu);
 
     {
-        const data = try tex.window.gpu.vkd.mapMemory(tex.window.gpu.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
-        defer tex.window.gpu.vkd.unmapMemory(tex.window.gpu.dev, staging_buff.memory);
+        const data = try gpu.vkd.mapMemory(gpu.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
+        defer gpu.vkd.unmapMemory(gpu.dev, staging_buff.memory);
 
         switch (tex.format) {
             .b8g8r8a8_srgb, .b8g8r8a8_unorm => {
@@ -428,24 +464,29 @@ pub fn createImage(tex: Texture, input: []const u8, flip: bool) !void {
         }
     }
 
-    const gpu = &tex.window.gpu;
-    var builder = try graphics.CommandBuilder.init(gpu, tex.window.pool, ally, 1);
-    defer builder.deinit(gpu, tex.window.pool, ally);
+    // so, Scene is like a graph abstraction over builder that can set barriers and everything automatically
+    // but we also have the raw builder api that requires these barriers, but of course barrier itself is
+    // a thin wrapper over the vulkan api
+    //
+    // we could simply merge the two of them, it would require a lot of clean up on the scene's side though,
+    // but it would be worth it
+    var builder = try graphics.CommandBuilder.init(gpu, pool, ally, 1);
+    defer builder.deinit(gpu, pool, ally);
 
     try builder.beginCommand(gpu);
 
     try builder.transitionLayout(gpu, tex.image, .{
         .old_layout = .undefined,
         .new_layout = .transfer_dst_optimal,
-        .layer_count = tex.info.layer_count,
-        .level_count = tex.info.level_count,
+        .layer_count = tex.options.layer_count,
+        .level_count = tex.options.level_count,
     });
-    try tex.copyBufferToImage(staging_buff.buffer, builder.getCurrent());
+    try tex.copyBufferToImage(gpu, staging_buff.buffer, builder.getCurrent());
     try builder.transitionLayout(gpu, tex.image, .{
         .old_layout = .transfer_dst_optimal,
         .new_layout = tex.getIdealLayout(),
-        .layer_count = tex.info.layer_count,
-        .level_count = tex.info.level_count,
+        .layer_count = tex.options.layer_count,
+        .level_count = tex.options.level_count,
     });
 
     try builder.endCommand(gpu);
@@ -454,38 +495,110 @@ pub fn createImage(tex: Texture, input: []const u8, flip: bool) !void {
 }
 
 pub fn getIdealLayout(texture: Texture) vk.ImageLayout {
-    if (texture.info.preferred_format == .depth) return .depth_stencil_attachment_optimal;
-    return switch (texture.info.type) {
+    if (texture.options.preferred_format == .depth) return .depth_stencil_attachment_optimal;
+    return switch (texture.options.type) {
         .storage => .general,
-        .render_target, .regular, .multisampling => .shader_read_only_optimal,
+        .render_target => .color_attachment_optimal,
+        .regular, .multisampling => .shader_read_only_optimal,
     };
 }
 
 // TODO: assert
-pub fn setFromRgba(tex: *Texture, input: anytype, flip: bool) !void {
+pub fn setFromRgba(tex: *Texture, ally: std.mem.Allocator, gpu: graphics.Gpu, input: anytype, flip: bool) !void {
     const ptr: [*]const u8 = @ptrCast(@alignCast(input.ptr));
-    return tex.setFromBuffer(ptr[0 .. input.len * 4], flip);
+    return tex.setFromBuffer(ally, gpu, ptr[0 .. input.len * 4], flip);
 }
 
-pub fn eraseViews(tex: *Texture) void {
-    const win = tex.window;
+pub fn eraseViews(tex: *Texture, gpu: graphics.Gpu) void {
     for (tex.view_table.values()) |oldest_view| {
-        win.gpu.vkd.destroyImageView(win.gpu.dev, oldest_view, null);
+        gpu.vkd.destroyImageView(gpu.dev, oldest_view, null);
     }
     tex.view_table.clearRetainingCapacity();
 }
 
-pub fn setFromBuffer(tex: *Texture, input: []const u8, flip: bool) !void {
-    tex.eraseViews();
-    try tex.createImage(input, flip);
-    _ = try tex.createImageView(tex.getReadDesc(), false);
-    try tex.createTextureSampler(true);
+pub fn setFromBuffer(tex: *Texture, ally: std.mem.Allocator, gpu: graphics.Gpu, input: []const u8, flip: bool) !void {
+    tex.eraseViews(gpu);
+    try tex.createImage(ally, gpu, input, flip);
+    _ = try tex.createImageView(ally, gpu, tex.getReadDesc(), false);
+    try tex.createTextureSampler(gpu, true);
 }
 
-//pub fn generateCubemaps(tex: *Texture) !void {
-//    for (tex.info.level_count) |i| {
-//    }
-//}
+pub fn generateMipmaps(tex: *Texture, ally: std.mem.Allocator, gpu: graphics.Gpu) !void {
+    const pool = gpu.graphics_pool;
+    var builder = try graphics.CommandBuilder.init(gpu, pool, ally, 1);
+    defer builder.deinit(gpu, pool, ally);
+
+    try builder.beginCommand(gpu);
+
+    var width = tex.width;
+    var height = tex.height;
+
+    try builder.transitionLayout(gpu, tex.image, .{
+        .old_layout = .undefined,
+        .new_layout = .transfer_dst_optimal,
+        .layer_count = tex.options.layer_count,
+        .layer_index = 0,
+        .level_count = tex.options.level_count,
+        .level_index = 0,
+    });
+
+    for (1..tex.options.level_count) |i| {
+        try builder.transitionLayout(gpu, tex.image, .{
+            .old_layout = .transfer_dst_optimal,
+            .new_layout = .transfer_src_optimal,
+            .layer_count = tex.options.layer_count,
+            .level_count = 1,
+            .level_index = @intCast(i - 1),
+        });
+
+        builder.blitImage(gpu, tex.image, tex.image, .{
+            .old_layout = .transfer_src_optimal,
+            .new_layout = .transfer_dst_optimal,
+            .src_region = .{
+                .{ 0, 0, 0 },
+                .{ @intCast(width), @intCast(height), 1 },
+            },
+            .dst_region = .{
+                .{ 0, 0, 0 },
+                .{ @intCast(if (width > 1) width / 2 else 1), @intCast(if (height > 1) height / 2 else 1), 1 },
+            },
+            .filter = .linear,
+            .src_view = .{
+                .layer_count = tex.options.layer_count,
+                .level_index = @intCast(i - 1),
+                .layer_index = 0,
+            },
+            .dst_view = .{
+                .layer_count = tex.options.layer_count,
+                .level_index = @intCast(i),
+                .layer_index = 0,
+            },
+        });
+
+        if (width > 1) width /= 2;
+        if (height > 1) height /= 2;
+    }
+
+    try builder.transitionLayout(gpu, tex.image, .{
+        .old_layout = .transfer_dst_optimal,
+        .new_layout = tex.getIdealLayout(),
+        .layer_count = tex.options.layer_count,
+        .level_count = 1,
+        .level_index = tex.options.level_count - 1,
+    });
+
+    try builder.transitionLayout(gpu, tex.image, .{
+        .old_layout = .transfer_src_optimal,
+        .new_layout = tex.getIdealLayout(),
+        .layer_count = tex.options.layer_count,
+        .level_count = tex.options.level_count - 1,
+        .level_index = 0,
+    });
+
+    try builder.endCommand(gpu);
+    try builder.queueSubmit(gpu, ally, .{ .queue = gpu.graphics_queue });
+    try gpu.waitIdle();
+}
 
 // eventually remove
 pub const Image = struct {
@@ -494,23 +607,24 @@ pub const Image = struct {
     data: []Rgba32,
 };
 
-pub const TextureInfo = struct {
-    const FilterEnum = enum {
-        nearest,
-        linear,
+pub const FilterEnum = enum {
+    nearest,
+    linear,
 
-        pub fn getVulkan(filter: FilterEnum) vk.Filter {
-            return switch (filter) {
-                .nearest => .nearest,
-                .linear => .linear,
-            };
-        }
-    };
-    const TextureType = enum {
+    pub fn getVulkan(filter: FilterEnum) vk.Filter {
+        return switch (filter) {
+            .nearest => .nearest,
+            .linear => .linear,
+        };
+    }
+};
+
+pub const Options = struct {
+    const Type = enum {
         flat,
     };
 
-    texture_type: TextureType = .flat,
+    texture_type: Type = .flat,
     mag_filter: FilterEnum = .nearest,
     min_filter: FilterEnum = .nearest,
 

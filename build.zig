@@ -11,6 +11,40 @@ pub fn addShader(b: *std.Build, module: *std.Build.Module, cmd: []const []const 
     module.addAnonymousImport(name, .{ .root_source_file = spv });
 }
 
+pub fn initSlangStep(b: *std.Build, ui_dep: *std.Build.Dependency) *std.Build.Step.Run {
+    const tool = b.addExecutable(.{
+        .name = "generate_shader",
+        .root_module = b.createModule(.{
+            .root_source_file = ui_dep.path("parse_slang.zig"),
+            .target = b.graph.host,
+        }),
+    });
+
+    const tool_step = b.addRunArtifact(tool);
+    _ = tool_step.addOutputDirectoryArg("shader_comp");
+    return tool_step;
+}
+
+pub fn addSlangShader(tool_step: *std.Build.Step.Run, b: *std.Build, options: struct {
+    module: *std.Build.Module,
+    ui_dep: *std.Build.Dependency,
+    name: []const u8,
+    path: []const u8,
+}) void {
+    const shader_file = tool_step.addOutputFileArg(b.fmt("{s}.zig", .{options.name}));
+    tool_step.addFileArg(b.path(options.path));
+
+    options.module.addAnonymousImport(options.name, .{
+        .imports = &.{
+            .{
+                .name = "ui",
+                .module = options.ui_dep.module("ui"),
+            },
+        },
+        .root_source_file = shader_file,
+    });
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});

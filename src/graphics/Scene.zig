@@ -1,4 +1,3 @@
-drawing_array: std.ArrayList(*graphics.Drawing),
 window: *graphics.Window,
 //render_pass: *RenderPass,
 flip_z: bool,
@@ -10,14 +9,12 @@ current_rendering: ?struct {
     options: ?graphics.RenderingOptions,
     pipeline: graphics.RenderPipeline,
 },
-textures: std.AutoHashMap(u64, TextureInfo),
+textures: std.AutoHashMap(u64, TextureOptions),
 last_pipeline: ?graphics.Pipeline,
 
 // gpu allocation handling
 buffers: std.ArrayList(graphics.BufferMemory),
 
-// basically, we're going to buffer all drawings in a same beginRendering pass here
-// ok we are officially screwed yay
 command_batch: std.ArrayListUnmanaged(union(enum) {
     draw: struct {
         draw: *graphics.Drawing,
@@ -50,35 +47,35 @@ const DefaultPipelines = struct {
             .color = try graphics.RenderPipeline.init(win.ally, .{
                 .description = graphics.ColorRect.description,
                 .shaders = &shaders.color_shaders,
-                .gpu = &win.gpu,
+                .gpu = win.gpu,
                 .flipped_z = flip_z,
                 .rendering = default_rendering,
             }),
             .sprite = try graphics.RenderPipeline.init(win.ally, .{
                 .description = graphics.Sprite.description,
                 .shaders = &shaders.sprite_shaders,
-                .gpu = &win.gpu,
+                .gpu = win.gpu,
                 .flipped_z = flip_z,
                 .rendering = default_rendering,
             }),
             .sprite_batch = try graphics.RenderPipeline.init(win.ally, .{
                 .description = graphics.SpriteBatch.description,
                 .shaders = &shaders.sprite_batch_shaders,
-                .gpu = &win.gpu,
+                .gpu = win.gpu,
                 .flipped_z = flip_z,
                 .rendering = default_rendering,
             }),
             .textft = try graphics.RenderPipeline.init(win.ally, .{
                 .description = graphics.TextFt.description,
                 .shaders = &shaders.textft_shaders,
-                .gpu = &win.gpu,
+                .gpu = win.gpu,
                 .flipped_z = flip_z,
                 .rendering = default_rendering,
             }),
             //.line = try graphics.RenderPipeline.init(win.ally, .{
             //    .description = graphics.Line.description,
             //    .shaders = &shaders.line_shaders,
-            //    .gpu = &win.gpu,
+            //    .gpu = win.gpu,
             //    .flipped_z = flip_z,
             //    .rendering = default_rendering,
             //}),
@@ -94,17 +91,16 @@ const DefaultPipelines = struct {
     }
 };
 
-pub fn init(win: *graphics.Window, info: SceneInfo) !Scene {
-    //const render_pass = if (info.render_pass) |pass| pass else &win.render_pass;
+pub fn init(win: *graphics.Window, options: SceneOptions) !Scene {
+    //const render_pass = if (options.render_pass) |pass| pass else &win.render_pass;
     return .{
-        .drawing_array = .empty,
         .window = win,
         //.render_pass = render_pass,
-        .flip_z = info.flip_z,
-        .default_pipelines = try DefaultPipelines.init(win, info.flip_z),
-        .queue = graphics.OpQueue.init(win.ally, &win.gpu),
+        .flip_z = options.flip_z,
+        .default_pipelines = try DefaultPipelines.init(win, options.flip_z),
+        .queue = graphics.OpQueue.init(win.ally, win.gpu),
 
-        .textures = std.AutoHashMap(u64, TextureInfo).init(win.ally),
+        .textures = std.AutoHashMap(u64, TextureOptions).init(win.ally),
         .current_rendering = null,
         .last_pipeline = null,
         .buffers = .empty,
@@ -113,11 +109,6 @@ pub fn init(win: *graphics.Window, info: SceneInfo) !Scene {
 }
 
 pub fn deinit(scene: *Scene) void {
-    //for (scene.drawing_array.items) |elem| {
-    //    elem.deinit(scene.window.ally);
-    //    scene.window.ally.destroy(elem);
-    //}
-    scene.drawing_array.deinit(scene.window.ally);
     scene.queue.deinit();
     scene.textures.deinit();
     scene.default_pipelines.deinit(scene.window.gpu);
@@ -133,34 +124,17 @@ pub fn clearBuffers(scene: *Scene) void {
     scene.buffers.clearRetainingCapacity();
 }
 
-// TODO: I just noticed the new function is completely useless
-// this will take a *huge* refactor so I'll hold off on doing it til later
-
-pub fn new(scene: *Scene) !*graphics.Drawing {
-    const val = try scene.window.ally.create(graphics.Drawing);
-    try scene.drawing_array.append(scene.window.ally, val);
-
-    return val;
-}
-
-pub fn delete(scene: *Scene, ally: std.mem.Allocator, drawing: *graphics.Drawing) void {
-    const idx_or = std.mem.indexOfScalar(*graphics.Drawing, scene.drawing_array.items, drawing);
-    if (idx_or) |idx| _ = scene.drawing_array.orderedRemove(idx);
-    drawing.deinit(ally);
-    ally.destroy(drawing);
-}
-
-const TextureInfo = struct {
+const TextureOptions = struct {
     layout: vk.ImageLayout,
     last_dst: vk.AccessFlags,
 };
 
-pub fn getTextureInfo(scene: *Scene, tex: *const graphics.Texture) ?TextureInfo {
+pub fn getTextureOptions(scene: *Scene, tex: *const graphics.Texture) ?TextureOptions {
     return scene.textures.get(@intFromEnum(tex.image));
 }
 
-pub fn putTextureInfo(scene: *Scene, tex: graphics.Texture, info: TextureInfo) !void {
-    try scene.textures.put(@intFromEnum(tex.image), info);
+pub fn putTextureOptions(scene: *Scene, tex: graphics.Texture, options: TextureOptions) !void {
+    try scene.textures.put(@intFromEnum(tex.image), options);
 }
 
 pub fn isCurrentRendering(scene: *Scene, target: graphics.RenderTarget, options: ?graphics.RenderingOptions) bool {
@@ -174,14 +148,14 @@ pub fn isCurrentRendering(scene: *Scene, target: graphics.RenderTarget, options:
 }
 
 pub fn textureBarriers(scene: *Scene, builder: *graphics.CommandBuilder, descriptor: graphics.Descriptor) !void {
-    const gpu = &scene.window.gpu;
+    const gpu = scene.window.gpu;
 
     for (descriptor.dependencies.textures.values()) |*tex_dep| {
-        const tex_or = scene.getTextureInfo(tex_dep);
+        const tex_or = scene.getTextureOptions(tex_dep);
 
         const layout = if (tex_or) |t| t.layout else tex_dep.getIdealLayout();
 
-        const target_layout: vk.ImageLayout = switch (tex_dep.info.type) {
+        const target_layout: vk.ImageLayout = switch (tex_dep.options.type) {
             .multisampling, .render_target, .regular => .shader_read_only_optimal,
             .storage => .general,
         };
@@ -204,8 +178,8 @@ pub fn textureBarriers(scene: *Scene, builder: *graphics.CommandBuilder, descrip
             .image_barriers = &.{
                 .{
                     .image = tex_dep.image,
-                    .layer_count = tex_dep.info.layer_count,
-                    .level_count = tex_dep.info.level_count,
+                    .layer_count = tex_dep.options.layer_count,
+                    .level_count = tex_dep.options.level_count,
                     .src_access = if (tex_or) |t| t.last_dst else .{},
                     .dst_access = dst_access,
                     .old_layout = layout,
@@ -213,16 +187,16 @@ pub fn textureBarriers(scene: *Scene, builder: *graphics.CommandBuilder, descrip
                 },
             },
         });
-        try scene.putTextureInfo(tex_dep.*, .{ .layout = target_layout, .last_dst = dst_access });
+        try scene.putTextureOptions(tex_dep.*, .{ .layout = target_layout, .last_dst = dst_access });
     }
 }
 
 pub fn renderingBarriers(scene: *Scene, builder: *graphics.CommandBuilder, target: graphics.RenderTarget.TextureTarget, flip_z: bool) !graphics.RenderRegion {
     var render_region: ?graphics.RenderRegion = null;
-    const gpu = &scene.window.gpu;
+    const gpu = scene.window.gpu;
 
     for (target.color_textures) |color_tex| {
-        const target_info = scene.getTextureInfo(color_tex);
+        const target_options = scene.getTextureOptions(color_tex);
 
         if (render_region == null) {
             try builder.setViewport(gpu, .{
@@ -245,15 +219,15 @@ pub fn renderingBarriers(scene: *Scene, builder: *graphics.CommandBuilder, targe
         }
 
         // don't do a pipelineBarrier if it's already in the expected layout
-        if (target_info != null and target_info.?.layout == .color_attachment_optimal) continue;
+        if (target_options != null and target_options.?.layout == .color_attachment_optimal) continue;
         builder.pipelineBarrier(gpu, .{
             .src_stage = .{ .color_attachment_output_bit = true },
             .dst_stage = .{ .color_attachment_output_bit = true },
             .image_barriers = &.{
                 .{
                     .image = color_tex.image,
-                    .layer_count = color_tex.info.layer_count,
-                    .level_count = color_tex.info.level_count,
+                    .layer_count = color_tex.options.layer_count,
+                    .level_count = color_tex.options.level_count,
                     .src_access = .{},
                     .dst_access = .{ .color_attachment_write_bit = true },
                     .old_layout = .undefined,
@@ -262,13 +236,13 @@ pub fn renderingBarriers(scene: *Scene, builder: *graphics.CommandBuilder, targe
             },
         });
 
-        try scene.putTextureInfo(color_tex.*, .{ .layout = .color_attachment_optimal, .last_dst = .{
+        try scene.putTextureOptions(color_tex.*, .{ .layout = .color_attachment_optimal, .last_dst = .{
             .color_attachment_write_bit = true,
         } });
     }
 
     if (target.depth_texture) |depth_tex| {
-        const target_info = scene.getTextureInfo(depth_tex);
+        const target_options = scene.getTextureOptions(depth_tex);
         if (render_region == null) {
             try builder.setViewport(gpu, .{
                 .flip_z = flip_z,
@@ -289,7 +263,7 @@ pub fn renderingBarriers(scene: *Scene, builder: *graphics.CommandBuilder, targe
             }
         }
 
-        if (target_info == null or target_info.?.layout != .depth_stencil_attachment_optimal) {
+        if (target_options == null or target_options.?.layout != .depth_stencil_attachment_optimal) {
             builder.pipelineBarrier(gpu, .{
                 .src_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
                 .dst_stage = .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
@@ -306,7 +280,7 @@ pub fn renderingBarriers(scene: *Scene, builder: *graphics.CommandBuilder, targe
                 },
             });
 
-            try scene.putTextureInfo(depth_tex.*, .{ .layout = .depth_stencil_attachment_optimal, .last_dst = .{
+            try scene.putTextureOptions(depth_tex.*, .{ .layout = .depth_stencil_attachment_optimal, .last_dst = .{
                 .depth_stencil_attachment_write_bit = true,
             } });
         }
@@ -326,7 +300,7 @@ pub fn begin(scene: *Scene) !void {
     scene.clearBuffers();
 }
 pub fn end(scene: *Scene, builder: *graphics.CommandBuilder, image_index: graphics.Swapchain.ImageIndex) !void {
-    const gpu = &scene.window.gpu;
+    const gpu = scene.window.gpu;
 
     if (scene.current_rendering != null) {
         try scene.flushBatch(builder, image_index, null);
@@ -349,7 +323,8 @@ pub fn flushBatch(
     flush_from_pipeline: ?graphics.Pipeline,
 ) !void {
     var swapchain = scene.window.swapchain;
-    const gpu = &scene.window.gpu;
+    const gpu = scene.window.gpu;
+    const ally = scene.window.ally;
 
     // set dependencies barriers to the shader read only optimal layout
     for (scene.command_batch.items) |elem| {
@@ -388,16 +363,12 @@ pub fn flushBatch(
             if (rendering_options) |options| {
                 std.debug.assert(options.descriptions.len == target.color_textures.len);
                 for (target.color_textures, color_buf[0..target.color_textures.len], options.descriptions) |tex, *ptr, attachment| {
-                    ptr.* = try tex.getAttachment(.color_attachment_optimal, attachment.clear, attachment.view);
+                    ptr.* = try tex.getAttachment(ally, gpu, .color_attachment_optimal, attachment.clear, attachment.view);
                     //std.debug.print("attachment is {any} with {any}\n", .{ptr.*, attachments});
                 }
             } else {
                 for (target.color_textures, color_buf[0..target.color_textures.len]) |tex, *ptr| {
-                    ptr.* = try tex.getAttachment(
-                        .color_attachment_optimal,
-                        .{ .color = .init(.{ 0.0, 0.0, 0.0, 1.0 }) },
-                        .{ .layer_count = 1, .layer_index = 0 },
-                    );
+                    ptr.* = try tex.getAttachment(ally, gpu, .color_attachment_optimal, .black, .ones);
                     //std.debug.print("lone attachment is {any}\n", .{ptr.*});
                 }
             }
@@ -406,17 +377,19 @@ pub fn flushBatch(
                 .region = render_region,
                 .color_attachments = color_buf[0..target.color_textures.len],
                 .depth_attachment = if (target.depth_texture) |tex| try tex.getAttachment(
+                    ally,
+                    gpu,
                     .depth_stencil_attachment_optimal,
                     blk: {
                         if (rendering_options) |options| {
                             if (options.depth) |depth| {
                                 break :blk depth.clear;
                             } else {
-                                break :blk .{ .none = {} };
+                                break :blk .never;
                             }
                         }
 
-                        break :blk .{ .depth = 1.0 };
+                        break :blk .far;
                     },
                     blk: {
                         if (rendering_options) |options| {
@@ -424,10 +397,7 @@ pub fn flushBatch(
                                 break :blk depth.view;
                             }
                         }
-                        break :blk .{
-                            .layer_index = 0,
-                            .layer_count = 1,
-                        };
+                        break :blk .ones;
                     },
                 ) else null,
             });
@@ -531,7 +501,7 @@ pub fn draw(
         image_index: graphics.Swapchain.ImageIndex,
     },
 ) !void {
-    const gpu = &scene.window.gpu;
+    const gpu = scene.window.gpu;
     const ally = scene.frame_arena.allocator();
 
     if (!scene.isCurrentRendering(elem.render_target, options.rendering_options)) {
@@ -568,7 +538,7 @@ pub fn push(scene: *Scene, comptime self: graphics.DataDescription, constants: *
 // should be allocator-esque implementation, eventually decouple this from Scene
 // creates a buffer that will be freed after the frame is sent
 pub fn createBuffer(scene: *Scene, size: usize) !graphics.BufferMemory {
-    const gpu = &scene.window.gpu;
+    const gpu = scene.window.gpu;
     const buff = try gpu.createStagingBuffer(size);
     try scene.buffers.append(scene.window.ally, buff);
 
@@ -590,7 +560,7 @@ pub fn bindVertex(
     defer trace.end();
 
     drawing.vert_count = indices.len;
-    const gpu = &scene.window.gpu;
+    const gpu = scene.window.gpu;
 
     if (indices.len == 0) return;
 
@@ -609,7 +579,7 @@ pub fn bindVertex(
 
 const Scene = @This();
 
-pub const SceneInfo = struct {
+pub const SceneOptions = struct {
     flip_z: bool = false,
     render_pass: ?*graphics.RenderPass = null,
 };

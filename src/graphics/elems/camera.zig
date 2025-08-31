@@ -58,10 +58,15 @@ pub const Camera = struct {
         try self.updateMat();
     }
 
-    pub fn init(fovy: f32, aspect: f32, nearZ: f32, farZ: f32) !Camera {
-        var init_cam = Camera{
+    pub fn init(options: struct {
+        fovy: f32,
+        aspect: f32,
+        nearZ: f32,
+        farZ: f32,
+    }) !Camera {
+        var init_cam: Camera = .{
             .transform_mat = undefined,
-            .perspective_mat = math.perspectiveMatrix(fovy, aspect, nearZ, farZ),
+            .perspective_mat = math.perspectiveMatrix(options.fovy, options.aspect, options.nearZ, options.farZ),
         };
 
         try init_cam.updateMat();
@@ -90,28 +95,29 @@ pub const Camera = struct {
         left_look_key: usize,
         up_look_key: usize,
         down_look_key: usize,
-    };
-    pub const DefaultSpatial = SpatialFormat{
-        .look_speed = 1,
-        .move_speed = 10,
 
-        .speed_multiplier = 7,
-        .look_multiplier = 2,
+        pub const default: SpatialFormat = .{
+            .look_speed = 1,
+            .move_speed = 5,
 
-        .speed_boost_key = glfw.GLFW_KEY_LEFT_SHIFT,
-        .look_boost_key = glfw.GLFW_KEY_LEFT_SHIFT,
+            .speed_multiplier = 10,
+            .look_multiplier = 2,
 
-        .forward_key = glfw.GLFW_KEY_W,
-        .backward_key = glfw.GLFW_KEY_S,
-        .leftward_key = glfw.GLFW_KEY_A,
-        .rightward_key = glfw.GLFW_KEY_D,
-        .upward_key = glfw.GLFW_KEY_R,
-        .downward_key = glfw.GLFW_KEY_F,
+            .speed_boost_key = glfw.GLFW_KEY_LEFT_SHIFT,
+            .look_boost_key = glfw.GLFW_KEY_LEFT_SHIFT,
 
-        .right_look_key = glfw.GLFW_KEY_L,
-        .left_look_key = glfw.GLFW_KEY_H,
-        .up_look_key = glfw.GLFW_KEY_K,
-        .down_look_key = glfw.GLFW_KEY_J,
+            .forward_key = glfw.GLFW_KEY_W,
+            .backward_key = glfw.GLFW_KEY_S,
+            .leftward_key = glfw.GLFW_KEY_A,
+            .rightward_key = glfw.GLFW_KEY_D,
+            .upward_key = glfw.GLFW_KEY_R,
+            .downward_key = glfw.GLFW_KEY_F,
+
+            .right_look_key = glfw.GLFW_KEY_L,
+            .left_look_key = glfw.GLFW_KEY_H,
+            .up_look_key = glfw.GLFW_KEY_K,
+            .down_look_key = glfw.GLFW_KEY_J,
+        };
     };
 
     pub fn spatialMove(cam: *Camera, keys: []const bool, mods: i32, dt: f32, cam_pos: anytype, format: SpatialFormat) !void {

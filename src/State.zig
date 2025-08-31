@@ -4,7 +4,7 @@ command_builder: graphics.CommandBuilder,
 compute_builder: graphics.CommandBuilder,
 
 first_pass: graphics.RenderPass,
-post_drawing: *graphics.Drawing,
+post_drawing: graphics.Drawing,
 post_pipeline: graphics.RenderPipeline,
 
 multisampling_tex: graphics.Texture,
@@ -189,9 +189,9 @@ pub const post_description = graphics.PipelineDescription{
     .cull_type = .none,
 };
 
-pub fn init(ally: std.mem.Allocator, info: struct {
-    window: graphics.WindowInfo = .{},
-    scene: graphics.Scene.SceneInfo = .{},
+pub fn init(ally: std.mem.Allocator, options: struct {
+    window: graphics.WindowOptions = .{},
+    scene: graphics.Scene.SceneOptions = .{},
 }) !*State {
     try graphics.initGraphics(ally);
     _ = graphics.glfw.glfwWindowHint(graphics.glfw.GLFW_SAMPLES, 4);
@@ -199,7 +199,7 @@ pub fn init(ally: std.mem.Allocator, info: struct {
     const state = try ally.create(State);
 
     var main_win = try ally.create(graphics.Window);
-    main_win.* = try graphics.Window.initBare(info.window, ally);
+    main_win.* = try graphics.Window.initBare(options.window, ally);
 
     try main_win.addToMap(state);
 
@@ -210,34 +210,39 @@ pub fn init(ally: std.mem.Allocator, info: struct {
     main_win.setCursorCallback(cursorFunc);
     main_win.setMouseButtonCallback(mouseFunc);
 
-    var cam = try Camera.init(1.0, 1, 0.1, 2048);
+    var cam = try Camera.init(.{
+        .fovy = 1.0,
+        .aspect = 1,
+        .nearZ = 0.1,
+        .farZ = 2048,
+    });
     cam.move = Vec3.init(.{ 0, 0, 0 });
     try cam.updateMat();
     const swapchain = main_win.swapchain;
 
     // Create a separate render target for post processing
-    const first_pass = try graphics.RenderPass.init(&main_win.gpu, .{
+    const first_pass = try graphics.RenderPass.init(main_win.gpu, .{
         .format = main_win.swapchain.surface_format.format,
         .target = true,
         //.multisampling = true,
     });
 
-    const multisampling_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{
+    const multisampling_tex = try graphics.Texture.init(ally, main_win, swapchain.extent.width, swapchain.extent.height, .{
         //.multisampling = true,
         .preferred_format = main_win.preferred_format,
     });
-    const depth_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{
+    const depth_tex = try graphics.Texture.init(ally, main_win, swapchain.extent.width, swapchain.extent.height, .{
         .preferred_format = .depth,
         //.multisampling = true,
     });
-    const post_tex = try graphics.Texture.init(main_win, swapchain.extent.width, swapchain.extent.height, .{
+    const post_tex = try graphics.Texture.init(ally, main_win, swapchain.extent.width, swapchain.extent.height, .{
         .type = .render_target,
         .preferred_format = main_win.preferred_format,
     });
 
-    var scene = try graphics.Scene.init(main_win, info.scene);
+    const scene = try graphics.Scene.init(main_win, options.scene);
 
-    const gpu = &main_win.gpu;
+    const gpu = main_win.gpu;
 
     const post_pipeline = try graphics.RenderPipeline.init(ally, .{
         .description = post_description,
@@ -247,9 +252,7 @@ pub fn init(ally: std.mem.Allocator, info: struct {
         .flipped_z = scene.flip_z,
     });
 
-    const post_drawing = try scene.new();
-
-    try post_drawing.init(ally, gpu, .{
+    var post_drawing: graphics.Drawing = try .init(ally, gpu, .{
         .pipeline = post_pipeline,
         .target = .{ .swapchain = {} },
         .flip_z = .false,
@@ -259,7 +262,7 @@ pub fn init(ally: std.mem.Allocator, info: struct {
         .textures = &.{post_tex},
     }} });
 
-    try post_description.vertex_description.bindVertex(post_drawing, gpu, &.{
+    try post_description.vertex_description.bindVertex(&post_drawing, gpu, &.{
         .{ .{ -1, -1, 1 }, .{ 0, 0 } },
         .{ .{ 1, -1, 1 }, .{ 1, 0 } },
         .{ .{ 1, 1, 1 }, .{ 1, 1 } },
@@ -271,8 +274,8 @@ pub fn init(ally: std.mem.Allocator, info: struct {
         .cam = cam,
         .time = 0,
         .dt = 0,
-        .command_builder = try graphics.CommandBuilder.init(&main_win.gpu, main_win.pool, ally, 1),
-        .compute_builder = try graphics.CommandBuilder.init(&main_win.gpu, main_win.pool, ally, 1),
+        .command_builder = try graphics.CommandBuilder.init(main_win.gpu, main_win.pool, ally, 1),
+        .compute_builder = try graphics.CommandBuilder.init(main_win.gpu, main_win.pool, ally, 1),
         .multisampling_tex = multisampling_tex,
 
         .post_color_tex = post_tex,
@@ -373,7 +376,7 @@ pub fn updateEvents(state: *State) !void {
 pub fn submit(state: *State) !void {
     const scene = &state.scene;
     const swapchain = &scene.window.swapchain;
-    const gpu = &scene.window.gpu;
+    const gpu = scene.window.gpu;
     const frame_id = state.command_builder.frame_id;
 
     try swapchain.submit(gpu, state.command_builder, .{ .wait = &.{.{ .semaphore = swapchain.image_acquired[frame_id], .type = .color }} });
@@ -393,22 +396,21 @@ pub fn render(state: *State) !void {
 pub fn deinit(state: *State, ally: std.mem.Allocator) void {
     state.main_win.gpu.vkd.deviceWaitIdle(state.main_win.gpu.dev) catch {};
 
-    const gpu = &state.main_win.gpu;
+    const gpu = state.main_win.gpu;
 
-    state.post_color_tex.deinit();
+    state.post_color_tex.deinit(gpu);
     ally.free(state.color_depth_target.texture.color_textures);
-    state.multisampling_tex.deinit();
-    state.post_depth_tex.deinit();
-    state.first_pass.deinit(&state.main_win.gpu);
-    state.post_pipeline.deinit(state.main_win.gpu);
+    state.multisampling_tex.deinit(gpu);
+    state.post_depth_tex.deinit(gpu);
+    state.first_pass.deinit(gpu);
+    state.post_pipeline.deinit(gpu);
 
-    state.post_drawing.deinitAllBuffers(ally, gpu.*);
-    ally.destroy(state.post_drawing);
+    state.post_drawing.deinitAllBuffers(ally, gpu);
 
     state.callback.deinit();
     state.scene.deinit();
-    state.command_builder.deinit(&state.main_win.gpu, state.main_win.pool, state.main_win.ally);
-    state.compute_builder.deinit(&state.main_win.gpu, state.main_win.pool, state.main_win.ally);
+    state.command_builder.deinit(gpu, state.main_win.pool, state.main_win.ally);
+    state.compute_builder.deinit(gpu, state.main_win.pool, state.main_win.ally);
     state.main_win.deinit();
     graphics.deinitGraphics();
 
@@ -427,28 +429,30 @@ fn frameFunc(ptr: *anyopaque, width: i32, height: i32) !void {
     var state: *State = @ptrCast(@alignCast(ptr));
     try state.main_win.gpu.vkd.deviceWaitIdle(state.main_win.gpu.dev);
 
+    const ally = state.ally;
+
     const w: f32 = @floatFromInt(width);
     const h: f32 = @floatFromInt(height);
     try state.cam.setParameters(1.0, w / h, 0.1, 2048);
 
-    state.post_color_tex.deinit();
-    state.multisampling_tex.deinit();
-    state.post_depth_tex.deinit();
+    state.post_color_tex.deinit(state.main_win.gpu);
+    state.multisampling_tex.deinit(state.main_win.gpu);
+    state.post_depth_tex.deinit(state.main_win.gpu);
 
-    state.multisampling_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{
+    state.multisampling_tex = try graphics.Texture.init(ally, state.main_win, @intCast(width), @intCast(height), .{
         //.multisampling = true,
         .preferred_format = state.main_win.preferred_format,
     });
-    state.post_depth_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{
+    state.post_depth_tex = try graphics.Texture.init(ally, state.main_win, @intCast(width), @intCast(height), .{
         //.multisampling = true,
         .preferred_format = .depth,
     });
-    state.post_color_tex = try graphics.Texture.init(state.main_win, @intCast(width), @intCast(height), .{
+    state.post_color_tex = try graphics.Texture.init(ally, state.main_win, @intCast(width), @intCast(height), .{
         .type = .render_target,
         .preferred_format = state.main_win.preferred_format,
     });
 
-    try state.post_drawing.descriptor.updateDescriptorSets(&state.main_win.gpu, .{ .samplers = &.{.{
+    try state.post_drawing.descriptor.updateDescriptorSets(state.main_win.gpu, .{ .samplers = &.{.{
         .idx = 1,
         .textures = &.{state.post_color_tex},
     }} });

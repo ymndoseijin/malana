@@ -1,6 +1,6 @@
 .{
-    .name = .ui_toolkit,
-    .fingerprint = 0xa3ee50a5df119651,
+    .name = .malana,
+    .fingerprint = 0x58d41d91918b66a0,
     .version = "0.0.0",
     .paths = .{
         "src",

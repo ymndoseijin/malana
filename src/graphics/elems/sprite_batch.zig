@@ -48,17 +48,15 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
 
         pub const ThisBatch = @This();
         pub fn init(scene: *graphics.Scene, info: Info) !ThisBatch {
-            var drawing = try scene.new();
+            const gpu = scene.window.gpu;
 
-            const gpu = &scene.window.gpu;
-
-            try drawing.init(scene.window.ally, gpu, .{
+            var drawing: graphics.Drawing = try .init(scene.window.ally, gpu, .{
                 .pipeline = if (info.pipeline) |p| p else scene.default_pipelines.sprite_batch,
                 .queue = &scene.queue,
                 .target = info.target,
             });
 
-            try description.vertex_description.bindVertex(drawing, gpu, &.{
+            try description.vertex_description.bindVertex(&drawing, gpu, &.{
                 .{ .{ 0, 0, 1 }, .{ 0, 0 } },
                 .{ .{ 1, 0, 1 }, .{ 1, 0 } },
                 .{ .{ 1, 1, 1 }, .{ 1, 1 } },
@@ -79,7 +77,6 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
 
             batch.drawing.descriptor.deinitAllUniforms(gpu);
             batch.drawing.deinit(ally, gpu);
-            ally.destroy(batch.drawing);
 
             batch.sprite_indices.deinit(ally);
             batch.textures.deinit(ally);
@@ -122,11 +119,11 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
                 batch.textures.shrinkRetainingCapacity(batch.textures.items.len - 1);
             }
 
-            pub fn getUniformOr(sprite: Sprite, batch: ThisBatch, binding: u32) ?graphics.BufferHandle {
+            pub fn getUniformOr(sprite: Sprite, batch: *ThisBatch, binding: u32) ?graphics.BufferHandle {
                 return batch.drawing.descriptor.getUniformOr(0, binding, batch.sprite_indices.items[sprite.idx]);
             }
 
-            pub fn updateTransform(sprite: Sprite, batch: ThisBatch) void {
+            pub fn updateTransform(sprite: Sprite, batch: *ThisBatch) void {
                 sprite.getUniformOr(batch, 1).?.setAsUniformField(SpriteUniform, .transform, sprite.transform.getMat().cast(4, 4).columns);
             }
             pub fn setOpacity(sprite: *Sprite, opacity: f32) void {
@@ -145,7 +142,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             }
         };
 
-        pub fn newSprite(batch: *ThisBatch, gpu: *graphics.Gpu, options: struct {
+        pub fn newSprite(batch: *ThisBatch, gpu: graphics.Gpu, options: struct {
             transform: graphics.Transform2D = .{
                 .scale = math.Vec2.init(.{ 1, 1 }),
                 .rotation = .{ .angle = 0, .center = math.Vec2.init(.{ 0.5, 0.5 }) },
@@ -189,7 +186,7 @@ pub fn CustomSpriteBatch(comptime SpriteUniform: graphics.DataDescription) type 
             };
         }
 
-        drawing: *Drawing,
+        drawing: Drawing,
         // TODO: remove
         ally: std.mem.Allocator,
 
