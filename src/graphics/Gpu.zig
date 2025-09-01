@@ -19,6 +19,8 @@ depth_format: vk.Format,
 swapchain_format: vk.Format,
 debug_messenger: vk.DebugUtilsMessengerEXT,
 
+vma_ally: vma.VmaAllocator,
+
 const required_device_extensions = [_][*:0]const u8{
     vk.extensions.khr_swapchain.name,
     vk.extensions.khr_dynamic_rendering.name,
@@ -38,7 +40,8 @@ pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.
     var gpu: Gpu = undefined;
     gpu.vkb = BaseDispatch.load(glfwGetInstanceProcAddress);
 
-    if (builtin.mode != .ReleaseFast and !try checkValidationLayerSupport(ally, gpu.vkb)) return error.NoValidationLayers;
+    if (builtin.mode != .ReleaseFast and !try checkValidationLayerSupport(ally, gpu.vkb))
+        return error.NoValidationLayers;
 
     var extensions: std.ArrayList(?[*:0]const u8) = .empty;
     defer extensions.deinit(ally);
@@ -102,10 +105,27 @@ pub fn init(ally: std.mem.Allocator, app_name: [*:0]const u8, window_or: ?*glfw.
         .flags = .{ .reset_command_buffer_bit = true },
     }, null);
 
+    const vulkan_functions: vma.VmaVulkanFunctions = .{
+        .vkGetInstanceProcAddr = @ptrCast(gpu.vkb.dispatch.vkGetInstanceProcAddr.?),
+        .vkGetDeviceProcAddr = @ptrCast(gpu.vki.dispatch.vkGetDeviceProcAddr.?),
+    };
+
+    const allocatorCreateInfo: vma.VmaAllocatorCreateInfo = .{
+        .flags = vma.VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT,
+        .vulkanApiVersion = @bitCast(vk.API_VERSION_1_3),
+        .physicalDevice = @ptrFromInt(@intFromEnum(gpu.pdev)),
+        .device = @ptrFromInt(@intFromEnum(gpu.dev)),
+        .instance = @ptrFromInt(@intFromEnum(gpu.instance)),
+        .pVulkanFunctions = &vulkan_functions,
+    };
+
+    if (vma.vmaCreateAllocator(&allocatorCreateInfo, &gpu.vma_ally) != 0) return error.VmaInitError;
+
     return gpu;
 }
 
 pub fn deinit(gpu: Gpu) void {
+    vma.vmaDestroyAllocator(gpu.vma_ally);
     gpu.vkd.destroyDevice(gpu.dev, null);
     if (gpu.surface) |surface| gpu.vki.destroySurfaceKHR(gpu.instance, surface, null);
     gpu.vki.destroyDebugUtilsMessengerEXT(gpu.instance, gpu.debug_messenger, null);
@@ -447,43 +467,10 @@ fn debugCallback(
     }
 
     if (message_severity.error_bit_ext) {
-        @breakpoint();
+        //@breakpoint();
     }
 
     return vk.FALSE;
-}
-
-pub fn createStagingBuffer(
-    gpu: Gpu,
-    size: usize,
-    usage: enum {
-        src,
-        dst,
-    },
-) !graphics.BufferMemory {
-    const staging_buffer = try gpu.vkd.createBuffer(gpu.dev, &.{
-        .size = size,
-        .usage = switch (usage) {
-            .src => .{ .transfer_src_bit = true },
-            .dst => .{ .transfer_dst_bit = true },
-        },
-        .sharing_mode = .exclusive,
-    }, null);
-
-    if (builtin.mode == .Debug) {
-        try graphics.addDebugMark(gpu, .buffer, @intFromEnum(staging_buffer), "staging buffer");
-    }
-
-    const staging_mem_reqs = gpu.vkd.getBufferMemoryRequirements(gpu.dev, staging_buffer);
-    const staging_memory = try gpu.allocate(staging_mem_reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
-    try gpu.vkd.bindBufferMemory(gpu.dev, staging_buffer, staging_memory, 0);
-
-    return .{
-        .buffer = staging_buffer,
-        .memory = staging_memory,
-        .offset = 0,
-        .size = size,
-    };
 }
 
 pub fn createIndexBuffer(
@@ -491,11 +478,8 @@ pub fn createIndexBuffer(
     indices: []const u32,
     mode: graphics.CommandMode,
 ) !graphics.BufferHandle {
-    const index_buff = try gpu.createStagingBuffer(@sizeOf(u32) * indices.len, .src);
-    defer index_buff.deinit(gpu);
-
     const index_buffer = try graphics.BufferHandle.init(gpu, .{ .size = @sizeOf(u32) * indices.len, .buffer_type = .index });
-    try index_buffer.setIndices(gpu, gpu.graphics_pool, indices, index_buff, mode);
+    try index_buffer.setIndices(gpu, indices, 0, mode);
 
     return index_buffer;
 }
@@ -507,6 +491,7 @@ pub fn waitIdle(gpu: *const Gpu) !void {
 const Gpu = @This();
 
 const vk = @import("vulkan");
+pub const vma = @import("vma");
 const std = @import("std");
 const builtin = @import("builtin");
 const graphics = @import("graphics.zig");

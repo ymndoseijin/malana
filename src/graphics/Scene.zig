@@ -12,9 +12,6 @@ current_rendering: ?struct {
 textures: std.AutoHashMap(u64, TextureOptions),
 last_pipeline: ?graphics.Pipeline,
 
-// gpu allocation handling
-buffers: std.ArrayList(graphics.BufferMemory),
-
 command_batch: std.ArrayListUnmanaged(union(enum) {
     draw: struct {
         draw: *graphics.Drawing,
@@ -103,7 +100,6 @@ pub fn init(win: *graphics.Window, options: SceneOptions) !Scene {
         .textures = std.AutoHashMap(u64, TextureOptions).init(win.ally),
         .current_rendering = null,
         .last_pipeline = null,
-        .buffers = .empty,
         .frame_arena = .init(win.ally),
     };
 }
@@ -112,17 +108,7 @@ pub fn deinit(scene: *Scene) void {
     scene.queue.deinit();
     scene.textures.deinit();
     scene.default_pipelines.deinit(scene.window.ally, scene.window.gpu);
-    scene.clearBuffers();
-    scene.buffers.deinit(scene.window.ally);
     scene.frame_arena.deinit();
-}
-
-pub fn clearBuffers(scene: *Scene) void {
-    const gpu = scene.window.gpu;
-    for (scene.buffers.items) |buff| {
-        buff.deinit(gpu);
-    }
-    scene.buffers.clearRetainingCapacity();
 }
 
 const TextureOptions = struct {
@@ -298,7 +284,6 @@ pub fn renderingBarriers(scene: *Scene, builder: *graphics.CommandBuilder, targe
 
 pub fn begin(scene: *Scene) !void {
     try scene.queue.execute();
-    scene.clearBuffers();
 }
 pub fn end(scene: *Scene, builder: *graphics.CommandBuilder, image_index: graphics.Swapchain.ImageIndex) !void {
     const gpu = scene.window.gpu;
@@ -536,19 +521,7 @@ pub fn push(scene: *Scene, comptime self: graphics.DataDescription, constants: *
     } });
 }
 
-// should be allocator-esque implementation, eventually decouple this from Scene
-// creates a buffer that will be freed after the frame is sent
-pub fn createBuffer(scene: *Scene, size: usize) !graphics.BufferMemory {
-    const gpu = scene.window.gpu;
-    const buff = try gpu.createStagingBuffer(size);
-    try scene.buffers.append(scene.window.ally, buff);
-
-    return buff;
-}
-
-// this is the amd threshold
-// const allocationStep = 262144;
-
+/// like all Scene buffer ops, it assumes the data lives until it gets executed at the given frame
 pub fn bindVertex(
     scene: *Scene,
     builder: graphics.CommandBuilder,

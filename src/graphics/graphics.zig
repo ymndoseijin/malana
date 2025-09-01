@@ -7,6 +7,7 @@ const builtin = @import("builtin");
 const math = @import("math");
 
 const spirv = @import("spirv_reflect");
+const vma = Gpu.vma;
 
 const freetype = @import("freetype");
 pub const tracy = @import("tracy.zig");
@@ -396,58 +397,9 @@ fn findActualExtent(caps: vk.SurfaceCapabilitiesKHR, extent: vk.Extent2D) vk.Ext
 
 // decide whether a command will be execute immediately or queued to current cmd buffer
 pub const CommandMode = union(enum) {
-    queue: CommandBuilder,
+    queue: *OpQueue,
     immediate: void,
-
-    pub fn getBuilder(mode: CommandMode, gpu: Gpu, pool: vk.CommandPool, ally: std.mem.Allocator) !CommandBuilder {
-        if (mode == .immediate) {
-            return try CommandBuilder.init(gpu, pool, ally, 1);
-        } else {
-            return mode.queue;
-        }
-    }
-    pub fn deinitBuilder(mode: CommandMode, builder: *CommandBuilder, gpu: Gpu, pool: vk.CommandPool, ally: std.mem.Allocator) void {
-        if (mode == .immediate) {
-            builder.deinit(gpu, pool, ally);
-        }
-    }
-
-    pub fn beginBuilder(mode: CommandMode, builder: *CommandBuilder, gpu: Gpu) !void {
-        if (mode == .immediate) {
-            try builder.beginCommand(gpu);
-        }
-    }
-    pub fn endBuilder(mode: CommandMode, builder: *CommandBuilder, gpu: Gpu, ally: std.mem.Allocator) !void {
-        if (mode == .immediate) {
-            try builder.endCommand(gpu);
-            try builder.queueSubmit(gpu, ally, .{ .queue = gpu.graphics_queue });
-            try gpu.waitIdle();
-        }
-    }
 };
-
-pub fn copyBuffer(
-    gpu: Gpu,
-    pool: vk.CommandPool,
-    dst: BufferMemory,
-    src: BufferMemory,
-    size: u64,
-    mode: CommandMode,
-) !void {
-    // TODO: remove, pass ally normally
-    const ally = std.heap.page_allocator;
-    var builder = try mode.getBuilder(gpu, pool, ally);
-    defer mode.deinitBuilder(&builder, gpu, pool, ally);
-
-    try mode.beginBuilder(&builder, gpu);
-
-    builder.copyBuffer(gpu, src, dst, size);
-    builder.transferVertBarrier(gpu);
-
-    try mode.endBuilder(&builder, gpu, ally);
-}
-
-// end
 
 pub fn getLineString(ally: std.mem.Allocator, name: []const u8) ![]const u8 {
     const debug_info = try std.debug.getSelfDebugInfo();
@@ -461,16 +413,21 @@ pub fn getLineString(ally: std.mem.Allocator, name: []const u8) ![]const u8 {
     try stream.print("{s} (", .{name});
     _ = it.next();
     var count: usize = 0;
+    const end = 3;
     while (it.next()) |return_address| {
-        if (count == 3) break;
+        if (count == end) break;
         const address = if (return_address == 0) return_address else return_address - 1;
 
         const module = debug_info.getModuleForAddress(address) catch break;
         const symbol_info = try module.getSymbolAtAddress(debug_info.allocator, address);
 
         const line_or = symbol_info.source_location;
-        if (line_or) |line_info|
-            try stream.print("{s}:{}:{}|", .{ std.fs.path.basename(line_info.file_name), line_info.line, line_info.column });
+        if (line_or) |line_info| {
+            try stream.print("{s}:{}:{}", .{ std.fs.path.basename(line_info.file_name), line_info.line, line_info.column });
+            if (count != end - 1) {
+                try stream.writeAll("|");
+            }
+        }
 
         count += 1;
     }
@@ -621,8 +578,15 @@ pub const OpQueue = struct {
         options: Descriptor.WriteOptions,
         descriptor: *Descriptor,
     };
+    pub const BufferUpdate = struct {
+        ptr: *const anyopaque,
+        size: usize,
+        offset: usize,
+        buffer: BufferHandle,
+    };
     set_update: std.ArrayList(SetUpdate),
     buffer_deletion: std.ArrayList(BufferHandle),
+    buffer_update: std.ArrayList(BufferUpdate),
 
     gpu: Gpu,
     ally: std.mem.Allocator,
@@ -630,6 +594,10 @@ pub const OpQueue = struct {
     pub fn deinit(queue: *OpQueue) void {
         queue.set_update.deinit(queue.ally);
         queue.buffer_deletion.deinit(queue.ally);
+    }
+
+    pub fn appendBufferUpdate(queue: *OpQueue, buffer: BufferHandle, ptr: *const anyopaque, size: usize, offset: usize) !void {
+        try queue.buffer_update.append(queue.ally, .{ .ptr = ptr, .size = size, .offset = offset, .buffer = buffer });
     }
 
     pub fn appendBufferDeletion(queue: *OpQueue, buffer: BufferHandle) !void {
@@ -661,6 +629,10 @@ pub const OpQueue = struct {
             queue.ally.free(update.options.storage);
         }
 
+        while (queue.buffer_update.pop()) |update| {
+            try update.buffer.setData(queue.gpu, update.ptr, update.size, update.offset);
+        }
+
         while (queue.buffer_deletion.pop()) |buffer| {
             buffer.deinit(queue.gpu);
         }
@@ -670,6 +642,7 @@ pub const OpQueue = struct {
         return .{
             .set_update = .empty,
             .buffer_deletion = .empty,
+            .buffer_update = .empty,
             .gpu = gpu,
             .ally = ally,
         };
@@ -967,9 +940,9 @@ pub const Descriptor = struct {
             const buffer_info = try arena_ally.alloc(vk.DescriptorBufferInfo, 1);
 
             buffer_info[0] = vk.DescriptorBufferInfo{
-                .buffer = uniform.buffer.mem.buffer,
+                .buffer = uniform.buffer.vk_buffer,
                 .offset = 0,
-                .range = uniform.buffer.mem.size,
+                .range = uniform.buffer.size,
             };
 
             try descriptor_writes.append(descriptor.ally, .{
@@ -988,9 +961,9 @@ pub const Descriptor = struct {
             const buffer_info = try arena_ally.alloc(vk.DescriptorBufferInfo, 1);
 
             buffer_info[0] = .{
-                .buffer = storage.buffer.mem.buffer,
+                .buffer = storage.buffer.vk_buffer,
                 .offset = 0,
-                .range = storage.buffer.mem.size,
+                .range = storage.buffer.size,
             };
 
             try descriptor_writes.append(descriptor.ally, .{
@@ -1334,7 +1307,7 @@ pub const Drawing = struct {
         if (drawing.instances == 0 or drawing.vert_count == 0) return;
 
         const offset = [_]vk.DeviceSize{0};
-        if (drawing.vertex_buffer) |vb| gpu.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&vb.mem.buffer), &offset);
+        if (drawing.vertex_buffer) |vb| gpu.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast(&vb.vk_buffer), &offset);
         gpu.vkd.cmdBindDescriptorSets(
             command_buffer,
             .graphics,
@@ -1346,7 +1319,7 @@ pub const Drawing = struct {
             null,
         );
         if (drawing.index_buffer) |ib| {
-            gpu.vkd.cmdBindIndexBuffer(command_buffer, ib.mem.buffer, 0, .uint32);
+            gpu.vkd.cmdBindIndexBuffer(command_buffer, ib.vk_buffer, 0, .uint32);
             gpu.vkd.cmdDrawIndexed(command_buffer, @intCast(drawing.vert_count), drawing.instances, 0, 0, 0);
         } else gpu.vkd.cmdDraw(command_buffer, @intCast(drawing.vert_count), drawing.instances, 0, 0);
     }
@@ -1943,8 +1916,8 @@ pub const CommandBuilder = struct {
     pub fn copyBuffer(
         builder: CommandBuilder,
         gpu: Gpu,
-        src: BufferMemory,
-        dst: BufferMemory,
+        src: BufferHandle,
+        dst: BufferHandle,
         size: u64,
     ) void {
         const region: vk.BufferCopy = .{
@@ -1952,7 +1925,7 @@ pub const CommandBuilder = struct {
             .dst_offset = 0,
             .size = size,
         };
-        gpu.vkd.cmdCopyBuffer(builder.getCurrent(), src.buffer, dst.buffer, 1, @ptrCast(&region));
+        gpu.vkd.cmdCopyBuffer(builder.getCurrent(), src.vk_buffer, dst.vk_buffer, 1, @ptrCast(&region));
     }
 
     pub fn queueSubmit(
@@ -2602,7 +2575,10 @@ pub const Window = struct {
 
         var gpu = try Gpu.init(ally, options.name, glfw_win);
 
-        const swapchain = try Swapchain.init(gpu, ally, .{ .width = @intCast(options.width), .height = @intCast(options.height) }, options.preferred_format);
+        const swapchain = try Swapchain.init(gpu, ally, .{
+            .width = @intCast(options.width),
+            .height = @intCast(options.height),
+        }, options.preferred_format);
 
         const render_pass = try RenderPass.init(gpu, .{ .format = swapchain.surface_format.format });
 
@@ -2838,11 +2814,8 @@ pub const VertexDescription = struct {
         vertices: []const description.getAttributeType(),
         mode: CommandMode,
     ) !BufferHandle {
-        const vertex_buff = try gpu.createStagingBuffer(description.getVertexSize() * vertices.len, .src);
-        defer vertex_buff.deinit(gpu);
-
         const vertex_buffer = try description.createBuffer(gpu, vertices.len);
-        try vertex_buffer.setVertex(description, gpu, gpu.graphics_pool, vertices, vertex_buff, mode);
+        try vertex_buffer.setVertex(description, gpu, vertices, 0, mode);
 
         return vertex_buffer;
     }
@@ -3372,99 +3345,112 @@ pub const RenderPipeline = struct {
         }
         const depth_format: ?vk.Format = if (options.rendering.depth) |depth| depth.format.getSurfaceFormat(gpu) else null;
 
+        // sadly, these have to be moved outside the initialization rather than doing it all in-place, else UB
+
+        const vertex_input_state: vk.PipelineVertexInputStateCreateInfo = .{
+            .vertex_binding_description_count = if (description.vertex_description.vertex_attribs.len == 0) 0 else 1,
+            .p_vertex_binding_descriptions = @ptrCast(&binding_description),
+            .vertex_attribute_description_count = @intCast(attribute_desc.len),
+            .p_vertex_attribute_descriptions = attribute_desc.ptr,
+        };
+        const input_assembly_state: vk.PipelineInputAssemblyStateCreateInfo = .{
+            .topology = switch (description.render_type) {
+                .triangle => .triangle_list,
+                .point => .point_list,
+                .line => .line_list,
+            },
+            .primitive_restart_enable = vk.FALSE,
+        };
+        const viewport_state: vk.PipelineViewportStateCreateInfo = .{
+            .viewport_count = 1,
+            .p_viewports = undefined,
+            .scissor_count = 1,
+            .p_scissors = undefined,
+        };
+        const rasterization_state: vk.PipelineRasterizationStateCreateInfo = .{
+            .depth_clamp_enable = vk.FALSE,
+            .rasterizer_discard_enable = vk.FALSE,
+            .polygon_mode = .fill,
+            .cull_mode = switch (description.cull_type) {
+                .back => .{ .back_bit = true },
+                .front => .{ .front_bit = true },
+                .front_and_back => .{ .front_bit = true, .back_bit = true },
+                .none => .{},
+            },
+            .front_face = if (options.flipped_z) .counter_clockwise else .clockwise,
+            .depth_bias_enable = vk.FALSE,
+            .depth_bias_constant_factor = 0,
+            .depth_bias_clamp = 0,
+            .depth_bias_slope_factor = 0,
+            .line_width = 1,
+        };
+        const multisample_state: vk.PipelineMultisampleStateCreateInfo = .{
+            //.rasterization_samples = if (options.render_pass.options.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
+            .rasterization_samples = .{ .@"1_bit" = true },
+            .sample_shading_enable = vk.FALSE,
+            .min_sample_shading = 1,
+            .alpha_to_coverage_enable = vk.FALSE,
+            .alpha_to_one_enable = vk.FALSE,
+        };
+        const depth_stencil_state: vk.PipelineDepthStencilStateCreateInfo = .{
+            .depth_test_enable = if (description.depth_test) vk.TRUE else vk.FALSE,
+            .depth_write_enable = if (description.depth_write) vk.TRUE else vk.FALSE,
+            .depth_compare_op = .less_or_equal,
+            .depth_bounds_test_enable = vk.FALSE,
+            .min_depth_bounds = 0,
+            .max_depth_bounds = 0,
+            .stencil_test_enable = vk.FALSE,
+            // :p
+            .front = std.mem.zeroes(vk.StencilOpState),
+            .back = std.mem.zeroes(vk.StencilOpState),
+        };
+        const color_blend_state: vk.PipelineColorBlendStateCreateInfo = .{
+            .logic_op_enable = vk.FALSE,
+            .logic_op = .clear,
+            .attachment_count = @intCast(attachments.len),
+            .p_attachments = attachments.ptr,
+            .blend_constants = [_]f32{ 0, 0, 0, 0 },
+        };
+        const dynamic_state: vk.PipelineDynamicStateCreateInfo = .{
+            .flags = .{},
+            .dynamic_state_count = dynstate.len,
+            .p_dynamic_states = &dynstate,
+        };
+        const next: vk.PipelineRenderingCreateInfo = .{
+            .color_attachment_count = @intCast(color_formats.len),
+            .p_color_attachment_formats = color_formats.ptr,
+            .depth_attachment_format = depth_format orelse .undefined,
+            .stencil_attachment_format = .undefined,
+            // ?
+            .view_mask = 0,
+        };
+        const gp_info: vk.GraphicsPipelineCreateInfo = .{
+            .flags = .{},
+            .stage_count = @intCast(pssci.len),
+            .p_stages = pssci.ptr,
+            .p_vertex_input_state = &vertex_input_state,
+            .p_input_assembly_state = &input_assembly_state,
+            .p_tessellation_state = null,
+            .p_viewport_state = &viewport_state,
+            .p_rasterization_state = &rasterization_state,
+            .p_multisample_state = &multisample_state,
+            .p_depth_stencil_state = &depth_stencil_state,
+            .p_color_blend_state = &color_blend_state,
+            .p_dynamic_state = &dynamic_state,
+            .layout = pipeline_layout,
+            .render_pass = .null_handle,
+            .subpass = 0,
+            .base_pipeline_handle = .null_handle,
+            .base_pipeline_index = -1,
+            .p_next = &next,
+        };
+
         var vk_pipeline: vk.Pipeline = undefined;
         _ = try gpu.vkd.createGraphicsPipelines(
             gpu.dev,
             .null_handle,
             1,
-            @ptrCast(&vk.GraphicsPipelineCreateInfo{
-                .flags = .{},
-                .stage_count = @intCast(pssci.len),
-                .p_stages = pssci.ptr,
-                .p_vertex_input_state = &vk.PipelineVertexInputStateCreateInfo{
-                    .vertex_binding_description_count = if (description.vertex_description.vertex_attribs.len == 0) 0 else 1,
-                    .p_vertex_binding_descriptions = @ptrCast(&binding_description),
-                    .vertex_attribute_description_count = @intCast(attribute_desc.len),
-                    .p_vertex_attribute_descriptions = attribute_desc.ptr,
-                },
-                .p_input_assembly_state = &vk.PipelineInputAssemblyStateCreateInfo{
-                    .topology = switch (description.render_type) {
-                        .triangle => .triangle_list,
-                        .point => .point_list,
-                        .line => .line_list,
-                    },
-                    .primitive_restart_enable = vk.FALSE,
-                },
-                .p_tessellation_state = null,
-                .p_viewport_state = &vk.PipelineViewportStateCreateInfo{
-                    .viewport_count = 1,
-                    .p_viewports = undefined,
-                    .scissor_count = 1,
-                    .p_scissors = undefined,
-                },
-                .p_rasterization_state = &vk.PipelineRasterizationStateCreateInfo{
-                    .depth_clamp_enable = vk.FALSE,
-                    .rasterizer_discard_enable = vk.FALSE,
-                    .polygon_mode = .fill,
-                    .cull_mode = switch (description.cull_type) {
-                        .back => .{ .back_bit = true },
-                        .front => .{ .front_bit = true },
-                        .front_and_back => .{ .front_bit = true, .back_bit = true },
-                        .none => .{},
-                    },
-                    .front_face = if (options.flipped_z) .counter_clockwise else .clockwise,
-                    .depth_bias_enable = vk.FALSE,
-                    .depth_bias_constant_factor = 0,
-                    .depth_bias_clamp = 0,
-                    .depth_bias_slope_factor = 0,
-                    .line_width = 1,
-                },
-                .p_multisample_state = &vk.PipelineMultisampleStateCreateInfo{
-                    //.rasterization_samples = if (options.render_pass.options.multisampling) .{ .@"8_bit" = true } else .{ .@"1_bit" = true },
-                    .rasterization_samples = .{ .@"1_bit" = true },
-                    .sample_shading_enable = vk.FALSE,
-                    .min_sample_shading = 1,
-                    .alpha_to_coverage_enable = vk.FALSE,
-                    .alpha_to_one_enable = vk.FALSE,
-                },
-                .p_depth_stencil_state = &vk.PipelineDepthStencilStateCreateInfo{
-                    .depth_test_enable = if (description.depth_test) vk.TRUE else vk.FALSE,
-                    .depth_write_enable = if (description.depth_write) vk.TRUE else vk.FALSE,
-                    .depth_compare_op = .less_or_equal,
-                    .depth_bounds_test_enable = vk.FALSE,
-                    .min_depth_bounds = 0,
-                    .max_depth_bounds = 0,
-                    .stencil_test_enable = vk.FALSE,
-                    // :p
-                    .front = std.mem.zeroes(vk.StencilOpState),
-                    .back = std.mem.zeroes(vk.StencilOpState),
-                },
-                .p_color_blend_state = &vk.PipelineColorBlendStateCreateInfo{
-                    .logic_op_enable = vk.FALSE,
-                    .logic_op = .clear,
-                    .attachment_count = @intCast(attachments.len),
-                    .p_attachments = attachments.ptr,
-                    .blend_constants = [_]f32{ 0, 0, 0, 0 },
-                },
-                .p_dynamic_state = &vk.PipelineDynamicStateCreateInfo{
-                    .flags = .{},
-                    .dynamic_state_count = dynstate.len,
-                    .p_dynamic_states = &dynstate,
-                },
-                .layout = pipeline_layout,
-                .render_pass = .null_handle,
-                .subpass = 0,
-                .base_pipeline_handle = .null_handle,
-                .base_pipeline_index = -1,
-                .p_next = &vk.PipelineRenderingCreateInfo{
-                    .color_attachment_count = @intCast(color_formats.len),
-                    .p_color_attachment_formats = color_formats.ptr,
-                    .depth_attachment_format = depth_format orelse .undefined,
-                    .stencil_attachment_format = .undefined,
-                    // ?
-                    .view_mask = 0,
-                },
-            }),
+            @ptrCast(&gp_info),
             null,
             @ptrCast(&vk_pipeline),
         );
@@ -3554,55 +3540,10 @@ pub const LinePipeline = RenderPipeline{
     .depth_test = true,
 };
 
-pub const BufferMemory = struct {
-    buffer: vk.Buffer,
-    offset: u64,
-
-    // memory data, retain from parent
-    memory: vk.DeviceMemory,
-    size: u64,
-
-    pub fn map(buff: BufferMemory, gpu: Gpu) !?*anyopaque {
-        return try gpu.vkd.mapMemory(gpu.dev, buff.memory, 0, vk.WHOLE_SIZE, .{});
-    }
-
-    pub fn unmap(buff: BufferMemory, gpu: Gpu) void {
-        gpu.vkd.unmapMemory(gpu.dev, buff.memory);
-    }
-
-    pub fn deinit(buff: BufferMemory, gpu: Gpu) void {
-        gpu.vkd.destroyBuffer(gpu.dev, buff.buffer, null);
-        gpu.vkd.freeMemory(gpu.dev, buff.memory, null);
-    }
-
-    pub fn deinitRetainingMemory(buff: BufferMemory, gpu: Gpu) void {
-        gpu.vkd.destroyBuffer(gpu.dev, buff.buffer, null);
-    }
-
-    pub fn slice(buff: BufferMemory, gpu: Gpu, offset: u64, size: u64) BufferMemory {
-        const buffer = try gpu.vkd.createBuffer(gpu.dev, &.{
-            .size = size,
-            .usage = .{ .transfer_src_bit = true },
-            .sharing_mode = .exclusive,
-        }, null);
-
-        if (builtin.mode == .Debug) {
-            try addDebugMark(gpu, .buffer, @intFromEnum(buffer), "sliced buffer");
-        }
-
-        try gpu.vkd.bindBufferMemory(gpu.dev, buffer, buff.memory, offset + buff.offset);
-
-        return .{
-            .buffer = buffer,
-            .memory = buff.memory,
-            .offset = offset + buff.offset,
-            .size = buff.size,
-        };
-    }
-};
-
 pub const BufferHandle = struct {
-    mem: BufferMemory,
+    vk_buffer: vk.Buffer,
+    allocation: vma.VmaAllocation,
+    size: u64,
     data: ?*anyopaque,
 
     pub const BufferType = enum {
@@ -3610,100 +3551,102 @@ pub const BufferHandle = struct {
         storage,
         index,
         vertex,
+        src,
+        dst,
     };
 
     pub fn init(gpu: Gpu, options: struct {
         size: usize,
         buffer_type: BufferType,
     }) !BufferHandle {
-        const buffer = try gpu.vkd.createBuffer(gpu.dev, &.{
+        const buffer_info: vk.BufferCreateInfo = .{
             .size = options.size,
             .usage = switch (options.buffer_type) {
                 .uniform => .{ .uniform_buffer_bit = true },
                 .storage => .{ .storage_buffer_bit = true, .vertex_buffer_bit = true, .transfer_dst_bit = true, .transfer_src_bit = true },
                 .index => .{ .index_buffer_bit = true, .transfer_dst_bit = true },
                 .vertex => .{ .vertex_buffer_bit = true, .transfer_dst_bit = true },
+                .src => .{ .transfer_src_bit = true },
+                .dst => .{ .transfer_dst_bit = true },
             },
             .sharing_mode = .exclusive,
-        }, null);
+        };
+        var buffer: vk.Buffer = undefined;
+
+        var allocation: vma.VmaAllocation = undefined;
+        var allocation_info: vma.VmaAllocationInfo = undefined;
+        const alloc_info: vma.VmaAllocationCreateInfo = .{
+            .usage = switch (options.buffer_type) {
+                .uniform => vma.VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+                else => vma.VMA_MEMORY_USAGE_AUTO,
+            },
+            .flags = vma.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | vma.VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        };
+        if (vma.vmaCreateBuffer(gpu.vma_ally, @ptrCast(&buffer_info), &alloc_info, @ptrCast(&buffer), &allocation, &allocation_info) != 0) return error.BufferAllocationFailed;
 
         if (builtin.mode == .Debug) {
             try addDebugMark(gpu, .buffer, @intFromEnum(buffer), "buffer");
         }
 
-        const mem_reqs = gpu.vkd.getBufferMemoryRequirements(gpu.dev, buffer);
-        const memory = try gpu.allocate(mem_reqs, switch (options.buffer_type) {
-            .uniform => .{ .host_visible_bit = true, .host_coherent_bit = true },
-            else => .{ .device_local_bit = true },
-        });
-        try gpu.vkd.bindBufferMemory(gpu.dev, buffer, memory, 0);
-
         return .{
-            .mem = .{
-                .buffer = buffer,
-                .memory = memory,
-                .offset = 0,
-                .size = options.size,
-            },
-            .data = if (options.buffer_type == .uniform) (try gpu.vkd.mapMemory(gpu.dev, memory, 0, vk.WHOLE_SIZE, .{})).? else null,
+            .vk_buffer = buffer,
+            .allocation = allocation,
+            .data = if (options.buffer_type == .uniform) allocation_info.pMappedData else null,
+            .size = options.size,
         };
     }
 
     pub fn deinit(buffer: BufferHandle, gpu: Gpu) void {
-        buffer.mem.deinit(gpu);
+        vma.vmaDestroyBuffer(gpu.vma_ally, @ptrFromInt(@intFromEnum(buffer.vk_buffer)), buffer.allocation);
+    }
+
+    pub fn setData(buffer: BufferHandle, gpu: Gpu, data: *const anyopaque, size: usize, offset: usize) !void {
+        if (vma.vmaCopyMemoryToAllocation(gpu.vma_ally, data, buffer.allocation, offset, size) != 0) {
+            return error.BufferSetFailed;
+        }
+    }
+
+    pub fn set(buffer: BufferHandle, comptime T: type, gpu: Gpu, data: []const T, offset: usize) !void {
+        if (vma.vmaCopyMemoryToAllocation(gpu.vma_ally, @ptrCast(@alignCast(data.ptr)), buffer.allocation, offset, data.len * @sizeOf(T)) != 0) {
+            return error.BufferSetFailed;
+        }
     }
 
     pub fn setVertex(
         buffer: BufferHandle,
         comptime self: VertexDescription,
         gpu: Gpu,
-        pool: vk.CommandPool,
         vertices: []const self.getAttributeType(),
-        staging_buff: BufferMemory,
+        offset: usize,
         mode: CommandMode,
     ) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
-
         if (vertices.len == 0) return;
 
-        {
-            const data = try staging_buff.map(gpu);
-            defer staging_buff.unmap(gpu);
-
-            const gpu_vertices: [*]self.getAttributeType() = @ptrCast(@alignCast(data));
-            for (vertices, 0..) |vertex, i| {
-                gpu_vertices[i] = vertex;
-            }
+        if (mode == .immediate) {
+            try buffer.setData(gpu, @ptrCast(@alignCast(vertices.ptr)), self.getVertexSize() * vertices.len, offset);
+        } else if (mode == .queue) {
+            try mode.queue.appendBufferUpdate(buffer, @ptrCast(@alignCast(vertices.ptr)), self.getVertexSize() * vertices.len, offset);
         }
-
-        try copyBuffer(gpu, pool, buffer.mem, staging_buff, self.getVertexSize() * vertices.len, mode);
     }
 
     pub fn setIndices(
         buffer: BufferHandle,
         gpu: Gpu,
-        pool: vk.CommandPool,
         indices: []const u32,
-        staging_buff: BufferMemory,
+        offset: usize,
         mode: CommandMode,
     ) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
 
         if (indices.len == 0) return;
-
-        {
-            const data = try staging_buff.map(gpu);
-            defer staging_buff.unmap(gpu);
-
-            const gpu_indices: [*]u32 = @ptrCast(@alignCast(data));
-            for (indices, 0..) |index, i| {
-                gpu_indices[i] = index;
-            }
+        if (mode == .immediate) {
+            try buffer.setData(gpu, @ptrCast(@alignCast(indices.ptr)), @sizeOf(u32) * indices.len, offset);
+        } else if (mode == .queue) {
+            try mode.queue.appendBufferUpdate(buffer, @ptrCast(@alignCast(indices.ptr)), @sizeOf(u32) * indices.len, offset);
         }
-
-        try copyBuffer(gpu, pool, buffer.mem, staging_buff, @sizeOf(u32) * indices.len, mode);
     }
 
     // TODO: pass offset to both set and get storage
@@ -3711,7 +3654,6 @@ pub const BufferHandle = struct {
         buffer: BufferHandle,
         comptime data: DataDescription,
         gpu: Gpu,
-        pool: vk.CommandPool,
         options: struct {
             data: []data.lastField(),
         },
@@ -3725,78 +3667,52 @@ pub const BufferHandle = struct {
 
         if (options.data.len == 0) return;
 
-        const size = data.getSize() + @sizeOf(data.lastField()) * (options.data.len - 1);
-        const staging_buff = try gpu.createStagingBuffer(size, .src);
-        defer staging_buff.deinit(gpu);
-
-        {
-            const mem = try staging_buff.map(gpu);
-            defer staging_buff.unmap(gpu);
-
-            const storage_ptr: *data.T = @ptrCast(@alignCast(mem));
-
-            const field_ptr: [*]data.lastField() = @ptrCast(@alignCast(&@field(storage_ptr, data.lastFieldName())));
-            for (options.data, 0..) |val, i| {
-                field_ptr[i] = val;
-            }
-        }
-
-        // TODO: pass mode
-        try copyBuffer(gpu, pool, buffer.mem, staging_buff, size, .immediate);
+        //if (mode == .immediate) {
+        try buffer.setData(gpu, @ptrCast(@alignCast(options.data.ptr)), @sizeOf(data.lastField()) * options.data.len, @offsetOf(data.T, data.lastFieldName()));
+        //} else if (mode == .queue) {
+        //    try mode.queue.appendBufferUpdate(buffer, @ptrCast(@alignCast(options.data.ptr)), @sizeOf(data.lastField()) * options.data.len, @offsetOf(data.T, data.lastFieldName()));
+        //}
     }
 
-    // NOTE: needs to deinit returned buffer
-    pub fn getStorage(
-        buffer: BufferHandle,
-        comptime data: DataDescription,
-        gpu: Gpu,
-        pool: vk.CommandPool,
-        options: struct {
-            count: u32,
-        },
-    ) !struct {
-        buffer: BufferMemory,
-        data_ptr: *data.T,
-        slice: []data.lastField(),
-    } {
+    //pub fn getStorage(
+    //    buffer: BufferHandle,
+    //    comptime data: DataDescription,
+    //    gpu: Gpu,
+    //    pool: vk.CommandPool,
+    //    options: struct {
+    //        count: u32,
+    //    },
+    //) !struct {
+    //    buffer: BufferMemory,
+    //    data_ptr: *data.T,
+    //    slice: []data.lastField(),
+    //} {
+    //    const trace = tracy.trace(@src());
+    //    defer trace.end();
+
+    //    if (options.count == 0) return error.EmptyRead;
+
+    //    const size = data.getSize() + @sizeOf(data.lastField()) * (options.count - 1);
+    //    const staging_buff = try gpu.createStagingBuffer(size, .dst);
+
+    //    // TODO: pass mode
+    //    try copyBuffer(gpu, pool, staging_buff, buffer.mem, size, .immediate);
+
+    //    const storage_ptr: *data.T = @ptrCast(@alignCast(try staging_buff.map(gpu)));
+    //    const many_ptr: [*]data.lastField() = @ptrCast(@alignCast(&@field(storage_ptr, data.lastFieldName())));
+
+    //    return .{
+    //        .buffer = staging_buff,
+    //        .data_ptr = storage_ptr,
+    //        .slice = many_ptr[0..options.count],
+    //    };
+    //}
+
+    pub fn setBytesStaging(buffer: BufferHandle, gpu: Gpu, bytes: []const u8) !void {
         const trace = tracy.trace(@src());
         defer trace.end();
 
-        if (options.count == 0) return error.EmptyRead;
-
-        const size = data.getSize() + @sizeOf(data.lastField()) * (options.count - 1);
-        const staging_buff = try gpu.createStagingBuffer(size, .dst);
-
-        // TODO: pass mode
-        try copyBuffer(gpu, pool, staging_buff, buffer.mem, size, .immediate);
-
-        const storage_ptr: *data.T = @ptrCast(@alignCast(try staging_buff.map(gpu)));
-        const many_ptr: [*]data.lastField() = @ptrCast(@alignCast(&@field(storage_ptr, data.lastFieldName())));
-
-        return .{
-            .buffer = staging_buff,
-            .data_ptr = storage_ptr,
-            .slice = many_ptr[0..options.count],
-        };
-    }
-
-    pub fn setBytesStaging(buffer: BufferHandle, gpu: Gpu, pool: vk.CommandPool, bytes: []const u8) !void {
-        const trace = tracy.trace(@src());
-        defer trace.end();
-
-        const staging_buff = try gpu.createStagingBuffer(bytes.len, .src);
-        defer staging_buff.deinit(gpu);
-
-        {
-            const data = try staging_buff.map(gpu);
-            defer staging_buff.unmap(gpu);
-
-            const data_bytes: [*]u8 = @ptrCast(@alignCast(data));
-            @memcpy(data_bytes, bytes);
-        }
-
-        // TODO: pass mode
-        try copyBuffer(gpu, pool, buffer.mem, staging_buff, bytes.len, .immediate);
+        try buffer.setData(gpu, @ptrCast(@alignCast(bytes.ptr)), @sizeOf(u8) * bytes.len, 0);
     }
 
     pub fn getData(buffer: BufferHandle, comptime self: DataDescription) *self.T {

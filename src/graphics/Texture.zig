@@ -8,7 +8,7 @@ image: vk.Image,
 view_table: std.AutoArrayHashMapUnmanaged(ViewDescription, vk.ImageView),
 
 sampler: vk.Sampler,
-memory: vk.DeviceMemory,
+allocation: vma.VmaAllocation,
 format: vk.Format,
 
 pub fn getStage(texture: Texture) vk.PipelineStageFlags {
@@ -107,10 +107,23 @@ pub fn init(ally: std.mem.Allocator, win: *graphics.Window, width: u32, height: 
         .flags = if (options.cubemap) .{ .cube_compatible_bit = true } else .{},
     };
 
-    const image = try win.gpu.vkd.createImage(win.gpu.dev, &image_options, null);
-    const mem_reqs = win.gpu.vkd.getImageMemoryRequirements(win.gpu.dev, image);
-    const image_memory = try win.gpu.allocate(mem_reqs, .{ .device_local_bit = true });
-    try win.gpu.vkd.bindImageMemory(win.gpu.dev, image, image_memory, 0);
+    var allocation: vma.VmaAllocation = undefined;
+    var allocation_info: vma.VmaAllocationInfo = undefined;
+
+    const alloc_info: vma.VmaAllocationCreateInfo = .{
+        .usage = vma.VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+        //.flags = vma.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | vma.VMA_ALLOCATION_CREATE_MAPPED_BIT,
+    };
+
+    var image: vk.Image = undefined;
+    if (vma.vmaCreateImage(
+        win.gpu.vma_ally,
+        @ptrCast(&image_options),
+        &alloc_info,
+        @ptrCast(&image),
+        &allocation,
+        &allocation_info,
+    ) != 0) return error.BufferAllocationFailed;
 
     if (format == .depth) {
         try graphics.transitionImageLayout(win.gpu, win.pool, image, .{
@@ -135,7 +148,7 @@ pub fn init(ally: std.mem.Allocator, win: *graphics.Window, width: u32, height: 
         .sampler = undefined,
         .view_table = .empty,
 
-        .memory = image_memory,
+        .allocation = allocation,
         .format = vk_format,
     };
 
@@ -158,8 +171,8 @@ pub fn deinit(tex: *Texture, ally: std.mem.Allocator, gpu: graphics.Gpu) void {
     }
 
     tex.view_table.deinit(ally);
-    gpu.vkd.destroyImage(gpu.dev, tex.image, null);
-    gpu.vkd.freeMemory(gpu.dev, tex.memory, null);
+
+    vma.vmaDestroyImage(gpu.vma_ally, @ptrFromInt(@intFromEnum(tex.image)), tex.allocation);
 }
 
 pub fn initFromMemory(ally: std.mem.Allocator, win: *graphics.Window, buffer: []const u8, options: Options) !Texture {
@@ -433,37 +446,34 @@ pub const Rgba32 = extern struct {
 pub fn createImage(tex: Texture, ally: std.mem.Allocator, gpu: graphics.Gpu, input: []const u8, flip: bool) !void {
     const pool = gpu.graphics_pool;
     // thus the staging_buff is just input up to rearranging
-    const staging_buff = try gpu.createStagingBuffer(input.len * @sizeOf(u8), .src);
+    const staging_buff = try graphics.BufferHandle.init(gpu, .{ .size = input.len * @sizeOf(u8), .buffer_type = .src });
     defer staging_buff.deinit(gpu);
 
-    {
-        const data = try gpu.vkd.mapMemory(gpu.dev, staging_buff.memory, 0, vk.WHOLE_SIZE, .{});
-        defer gpu.vkd.unmapMemory(gpu.dev, staging_buff.memory);
+    switch (tex.format) {
+        .b8g8r8a8_srgb, .b8g8r8a8_unorm => {
+            const pix_len = @divExact(input.len, 4);
+            const input_slice = @as([*]const Rgba32, @ptrCast(input.ptr))[0..pix_len];
+            var slice = try ally.alloc(Bgra, pix_len);
+            defer ally.free(slice);
 
-        switch (tex.format) {
-            .b8g8r8a8_srgb, .b8g8r8a8_unorm => {
-                const pix_len = @divExact(input.len, 4);
-                const input_slice = @as([*]const Rgba32, @ptrCast(input.ptr))[0..pix_len];
-                var slice = @as([*]Bgra, @ptrCast(data))[0..pix_len];
+            for (0..tex.width) |i| {
+                for (0..tex.height) |j_in| {
+                    const j = if (flip) tex.height - j_in - 1 else j_in;
+                    const p = &slice[j * tex.width + i];
+                    const v = input_slice[j_in * tex.width + i];
 
-                for (0..tex.width) |i| {
-                    for (0..tex.height) |j_in| {
-                        const j = if (flip) tex.height - j_in - 1 else j_in;
-                        const p = &slice[j * tex.width + i];
-                        const v = input_slice[j_in * tex.width + i];
-
-                        p.r = v.r;
-                        p.g = v.g;
-                        p.b = v.b;
-                        p.a = v.a;
-                    }
+                    p.r = v.r;
+                    p.g = v.g;
+                    p.b = v.b;
+                    p.a = v.a;
                 }
-            },
-            .r32g32b32_sfloat, .r32_sfloat => {
-                @memcpy(@as([*]u8, @ptrCast(@alignCast(data)))[0..input.len], input);
-            },
-            else => return error.InvalidTextureFormat,
-        }
+            }
+            try staging_buff.set(Bgra, gpu, slice, 0);
+        },
+        .r32g32b32_sfloat, .r32_sfloat => {
+            try staging_buff.set(u8, gpu, input, 0);
+        },
+        else => return error.InvalidTextureFormat,
     }
 
     // so, Scene is like a graph abstraction over builder that can set barriers and everything automatically
@@ -483,7 +493,7 @@ pub fn createImage(tex: Texture, ally: std.mem.Allocator, gpu: graphics.Gpu, inp
         .layer_count = tex.options.layer_count,
         .level_count = tex.options.level_count,
     });
-    try tex.copyBufferToImage(gpu, staging_buff.buffer, builder.getCurrent());
+    try tex.copyBufferToImage(gpu, staging_buff.vk_buffer, builder.getCurrent());
     try builder.transitionLayout(gpu, tex.image, .{
         .old_layout = .transfer_dst_optimal,
         .new_layout = tex.getIdealLayout(),
@@ -655,3 +665,4 @@ const std = @import("std");
 const math = @import("math");
 const builtin = @import("builtin");
 const graphics = @import("graphics.zig");
+const vma = graphics.Gpu.vma;

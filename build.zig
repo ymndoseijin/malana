@@ -108,23 +108,23 @@ pub fn build(b: *std.Build) void {
         .registry = b.path("vk.xml"),
     }).module("vulkan-zig");
 
-    const spirv_reflect = b.dependency("spirv-reflect", .{});
-    const spirv_reflect_import = b.addTranslateC(.{
-        .root_source_file = spirv_reflect.path("spirv_reflect.h"),
-        .link_libc = true,
-        .target = target,
-        .optimize = optimize,
-    });
+    const c_dir = b.addWriteFiles();
 
     const glfw_import = b.addTranslateC(.{
-        .root_source_file = b.path("src/glfw.h"),
+        .root_source_file = c_dir.add("glfw.h",
+            \\#define GLFW_INCLUDE_NONE
+            \\#include <GLFW/glfw3.h>
+        ),
         .link_libc = true,
         .target = target,
         .optimize = optimize,
     });
 
     const freetype_import = b.addTranslateC(.{
-        .root_source_file = b.path("src/freetype.h"),
+        .root_source_file = c_dir.add("freetype.h",
+            \\#include <freetype/freetype.h>
+            \\#include <ft2build.h>
+        ),
         .link_libc = true,
         .target = target,
         .optimize = optimize,
@@ -139,6 +139,18 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    _ = c_dir.addCopyFile(b.path("src/stb_image.h"), "stb_image.h");
+
+    const vma_dep = b.dependency("vma", .{});
+    const vma_import = b.addTranslateC(.{
+        .root_source_file = vma_dep.path("include/vk_mem_alloc.h"),
+        .link_libc = true,
+        .target = target,
+        .optimize = optimize,
+    });
+
+    _ = c_dir.addCopyFile(vma_dep.path("include/vk_mem_alloc.h"), "vk_mem_alloc.h");
+
     const graphics = b.createModule(.{
         .root_source_file = b.path("src/graphics/graphics.zig"),
         .imports = &.{
@@ -151,12 +163,24 @@ pub fn build(b: *std.Build) void {
             .{ .name = "glfw", .module = glfw_import.createModule() },
             .{ .name = "freetype", .module = freetype_import.createModule() },
             .{ .name = "stb_image", .module = stb_image_import.createModule() },
-            .{ .name = "spirv_reflect", .module = spirv_reflect_import.createModule() },
+            .{ .name = "vma", .module = vma_import.createModule() },
         },
     });
 
-    graphics.addCSourceFile(.{ .file = b.path("src/stb_image.c") });
-    graphics.addCSourceFile(.{ .file = spirv_reflect.path("spirv_reflect.c") });
+    graphics.addCSourceFile(.{
+        .file = c_dir.add("stb_image.c",
+            \\#define STB_IMAGE_IMPLEMENTATION
+            \\#include "stb_image.h"
+        ),
+    });
+    graphics.addCSourceFile(.{
+        .file = c_dir.add("vma.cpp",
+            \\#define VMA_IMPLEMENTATION
+            \\#define VMA_STATIC_VULKAN_FUNCTIONS 0
+            \\#include "vk_mem_alloc.h"
+        ),
+    });
+    //graphics.addCSourceFile(.{ .file = b.path("src/stb_image.c") });
 
     inline for (shader_list) |shader| {
         addShader(b, graphics, &.{ "glslangValidator", "-e", "main", "-gVS", "-V", "-o" }, shader[0], shader[1]);
